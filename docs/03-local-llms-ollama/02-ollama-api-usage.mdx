@@ -1,0 +1,199 @@
+---
+title: Ollama API Usage
+description: Call Ollama over HTTP — generate vs chat, streaming, parameters, and calling it from Python with requests and httpx.
+---
+
+import TOCInline from '@theme/TOCInline';
+
+# Ollama API Usage
+
+<TOCInline toc={toc} minHeadingLevel={2} maxHeadingLevel={2} />
+
+:::tip[In this guide]
+The Ollama HTTP API and how to call it from Python — the exact pattern your
+FastAPI `/ask` endpoint will use.
+:::
+
+## What Is It?
+
+Ollama exposes a local REST API (default `http://localhost:11434`). The two
+core endpoints are `/api/generate` (single prompt) and `/api/chat` (message
+history).
+
+## Why Does It Matter?
+
+Your app talks to the model over this API. Understanding generate vs chat,
+streaming, and parameters lets you control cost, latency, and quality.
+
+## Generate (Single Prompt)
+
+```bash
+curl http://localhost:11434/api/generate -d '{
+  "model": "llama3.2",
+  "prompt": "Explain embeddings in one sentence.",
+  "stream": false
+}'
+```
+
+Response (trimmed):
+
+```json
+{ "model": "llama3.2", "response": "Embeddings are numeric vectors...", "done": true }
+```
+
+## Chat (Message History)
+
+```bash
+curl http://localhost:11434/api/chat -d '{
+  "model": "llama3.2",
+  "messages": [
+    {"role": "system", "content": "You are concise."},
+    {"role": "user", "content": "What is RAG?"}
+  ],
+  "stream": false
+}'
+```
+
+Use **chat** for multi-turn conversations and system prompts; **generate** for
+one-off completions.
+
+## From Python (requests)
+
+```python
+import requests
+
+def generate(prompt: str, model: str = "llama3.2") -> str:
+    resp = requests.post(
+        "http://localhost:11434/api/generate",
+        json={"model": model, "prompt": prompt, "stream": False},
+        timeout=120,
+    )
+    resp.raise_for_status()
+    return resp.json()["response"]
+
+print(generate("Say hello in French."))
+```
+
+## From Python (async httpx)
+
+This matches your async FastAPI endpoints:
+
+```python
+import httpx
+
+async def generate_async(prompt: str, model: str = "llama3.2") -> str:
+    async with httpx.AsyncClient(timeout=120) as client:
+        resp = await client.post(
+            "http://localhost:11434/api/generate",
+            json={"model": model, "prompt": prompt, "stream": False},
+        )
+        resp.raise_for_status()
+        return resp.json()["response"]
+```
+
+## Streaming Tokens
+
+With `"stream": true`, Ollama returns newline-delimited JSON chunks — great for
+showing output as it's generated:
+
+```python
+import json, requests
+
+def stream(prompt: str, model: str = "llama3.2"):
+    with requests.post(
+        "http://localhost:11434/api/generate",
+        json={"model": model, "prompt": prompt, "stream": True},
+        stream=True,
+        timeout=120,
+    ) as resp:
+        for line in resp.iter_lines():
+            if line:
+                chunk = json.loads(line)
+                print(chunk.get("response", ""), end="", flush=True)
+
+stream("Write a haiku about vectors.")
+```
+
+## Useful Parameters
+
+```python
+{
+  "model": "llama3.2",
+  "prompt": "...",
+  "options": {
+    "temperature": 0.2,     # lower = more deterministic (good for RAG)
+    "num_ctx": 4096,        # context window in tokens
+    "top_p": 0.9
+  }
+}
+```
+
+For factual RAG answers, use a **low temperature** (0–0.3) to reduce
+made-up detail.
+
+## The Python Client (optional)
+
+```bash
+pip install ollama
+```
+
+```python
+import ollama
+
+reply = ollama.chat(model="llama3.2", messages=[
+    {"role": "user", "content": "What is a vector database?"}
+])
+print(reply["message"]["content"])
+```
+
+## Wrapping It as a Service
+
+Recall the [backend client pattern](../01-python/11-python-backend-patterns.mdx):
+wrap this behind an `LlmService` so routes and tests don't hardcode HTTP.
+
+```python
+class LlmService:
+    def __init__(self, base_url: str, model: str):
+        self._url = base_url
+        self._model = model
+
+    async def answer(self, prompt: str) -> str:
+        async with httpx.AsyncClient(timeout=120) as client:
+            resp = await client.post(
+                f"{self._url}/api/generate",
+                json={"model": self._model, "prompt": prompt, "stream": False},
+            )
+            resp.raise_for_status()
+            return resp.json()["response"]
+```
+
+## Common Mistakes
+
+- Calling the API while the Ollama service isn't running.
+- Using blocking `requests` inside an `async def` FastAPI endpoint (use `httpx`).
+- High temperature for factual answers → more hallucination.
+- No timeout — a slow model can hang your request forever.
+
+## Interview Questions
+
+- Generate vs chat — when to use each?
+- Why lower temperature for RAG?
+- How does streaming improve perceived latency?
+- Why wrap the LLM call behind a service class?
+
+## Things to Remember
+
+- `/api/generate` for one-shot, `/api/chat` for conversations.
+- Async `httpx` in FastAPI; set timeouts.
+- Low temperature for grounded answers.
+
+## Mini Exercise
+
+Write an async `LlmService.answer(prompt)` using `httpx`, then call it from a
+`POST /ask` FastAPI endpoint that echoes the model's reply.
+
+## Done When
+
+- [ ] You can call generate and chat from Python.
+- [ ] You can stream tokens.
+- [ ] You can wrap the model behind an async service class.

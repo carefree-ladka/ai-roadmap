@@ -1,0 +1,169 @@
+---
+title: Routing, Request & Response
+description: HTTP methods, path and query parameters, request bodies, headers, cookies, response models, status codes, tags, and organizing routes with APIRouter.
+---
+
+import TOCInline from '@theme/TOCInline';
+
+# Routing, Request & Response
+
+<TOCInline toc={toc} minHeadingLevel={2} maxHeadingLevel={2} />
+
+:::tip[In this guide]
+How data flows in and out of your API: reading path/query/body/header inputs,
+shaping outputs with response models, and splitting routes with `APIRouter`.
+:::
+
+## What Is It?
+
+Routing maps incoming HTTP requests to handler functions and defines how you
+read inputs and return outputs.
+
+## Why Does It Matter?
+
+A clean, consistent request/response contract is what makes an API pleasant to
+consume and easy to document.
+
+## HTTP Methods
+
+```python
+@app.get("/items")        # read
+@app.post("/items")       # create
+@app.put("/items/{id}")   # replace
+@app.patch("/items/{id}") # partial update
+@app.delete("/items/{id}")# delete
+```
+
+## Path Parameters
+
+Declared in the path and typed in the function signature (FastAPI validates +
+converts):
+
+```python
+@app.get("/items/{item_id}")
+def get_item(item_id: int):        # "abc" -> 422 automatically
+    return {"item_id": item_id}
+```
+
+## Query Parameters
+
+Function params not in the path become query params:
+
+```python
+@app.get("/items")
+def list_items(skip: int = 0, limit: int = 10, q: str | None = None):
+    return {"skip": skip, "limit": limit, "q": q}
+# GET /items?skip=0&limit=5&q=book
+```
+
+## Request Body
+
+Use a Pydantic model for JSON bodies:
+
+```python
+from pydantic import BaseModel
+
+class ItemIn(BaseModel):
+    name: str
+    price: float
+    in_stock: bool = True
+
+@app.post("/items")
+def create_item(item: ItemIn):
+    return {"received": item.name, "price": item.price}
+```
+
+## Headers and Cookies
+
+```python
+from fastapi import Header, Cookie
+
+@app.get("/whoami")
+def whoami(
+    user_agent: str | None = Header(default=None),
+    session_id: str | None = Cookie(default=None),
+):
+    return {"ua": user_agent, "session": session_id}
+```
+
+## Response Models
+
+Declare exactly what you return — FastAPI filters and documents it (great for
+hiding internal fields like password hashes):
+
+```python
+class UserOut(BaseModel):
+    id: int
+    name: str
+    # note: no password field
+
+@app.get("/users/{user_id}", response_model=UserOut)
+def get_user(user_id: int):
+    return {"id": user_id, "name": "Ada", "password": "secret"}  # password stripped
+```
+
+## Status Codes and Tags
+
+```python
+from fastapi import status
+
+@app.post("/items", status_code=status.HTTP_201_CREATED, tags=["items"])
+def create():
+    return {"ok": True}
+```
+
+`tags` group endpoints in Swagger UI.
+
+## Organizing Routes with APIRouter
+
+Split endpoints into modules and include them in the app:
+
+```python
+# app/routers/health.py
+from fastapi import APIRouter
+
+router = APIRouter(prefix="/health", tags=["health"])
+
+@router.get("")
+def health():
+    return {"status": "ok"}
+```
+
+```python
+# app/main.py
+from fastapi import FastAPI
+from app.routers import health
+
+app = FastAPI()
+app.include_router(health.router)
+```
+
+## Common Mistakes
+
+- Path parameter order/typing mismatches (e.g. a fixed route shadowed by a dynamic one).
+- Returning raw dicts with sensitive fields instead of a `response_model`.
+- Putting all routes in `main.py` — use `APIRouter`.
+
+## Interview Questions
+
+- Path vs query parameters — how does FastAPI tell them apart?
+- What does `response_model` do?
+- Why and how do you use `APIRouter`?
+- Which status code does a validation error return? (422)
+
+## Things to Remember
+
+- Types in the signature = automatic validation.
+- `response_model` controls and documents output.
+- `APIRouter` keeps large APIs organized.
+
+## Mini Exercise
+
+Build an `items` router with `GET /items` (paginated via `skip`/`limit`),
+`POST /items` (Pydantic body, 201), and `GET /items/{id}` with a `response_model`.
+
+## Done When
+
+- [ ] You can read path, query, body, and header inputs.
+- [ ] You can shape responses with `response_model`.
+- [ ] You can split routes across `APIRouter` modules.

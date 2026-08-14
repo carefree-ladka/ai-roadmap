@@ -1,0 +1,160 @@
+---
+title: Error Handling & Middleware
+description: HTTPException, custom exception handlers, validation errors, middleware, CORS, request logging, and request IDs.
+---
+
+import TOCInline from '@theme/TOCInline';
+
+# Error Handling & Middleware
+
+<TOCInline toc={toc} minHeadingLevel={2} maxHeadingLevel={2} />
+
+:::tip[In this guide]
+Returning clean errors, mapping your domain exceptions to HTTP responses, and
+using middleware for cross-cutting concerns like CORS, logging, and request IDs.
+:::
+
+## What Is It?
+
+- **Error handling** converts failures into meaningful HTTP responses.
+- **Middleware** wraps every request/response for cross-cutting behavior.
+
+## Why Does It Matter?
+
+Consistent errors make clients easy to build. Middleware centralizes logging,
+CORS, and tracing so you don't repeat it in every endpoint.
+
+## HTTPException
+
+```python
+from fastapi import HTTPException, status
+
+@app.get("/users/{user_id}")
+def get_user(user_id: int):
+    user = db_lookup(user_id)
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="user not found",
+        )
+    return user
+```
+
+## Custom Exception Handlers
+
+Map your domain exceptions to HTTP responses in one place:
+
+```python
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+
+class NotFoundError(Exception):
+    def __init__(self, what: str):
+        self.what = what
+
+app = FastAPI()
+
+@app.exception_handler(NotFoundError)
+async def not_found_handler(request: Request, exc: NotFoundError):
+    return JSONResponse(status_code=404, content={"detail": f"{exc.what} not found"})
+```
+
+Now services can `raise NotFoundError("user")` without knowing about HTTP.
+
+## Validation Errors
+
+FastAPI returns `422` with a structured body when Pydantic validation fails.
+You can customize it:
+
+```python
+from fastapi.exceptions import RequestValidationError
+
+@app.exception_handler(RequestValidationError)
+async def validation_handler(request: Request, exc: RequestValidationError):
+    return JSONResponse(status_code=422, content={"errors": exc.errors()})
+```
+
+## Middleware
+
+```python
+import time
+from fastapi import Request
+
+@app.middleware("http")
+async def add_process_time(request: Request, call_next):
+    start = time.perf_counter()
+    response = await call_next(request)
+    response.headers["X-Process-Time"] = f"{time.perf_counter() - start:.4f}"
+    return response
+```
+
+## CORS
+
+Allow browser frontends on other origins to call your API:
+
+```python
+from fastapi.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],   # be specific in production
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+```
+
+:::warning
+Avoid `allow_origins=["*"]` together with credentials in production. List the
+exact origins you trust.
+:::
+
+## Request IDs and Logging
+
+Attach a request ID for traceable logs:
+
+```python
+import uuid, logging
+from fastapi import Request
+
+logger = logging.getLogger("api")
+
+@app.middleware("http")
+async def request_id(request: Request, call_next):
+    rid = request.headers.get("X-Request-ID", str(uuid.uuid4()))
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = rid
+    logger.info("%s %s -> %s [%s]", request.method, request.url.path,
+                response.status_code, rid)
+    return response
+```
+
+## Common Mistakes
+
+- Leaking internal exception details/stack traces to clients.
+- Wide-open CORS (`*`) in production.
+- Doing per-endpoint logging instead of one middleware.
+- Returning inconsistent error shapes across endpoints.
+
+## Interview Questions
+
+- `HTTPException` vs a custom exception handler?
+- What is middleware and when do you use it?
+- Why does CORS exist and how do you configure it?
+- How would you add request tracing?
+
+## Things to Remember
+
+- Map domain errors to HTTP in exception handlers, not in services.
+- One consistent error shape across the API.
+- Middleware for CORS, timing, request IDs.
+
+## Mini Exercise
+
+Add a middleware that assigns an `X-Request-ID` and a custom handler that turns
+a `PermissionError` into a `403` with a consistent JSON body.
+
+## Done When
+
+- [ ] You can raise `HTTPException` with proper codes.
+- [ ] You can register custom exception handlers.
+- [ ] You can add CORS and a request-ID/logging middleware.

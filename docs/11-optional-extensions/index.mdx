@@ -1,0 +1,91 @@
+---
+title: Optional Extensions
+description: Where to go after the core roadmap — multimodal RAG, agents, fine-tuning, GraphRAG, streaming UIs, and more.
+slug: /11-optional-extensions
+---
+
+import TOCInline from '@theme/TOCInline';
+
+# 11 · Optional Extensions
+
+<ProgressToggle sectionId="11-optional-extensions" />
+
+<TOCInline toc={toc} minHeadingLevel={2} maxHeadingLevel={2} />
+
+:::tip[In this guide]
+Directions to deepen your skills once the core roadmap is done. Pick what maps
+to your goals — these are exploratory, not required.
+:::
+
+## Goal
+
+Extend your foundation into specialized or advanced areas as your interests and
+job needs dictate.
+
+## Estimated Time
+
+Ongoing.
+
+## Prerequisites
+
+- The full core roadmap ([01 · Python](../01-python/index.mdx) through [10 · System Design & Interview](../10-system-design-interview/index.mdx)).
+
+## Directions to Explore
+
+### Multimodal RAG
+
+Retrieve over images, tables, and PDFs — not just text. Use vision models and
+layout-aware parsing; embed images and captions.
+
+### Advanced Agents
+
+Multi-tool, multi-step agents with planning, tool-use guardrails, and
+human-in-the-loop. Revisit the cautions in [Memory & Agents](../07-langchain-lcel/02-memory-agents.mdx).
+
+### Fine-tuning & Adapters
+
+LoRA/QLoRA to teach style, format, or a narrow domain. Recall: fine-tuning for
+**behavior**, RAG for **knowledge** (see [tradeoffs](../10-system-design-interview/02-tradeoff-discussions.mdx)).
+
+### GraphRAG / Structured Retrieval
+
+Combine knowledge graphs or SQL with vector search for multi-hop questions and
+precise structured lookups.
+
+### Query Transformations
+
+HyDE (hypothetical document embeddings), multi-query expansion, and step-back
+prompting to improve retrieval recall.
+
+### Streaming UIs
+
+Stream tokens to a frontend (Server-Sent Events / WebSockets) for a responsive
+chat experience over your `/ask` endpoint.
+
+### Advanced Evaluation & Observability
+
+Automated eval pipelines in CI, LLM tracing dashboards, and regression tests on
+answer quality.
+
+### Cost & Performance Optimization
+
+Quantized models, batching, semantic caching, and speculative decoding.
+
+## How to Approach These
+
+Pick **one** extension, apply it to your existing RAG project, and measure the
+impact with your [eval set](../06-advanced-rag/03-evaluation.mdx). Depth on one
+beats shallow exposure to all.
+
+## Interview Relevance
+
+Knowing these exist — and their tradeoffs — signals you can grow a system beyond
+the basics, even if you haven't shipped all of them.
+
+## Done When
+
+- [ ] You've chosen an extension aligned with your goals.
+- [ ] You've applied it to your project and measured the effect.
+- [ ] You can explain its tradeoffs.
+
+Back to the [Roadmap start](../00-prerequisites/index.mdx) · check your [Pacing plan](../pacing.mdx).

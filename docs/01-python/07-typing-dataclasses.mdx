@@ -1,0 +1,195 @@
+---
+title: Typing & Dataclasses
+description: Modern Python type hints — Optional/union syntax, generics, Callable, Literal, TypedDict, Protocol, TypeVar, and static checking with mypy/pyright.
+---
+
+import TOCInline from '@theme/TOCInline';
+
+# Typing & Dataclasses
+
+<TOCInline toc={toc} minHeadingLevel={2} maxHeadingLevel={2} />
+
+:::tip[In this guide]
+Modern type hints that make FastAPI and Pydantic shine, plus how static
+checkers (mypy/pyright) catch bugs before runtime.
+:::
+
+## What Is It?
+
+Type hints annotate the expected types of variables, parameters, and return
+values. They're optional at runtime but power editors, checkers, and FastAPI.
+
+## Why Does It Matter?
+
+FastAPI derives validation and docs **from your type hints**. Good typing =
+fewer bugs, better autocomplete, and self-documenting code.
+
+## Basic Annotations
+
+```python
+def greet(name: str, times: int = 1) -> str:
+    return (f"Hi {name}! " * times).strip()
+
+count: int = 0
+ratio: float = 0.5
+names: list[str] = ["Ada"]
+scores: dict[str, int] = {"Ada": 95}
+```
+
+## Optional and Union
+
+Modern syntax (3.10+) uses `|`:
+
+```python
+def find(user_id: int) -> str | None:      # may return None
+    ...
+
+def parse(value: int | str) -> float:      # accepts either
+    ...
+```
+
+`X | None` is the same as the older `Optional[X]`.
+
+## Containers and Callable
+
+```python
+from typing import Callable
+
+pairs: list[tuple[str, int]] = [("a", 1)]
+handler: Callable[[int, int], int] = lambda a, b: a + b
+#                  args ^^^^^^  ^^^ return
+```
+
+## Literal, TypeAlias
+
+```python
+from typing import Literal, TypeAlias
+
+Mode = Literal["r", "w", "a"]        # only these string values allowed
+
+def open_file(path: str, mode: Mode) -> None: ...
+
+UserId: TypeAlias = int              # a readable alias
+```
+
+## TypedDict
+
+Describe the shape of a dict:
+
+```python
+from typing import TypedDict
+
+class UserDict(TypedDict):
+    name: str
+    age: int
+    active: bool
+
+def make() -> UserDict:
+    return {"name": "Ada", "age": 36, "active": True}
+```
+
+## Protocol (Structural Typing)
+
+```python
+from typing import Protocol
+
+class SupportsClose(Protocol):
+    def close(self) -> None: ...
+
+def shutdown(resource: SupportsClose) -> None:
+    resource.close()             # anything with close() fits
+```
+
+## Generics and TypeVar
+
+```python
+from typing import TypeVar
+
+T = TypeVar("T")
+
+def first(items: list[T]) -> T | None:
+    return items[0] if items else None
+
+first([1, 2, 3])       # inferred int | None
+first(["a"])           # inferred str | None
+```
+
+Python 3.12+ also supports the newer inline syntax:
+
+```python
+def first[T](items: list[T]) -> T | None:
+    return items[0] if items else None
+```
+
+## typing.Any
+
+`Any` disables type checking for a value — use sparingly:
+
+```python
+from typing import Any
+
+def debug(value: Any) -> None:      # accepts anything, checks nothing
+    print(value)
+```
+
+## Static Checking: mypy / pyright
+
+Type hints aren't enforced at runtime; a **static checker** verifies them:
+
+```bash
+pip install mypy
+mypy app/
+```
+
+```python
+def add(a: int, b: int) -> int:
+    return a + b
+
+add("1", 2)     # mypy error: Argument 1 has incompatible type "str"
+```
+
+Pyright (bundled with VS Code's Pylance) does the same, live in the editor.
+
+## Dataclasses (Typed Data Holders)
+
+```python
+from dataclasses import dataclass
+
+@dataclass(frozen=True)          # frozen => immutable + hashable
+class Point:
+    x: int
+    y: int
+
+p = Point(1, 2)
+# p.x = 9                        # error: frozen
+```
+
+## Common Mistakes
+
+- Reaching for `Any` to silence the checker instead of fixing types.
+- Using old `List`/`Dict` from `typing` (prefer built-in `list`/`dict` on 3.9+).
+- Forgetting return type annotations (they document intent and catch bugs).
+
+## Interview Questions
+
+- What does `Optional[X]` mean and how is it written today?
+- `TypedDict` vs `dataclass` vs `Protocol` — when to use each?
+- Do type hints affect runtime behavior?
+- What is a `TypeVar` / generic function?
+
+## Things to Remember
+
+- FastAPI + Pydantic read your annotations — invest in them.
+- `X | None` for optional; built-in generics `list[str]`.
+- Run `mypy`/pyright in CI.
+
+## Mini Exercise
+
+Annotate a function `group_by(items, key)` that takes a `list[T]` and a
+`Callable[[T], K]` and returns a `dict[K, list[T]]`. Verify it with `mypy`.
+
+## Done When
+
+- [ ] You can annotate functions with unions, generics, and `Callable`.
+- [ ] You can choose `TypedDict` / `dataclass` / `Protocol` correctly.
+- [ ] You can run a type checker and interpret its errors.

@@ -1,0 +1,190 @@
+---
+title: Database Integration
+description: SQL and PostgreSQL, SQLAlchemy models and sessions, CRUD patterns, transactions, migrations with Alembic, connection pooling, and sync vs async drivers.
+---
+
+import TOCInline from '@theme/TOCInline';
+
+# Database Integration
+
+<TOCInline toc={toc} minHeadingLevel={2} maxHeadingLevel={2} />
+
+:::tip[In this guide]
+Persisting data with SQLAlchemy: models, per-request sessions, CRUD,
+transactions, migrations with Alembic, and the sync-vs-async driver decision.
+:::
+
+## What Is It?
+
+Connecting your API to a relational database (e.g. PostgreSQL) using an ORM
+(SQLAlchemy) so you work with Python objects instead of raw SQL.
+
+## Why Does It Matter?
+
+Most services need durable storage. Sessions, transactions, and migrations are
+where subtle production bugs live — worth getting right early.
+
+## SQL and PostgreSQL
+
+- **SQL** databases store structured, related data with strong consistency.
+- **PostgreSQL** is a robust, popular choice with JSON, full-text search, and
+  the `pgvector` extension (useful later for vector search).
+
+## SQLAlchemy Models
+
+```python
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+class Base(DeclarativeBase):
+    pass
+
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    email: Mapped[str] = mapped_column(unique=True, index=True)
+    name: Mapped[str]
+    is_active: Mapped[bool] = mapped_column(default=True)
+```
+
+## Engine and Session
+
+```python
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+engine = create_engine(
+    "postgresql+psycopg://user:pass@localhost/appdb",
+    pool_size=5,           # connection pool
+    max_overflow=10,
+    pool_pre_ping=True,    # detect dead connections
+)
+SessionLocal = sessionmaker(bind=engine, autoflush=False)
+```
+
+## Per-Request Session Dependency
+
+```python
+from typing import Annotated
+from fastapi import Depends
+from sqlalchemy.orm import Session
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+DbSession = Annotated[Session, Depends(get_db)]
+```
+
+Each request gets its own session; it's closed when the response is done.
+
+## CRUD Patterns
+
+```python
+from fastapi import HTTPException
+
+@app.post("/users")
+def create_user(payload: CreateUser, db: DbSession):
+    user = User(email=payload.email, name=payload.name)
+    db.add(user)
+    db.commit()            # transaction commit
+    db.refresh(user)       # load generated id
+    return user
+
+@app.get("/users/{user_id}")
+def read_user(user_id: int, db: DbSession):
+    user = db.get(User, user_id)
+    if user is None:
+        raise HTTPException(404, "not found")
+    return user
+```
+
+## Transactions
+
+A transaction is all-or-nothing. `commit()` persists; `rollback()` undoes:
+
+```python
+try:
+    db.add(order)
+    db.add(payment)
+    db.commit()            # both succeed together
+except Exception:
+    db.rollback()          # or neither does
+    raise
+```
+
+## Migrations with Alembic
+
+Migrations version your schema so changes are repeatable across environments:
+
+```bash
+pip install alembic
+alembic init migrations
+alembic revision --autogenerate -m "create users table"
+alembic upgrade head
+```
+
+## Connection Pooling
+
+Opening a DB connection is expensive. A **pool** reuses a fixed set of
+connections across requests. Tune `pool_size`/`max_overflow` to your DB limits.
+
+## Sync vs Async Drivers
+
+| | Sync | Async |
+| --- | --- | --- |
+| Driver (Postgres) | `psycopg` | `asyncpg` |
+| Session | `Session` | `AsyncSession` |
+| Endpoint | `def` | `async def` |
+| When | Simpler, fine for most apps | High-concurrency I/O-bound APIs |
+
+Async example:
+
+```python
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+
+engine = create_async_engine("postgresql+asyncpg://user:pass@localhost/appdb")
+
+@app.get("/async-users/{user_id}")
+async def read(user_id: int, db: AsyncSession = Depends(get_async_db)):
+    return await db.get(User, user_id)
+```
+
+Don't mix a sync driver into an `async def` handler — it blocks the loop.
+
+## Common Mistakes
+
+- Sharing one global session across requests (not thread/async safe).
+- Forgetting to `commit()` (changes silently lost) or to handle rollback.
+- Editing the schema by hand instead of migrations.
+- Using a sync driver inside async endpoints.
+
+## Interview Questions
+
+- What is an ORM and what are its tradeoffs?
+- Describe the DB session lifecycle in a request.
+- What are migrations and why use Alembic?
+- Sync vs async database drivers — when each?
+- What does connection pooling solve?
+
+## Things to Remember
+
+- One session per request via a `yield` dependency.
+- Commit/rollback deliberately; wrap multi-step writes in a transaction.
+- Version schema with Alembic.
+- Match driver style (sync/async) to your endpoints.
+
+## Mini Exercise
+
+Add a `User` model, a `get_db` dependency, and `POST /users` + `GET /users/{id}`
+endpoints. Create the table with an Alembic migration.
+
+## Done When
+
+- [ ] You can define models and a session dependency.
+- [ ] You can implement CRUD with commits and error handling.
+- [ ] You can create and apply an Alembic migration.
+- [ ] You can explain sync vs async drivers.

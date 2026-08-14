@@ -1,0 +1,66 @@
+---
+title: RAG Fundamentals
+description: Build an end-to-end retrieval-augmented generation pipeline — ingest, retrieve, generate — and ship it as a FastAPI service.
+slug: /05-rag-fundamentals
+---
+
+import TOCInline from '@theme/TOCInline';
+
+# 05 · RAG Fundamentals
+
+<ProgressToggle sectionId="05-rag-fundamentals" />
+
+<TOCInline toc={toc} minHeadingLevel={2} maxHeadingLevel={2} />
+
+:::tip[In this guide]
+Put it all together: chunk and embed documents, retrieve the best context, and
+have the LLM answer using it — then wrap it in a FastAPI service.
+:::
+
+## Goal
+
+Build a working RAG pipeline and expose it through `/ingest` and `/ask`.
+
+## Estimated Time
+
+1 week.
+
+## Prerequisites
+
+- [FastAPI + AI Integration](../02-fastapi/11-fastapi-ai-integration.mdx).
+- [Local LLMs / Ollama](../03-local-llms-ollama/index.mdx).
+- [Embeddings / Vector DB](../04-embeddings-vector-db/index.mdx).
+
+## What You Will Learn
+
+1. [Ingestion Pipeline](./01-ingestion-pipeline.mdx) — load, chunk, embed, and store documents.
+2. [Retrieval & Generation](./02-retrieval-generation.mdx) — retrieve top-k, build a grounded prompt, generate.
+3. [First Project](./03-first-project.mdx) — the full FastAPI + Ollama + Chroma RAG API.
+
+## The Big Picture
+
+```mermaid
+flowchart TD
+    subgraph Ingest
+      Docs[Documents] --> Chunk[Chunk] --> Embed1[Embed] --> Store[(Chroma)]
+    end
+    subgraph Ask
+      Q[Question] --> Embed2[Embed] --> Retrieve[Retrieve top-k]
+      Store --> Retrieve
+      Retrieve --> Prompt["Prompt + context"] --> LLM[Ollama] --> Answer
+    end
+```
+
+## Interview Relevance
+
+RAG vs fine-tuning, why RAG reduces hallucination, and the ingest/retrieve/
+generate flow are staple AI-engineering interview topics.
+
+## Done When
+
+- [ ] You can ingest documents into a vector store.
+- [ ] You can retrieve relevant chunks for a question.
+- [ ] You can generate a grounded answer with sources.
+- [ ] It all runs behind `/ingest` and `/ask`.
+
+Next: [06 · Advanced RAG](../06-advanced-rag/index.mdx).

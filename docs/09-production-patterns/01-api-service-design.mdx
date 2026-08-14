@@ -1,0 +1,143 @@
+---
+title: API & Service Design
+description: Production service concerns — configuration and secrets, timeouts, retries, caching, connection pooling, and graceful degradation.
+---
+
+import TOCInline from '@theme/TOCInline';
+
+# API & Service Design
+
+<TOCInline toc={toc} minHeadingLevel={2} maxHeadingLevel={2} />
+
+:::tip[In this guide]
+The resilience and efficiency patterns your RAG API needs: config/secrets,
+timeouts, retries, caching, connection reuse, and graceful degradation.
+:::
+
+## What Is It?
+
+The design decisions that keep a service fast, cheap, and stable under real
+traffic and real failures.
+
+## Why Does It Matter?
+
+LLM and vector-DB calls are slow, occasionally fail, and cost money. Without
+timeouts, retries, and caching, a demo becomes an outage.
+
+## Configuration & Secrets
+
+Centralize config (from [backend patterns](../01-python/11-python-backend-patterns.mdx)),
+and never commit secrets:
+
+```python
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env")
+    ollama_url: str = "http://localhost:11434"
+    request_timeout: float = 30.0
+    max_retries: int = 2
+    cache_ttl: int = 300
+
+settings = Settings()
+```
+
+Load secrets from environment variables or a secret manager (Vault, AWS Secrets
+Manager) — not from code.
+
+## Timeouts
+
+Every external call must have a timeout, or a slow dependency will pile up
+requests until the service falls over:
+
+```python
+import httpx
+
+client = httpx.AsyncClient(timeout=httpx.Timeout(settings.request_timeout))
+```
+
+## Retries with Backoff
+
+Retry transient failures (network blips, `503`s) with exponential backoff — but
+only **idempotent** operations, and cap attempts:
+
+```python
+import asyncio, httpx
+
+async def call_with_retry(client, url, json, retries=2):
+    for attempt in range(retries + 1):
+        try:
+            resp = await client.post(url, json=json)
+            resp.raise_for_status()
+            return resp.json()
+        except (httpx.TimeoutException, httpx.HTTPStatusError):
+            if attempt == retries:
+                raise
+            await asyncio.sleep(2 ** attempt)      # 1s, 2s, 4s...
+```
+
+For repeated failures, a **circuit breaker** stops calling a dead dependency for
+a cooldown period.
+
+## Caching
+
+LLM/embedding calls are expensive and often repeated. Cache by a stable key:
+
+```python
+import hashlib, json
+
+def cache_key(question: str, top_k: int) -> str:
+    raw = json.dumps({"q": question, "k": top_k}, sort_keys=True)
+    return hashlib.sha256(raw.encode()).hexdigest()
+```
+
+- **Embedding cache**: identical text → reuse its vector.
+- **Answer cache**: identical (question, top_k) → reuse the answer for a TTL.
+- Use an in-memory cache for a single instance, or Redis when you run several.
+
+Invalidate the answer cache when the underlying documents change.
+
+## Connection Reuse
+
+Create clients (httpx, DB pools) **once** and reuse them — don't open a new
+connection per request. In FastAPI, hold them in cached dependencies or app
+state (see [DI](../02-fastapi/04-dependency-injection.mdx)).
+
+## Graceful Degradation
+
+When a dependency is down, fail usefully:
+
+- Vector DB unreachable → return a clear `503` from `/ready`, not a crash.
+- Reranker down → fall back to plain vector retrieval.
+- LLM slow → time out and return a helpful error, not a hang.
+
+## Common Mistakes
+
+- No timeouts (one slow call cascades into an outage).
+- Retrying non-idempotent writes (duplicates).
+- Caching without invalidation (stale answers after re-ingest).
+- New client/connection per request (resource exhaustion).
+
+## Interview Questions
+
+- Why are timeouts essential? What about retries and backoff?
+- What would you cache in a RAG system, and how do you invalidate it?
+- What is a circuit breaker?
+- How do you degrade gracefully when a dependency fails?
+
+## Things to Remember
+
+- Timeout everything; retry idempotent calls with backoff.
+- Cache embeddings and answers; invalidate on data change.
+- Reuse clients/pools; degrade gracefully.
+
+## Mini Exercise
+
+Add a timeout and a 2-attempt backoff retry to your `LlmService`, and an
+in-memory answer cache keyed by `(question, top_k)` with a TTL.
+
+## Done When
+
+- [ ] External calls have timeouts and bounded retries.
+- [ ] You cache expensive calls with a sane invalidation story.
+- [ ] Clients/connections are reused, and failures degrade gracefully.

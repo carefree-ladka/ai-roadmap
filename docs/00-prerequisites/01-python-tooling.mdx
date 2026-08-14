@@ -1,0 +1,100 @@
+---
+title: Python Tooling
+description: The editor, version control, and command-line tools you'll use every day as a backend/AI engineer.
+---
+
+import TOCInline from '@theme/TOCInline';
+
+# Python Tooling
+
+<TOCInline toc={toc} minHeadingLevel={2} maxHeadingLevel={2} />
+
+:::tip[In this guide]
+The small set of tools that make Python + AI work pleasant: an editor, Git,
+a good terminal, and the Python CLIs you'll lean on.
+:::
+
+## What Is It?
+
+"Tooling" is the set of programs around your code: editor, version control,
+package managers, and command-line utilities. Good tooling makes feedback
+loops fast and mistakes cheap.
+
+## Why Does It Matter?
+
+You will spend more time reading, running, and debugging code than writing it.
+The right tools shorten that loop from minutes to seconds.
+
+## Core Tools
+
+| Tool | Purpose | Recommendation |
+| --- | --- | --- |
+| Editor / IDE | Write and navigate code | VS Code (with Python + Pylance) |
+| Version control | Track changes, collaborate | Git |
+| Terminal | Run everything | zsh/bash (macOS/Linux), WSL2 (Windows) |
+| Python launcher | Run Python | `python3` |
+| Package installer | Install libraries | `pip` (built-in) |
+| Version manager | Multiple Python versions | `pyenv` (optional) |
+| Formatter | Consistent style | `black` or `ruff format` |
+| Linter | Catch bugs early | `ruff` |
+| Type checker | Verify type hints | `mypy` or `pyright` |
+
+## Practical Example
+
+Verify the essentials are present:
+
+```bash
+python3 --version      # e.g. Python 3.12.3
+git --version          # e.g. git version 2.44.0
+code --version         # VS Code (if the 'code' command is installed)
+```
+
+Install the developer tools you'll use across the roadmap:
+
+```bash
+pip install ruff mypy
+```
+
+Format and lint a file:
+
+```bash
+ruff format app/main.py     # auto-format
+ruff check app/main.py      # lint
+mypy app/main.py            # type-check
+```
+
+## Recommended VS Code Extensions
+
+- **Python** (Microsoft) — language support.
+- **Pylance** — fast type checking and IntelliSense.
+- **Ruff** — formatting + linting inside the editor.
+- **Even Better TOML** — for `pyproject.toml`.
+
+## Common Mistakes
+
+- Using the system Python for projects. Prefer a **virtual environment** per project.
+- Mixing `python` and `python3`. On modern setups, standardize on `python3`.
+- Committing your `.venv/` or secrets. Add them to `.gitignore`.
+
+## Interview Questions
+
+- What's the difference between `pip` and a virtual environment?
+- Why use a linter and a formatter instead of just code review?
+- What does a type checker like `mypy` give you that tests don't?
+
+## Things to Remember
+
+- One virtual environment **per project**.
+- Format on save; lint in CI.
+- Keep secrets out of Git.
+
+## Mini Exercise
+
+Create a `.gitignore` that excludes `.venv/`, `__pycache__/`, and `.env`, then
+run `git status` to confirm those paths are ignored.
+
+## Done When
+
+- [ ] VS Code + Python/Pylance installed.
+- [ ] `git`, `python3`, `pip` all run from your terminal.
+- [ ] `ruff` and `mypy` installed and runnable.

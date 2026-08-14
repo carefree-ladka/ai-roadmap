@@ -1,0 +1,147 @@
+---
+title: LangChain Basics
+description: LangChain components, the LangChain Expression Language (LCEL), Runnables, and building a RAG chain with Ollama.
+---
+
+import TOCInline from '@theme/TOCInline';
+
+# LangChain Basics
+
+<TOCInline toc={toc} minHeadingLevel={2} maxHeadingLevel={2} />
+
+:::tip[In this guide]
+The core LangChain components and LCEL — the `|` pipe syntax for composing
+prompt → model → parser — rebuilt around your local Ollama RAG chain.
+:::
+
+## What Is It?
+
+LangChain is a framework of composable components (prompts, models, retrievers,
+parsers) for building LLM applications. **LCEL** (LangChain Expression Language)
+pipes them together.
+
+## Why Does It Matter?
+
+It standardizes integrations and makes pipelines declarative and streamable. For
+common patterns you write less glue code.
+
+## Install
+
+```bash
+pip install langchain langchain-ollama langchain-community
+```
+
+## Core Components
+
+| Component | Role |
+| --- | --- |
+| Prompt template | Structure the input |
+| Chat/LLM model | Generate text |
+| Retriever | Fetch relevant documents |
+| Output parser | Shape the output (str, JSON) |
+| Runnable | Anything composable with `|` |
+
+## LCEL: Composing with `|`
+
+Everything is a **Runnable**; `|` pipes output to the next step:
+
+```python
+from langchain_ollama import ChatOllama
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+
+model = ChatOllama(model="llama3.2", temperature=0.1)
+prompt = ChatPromptTemplate.from_template("Explain {topic} in one sentence.")
+
+chain = prompt | model | StrOutputParser()
+chain.invoke({"topic": "embeddings"})
+```
+
+`invoke` runs it; `stream` streams tokens; `batch` runs many inputs.
+
+## A RAG Chain with LCEL
+
+Reproduce your [RAG pipeline](../05-rag-fundamentals/02-retrieval-generation.mdx)
+declaratively:
+
+```python
+from langchain_ollama import ChatOllama, OllamaEmbeddings
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.runnables import RunnablePassthrough
+from langchain_chroma import Chroma
+
+embeddings = OllamaEmbeddings(model="nomic-embed-text")
+vectorstore = Chroma(persist_directory="./chroma", embedding_function=embeddings)
+retriever = vectorstore.as_retriever(search_kwargs={"k": 4})
+
+prompt = ChatPromptTemplate.from_template(
+    """Answer using ONLY the context. If unknown, say so.
+
+Context:
+{context}
+
+Question: {question}
+Answer:"""
+)
+model = ChatOllama(model="llama3.2", temperature=0.1)
+
+def format_docs(docs):
+    return "\n\n".join(d.page_content for d in docs)
+
+rag_chain = (
+    {"context": retriever | format_docs, "question": RunnablePassthrough()}
+    | prompt
+    | model
+    | StrOutputParser()
+)
+
+rag_chain.invoke("What does RAG reduce?")
+```
+
+## Streaming
+
+```python
+for token in rag_chain.stream("Explain hybrid search."):
+    print(token, end="", flush=True)
+```
+
+## LangChain vs Hand-Written
+
+| | LangChain/LCEL | Hand-written |
+| --- | --- | --- |
+| Speed to prototype | Fast | Slower |
+| Integrations | Many built-in | You wire them |
+| Transparency | More abstraction | Full control |
+| Best for | Standard pipelines, swapping components | Simple/custom flows, tight control |
+
+## Common Mistakes
+
+- Reaching for LangChain when a 30-line function is clearer.
+- Version drift across `langchain-*` packages (pin them).
+- Hidden token costs from verbose default prompts.
+- Not streaming, hurting perceived latency.
+
+## Interview Questions
+
+- What is LCEL and what does the `|` operator do?
+- What is a Runnable?
+- How would you build a RAG chain in LangChain?
+- When would you *not* use LangChain?
+
+## Things to Remember
+
+- Components + LCEL = declarative pipelines.
+- `invoke` / `stream` / `batch`.
+- Choose LangChain vs custom by transparency vs speed.
+
+## Mini Exercise
+
+Rebuild your project's RAG flow as an LCEL chain over your existing Chroma
+store, then stream an answer token by token.
+
+## Done When
+
+- [ ] You can compose prompt → model → parser with LCEL.
+- [ ] You can build a retriever-backed RAG chain.
+- [ ] You can stream results and weigh LangChain vs custom code.

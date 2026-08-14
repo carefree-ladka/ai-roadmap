@@ -1,0 +1,196 @@
+---
+title: Iterators, Generators & Decorators
+description: Iteration protocol, generators and yield, decorators, functools, itertools, collections, and a look at descriptors.
+---
+
+import TOCInline from '@theme/TOCInline';
+
+# Iterators, Generators & Decorators
+
+<TOCInline toc={toc} minHeadingLevel={2} maxHeadingLevel={2} />
+
+:::tip[In this guide]
+The tools that make Python expressive and memory-efficient: iteration,
+lazy generators, decorators for cross-cutting logic, and the standard-library
+powerhouses `functools`, `itertools`, and `collections`.
+:::
+
+## What Is It?
+
+- **Iterators** produce items one at a time.
+- **Generators** are a concise way to build iterators using `yield`.
+- **Decorators** wrap functions to add behavior.
+
+## Why Does It Matter?
+
+Generators process huge/streaming data without loading it all into memory.
+Decorators implement logging, caching, auth, and retries cleanly — patterns you
+meet constantly in FastAPI.
+
+## The Iteration Protocol
+
+An **iterable** returns an **iterator** via `iter()`; the iterator yields items
+via `next()` until `StopIteration`.
+
+```python
+nums = [1, 2, 3]
+it = iter(nums)
+next(it)      # 1
+next(it)      # 2
+```
+
+A custom iterator:
+
+```python
+class Countdown:
+    def __init__(self, start: int):
+        self.current = start
+    def __iter__(self):
+        return self
+    def __next__(self):
+        if self.current <= 0:
+            raise StopIteration
+        self.current -= 1
+        return self.current + 1
+
+list(Countdown(3))       # [3, 2, 1]
+```
+
+## Generators and yield
+
+A generator function pauses at `yield` and resumes on the next request —
+lazy and memory-friendly:
+
+```python
+def read_large_file(path: str):
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            yield line.rstrip()      # one line at a time
+
+for line in read_large_file("huge.log"):
+    process(line)
+```
+
+Generator expressions look like comprehensions with parentheses:
+
+```python
+total = sum(x * x for x in range(1_000_000))   # no giant list built
+```
+
+### Generator vs Iterator
+
+A generator *is* an iterator. "Iterator" is the protocol; "generator" is the
+easy way to create one with `yield`.
+
+## Decorators
+
+A decorator is a function that takes a function and returns a new function:
+
+```python
+import functools
+
+def log_calls(fn):
+    @functools.wraps(fn)                 # preserve name/docstring
+    def wrapper(*args, **kwargs):
+        print(f"calling {fn.__name__}")
+        result = fn(*args, **kwargs)
+        print(f"{fn.__name__} returned {result!r}")
+        return result
+    return wrapper
+
+@log_calls
+def add(a, b):
+    return a + b
+
+add(2, 3)
+```
+
+### Decorators with arguments
+
+```python
+def retry(times: int):
+    def decorator(fn):
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            for attempt in range(times):
+                try:
+                    return fn(*args, **kwargs)
+                except Exception:
+                    if attempt == times - 1:
+                        raise
+        return wrapper
+    return decorator
+
+@retry(times=3)
+def flaky():
+    ...
+```
+
+## functools
+
+```python
+from functools import lru_cache, reduce, partial
+
+@lru_cache(maxsize=128)          # memoize expensive pure functions
+def fib(n: int) -> int:
+    return n if n < 2 else fib(n - 1) + fib(n - 2)
+
+reduce(lambda a, b: a + b, [1, 2, 3, 4])   # 10
+add10 = partial(lambda a, b: a + b, 10)    # pre-bind an argument
+```
+
+## itertools
+
+```python
+from itertools import chain, islice, groupby, count
+
+list(chain([1, 2], [3, 4]))          # [1, 2, 3, 4]
+list(islice(count(0), 5))            # [0, 1, 2, 3, 4]  (take 5)
+```
+
+## collections
+
+```python
+from collections import Counter, defaultdict, namedtuple, deque
+
+Counter("banana")                    # {'a': 3, 'n': 2, 'b': 1}
+dd = defaultdict(list); dd["k"].append(1)
+Point = namedtuple("Point", "x y")
+queue = deque([1, 2]); queue.appendleft(0)
+```
+
+## Descriptors (Overview)
+
+Descriptors are objects that customize attribute access via `__get__` /
+`__set__`. `@property` is a descriptor. You rarely write them by hand, but
+they explain how properties, methods, and ORMs work under the hood.
+
+## Common Mistakes
+
+- Forgetting `@functools.wraps`, losing the wrapped function's name/docs.
+- Materializing a generator into a `list` when you only iterate once.
+- Reusing an exhausted generator (it yields nothing the second time).
+
+## Interview Questions
+
+- Generator vs iterator?
+- How do decorators work? Why `functools.wraps`?
+- What does `lru_cache` do and when is it safe?
+- What problem do generators solve for large data?
+
+## Things to Remember
+
+- `yield` = lazy, memory-efficient iteration.
+- Decorators add cross-cutting behavior without touching the function body.
+- `collections` and `itertools` save you from reinventing wheels.
+
+## Mini Exercise
+
+Write a decorator `timed` that prints how long the wrapped function took, then
+apply it to a function that sums a large generator.
+
+## Done When
+
+- [ ] You can write a generator and explain laziness.
+- [ ] You can write a decorator (with and without arguments).
+- [ ] You can use `Counter`, `defaultdict`, and `lru_cache`.

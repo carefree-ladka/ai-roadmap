@@ -1,0 +1,151 @@
+.container {
+  max-width: 820px;
+}
+
+.summary {
+  margin: 1.5rem 0 2rem;
+  padding: 1.25rem 1.5rem;
+  border: 1px solid var(--ifm-color-emphasis-300);
+  border-radius: 12px;
+  background: var(--ifm-background-surface-color);
+}
+
+.count {
+  font-size: 1.4rem;
+  font-weight: 700;
+}
+
+.barOuter {
+  margin: 0.75rem 0 0.5rem;
+  height: 14px;
+  width: 100%;
+  border-radius: 999px;
+  background: var(--ifm-color-emphasis-200);
+  overflow: hidden;
+}
+
+.barInner {
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    var(--ifm-color-primary),
+    var(--ifm-color-success)
+  );
+  transition: width 0.3s ease;
+}
+
+.pct {
+  font-size: 0.9rem;
+  color: var(--ifm-color-emphasis-700);
+}
+
+.list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--ifm-color-emphasis-300);
+  border-radius: 10px;
+  background: var(--ifm-background-surface-color);
+}
+
+.item[data-done='true'] {
+  border-color: var(--ifm-color-success);
+}
+
+.itemMain {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+}
+
+.itemIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  font-size: 1.35rem;
+  flex-shrink: 0;
+  border-radius: 11px;
+  background: hsl(var(--card-hue) 85% 60% / 0.14);
+  border: 1px solid hsl(var(--card-hue) 85% 60% / 0.28);
+}
+
+.itemNumber {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: var(--ifm-color-primary);
+  margin-right: 0.5rem;
+  opacity: 0.8;
+}
+
+.itemTitle {
+  font-weight: 600;
+  font-size: 1.05rem;
+}
+
+.itemGoal {
+  font-size: 0.85rem;
+  color: var(--ifm-color-emphasis-700);
+}
+
+.itemActions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-shrink: 0;
+}
+
+.status {
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.status[data-done='true'] {
+  color: var(--ifm-color-success);
+}
+
+.toggle {
+  padding: 0.35rem 0.75rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  border-radius: 8px;
+  border: 1px solid var(--ifm-color-primary);
+  background: transparent;
+  color: var(--ifm-color-primary);
+}
+
+.toggle:hover:not(:disabled) {
+  background: var(--ifm-color-primary);
+  color: #fff;
+}
+
+.toggle:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.note {
+  margin-top: 1.5rem;
+  font-size: 0.85rem;
+  color: var(--ifm-color-emphasis-600);
+}
+
+@media (max-width: 640px) {
+  .item {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

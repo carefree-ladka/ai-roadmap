@@ -1,0 +1,174 @@
+---
+title: Async & Concurrency
+description: Sync vs async, async/await, coroutines, the event loop, asyncio tasks and gather, blocking vs non-blocking, async HTTP, and threading vs multiprocessing.
+---
+
+import TOCInline from '@theme/TOCInline';
+
+# Async & Concurrency
+
+<TOCInline toc={toc} minHeadingLevel={2} maxHeadingLevel={2} />
+
+:::tip[In this guide]
+The concurrency model FastAPI is built on. Learn `async`/`await`, the event
+loop, when async helps (I/O), and when it doesn't (CPU work).
+:::
+
+## What Is It?
+
+**Asynchronous** code lets a single thread do other work while waiting on I/O
+(network, disk), instead of blocking.
+
+## Why Does It Matter?
+
+FastAPI uses async heavily. An async endpoint calling a database or an LLM can
+serve many concurrent requests on one worker — if you don't block the loop.
+
+## Sync vs Async, Concretely
+
+```python
+import time, asyncio
+
+# Synchronous: total time ≈ sum of sleeps (blocks)
+def sync_work():
+    time.sleep(1)
+    return "done"
+
+# Asynchronous: awaits yield control to the loop
+async def async_work():
+    await asyncio.sleep(1)
+    return "done"
+```
+
+## Coroutines, async/await
+
+An `async def` function is a **coroutine**. Calling it returns a coroutine
+object; you must `await` it (or schedule it) to run:
+
+```python
+async def fetch_user(user_id: int) -> dict:
+    await asyncio.sleep(0.1)        # simulate I/O
+    return {"id": user_id}
+
+async def main():
+    user = await fetch_user(1)      # await pauses until it completes
+    print(user)
+
+asyncio.run(main())                 # starts the event loop
+```
+
+## The Event Loop
+
+The event loop schedules coroutines. While one awaits I/O, the loop runs
+others. There is **one loop per thread**.
+
+## Running Things Concurrently
+
+### gather — run coroutines at once
+
+```python
+async def main():
+    results = await asyncio.gather(
+        fetch_user(1),
+        fetch_user(2),
+        fetch_user(3),
+    )                                # ~0.1s total, not 0.3s
+    print(results)
+```
+
+### Tasks — schedule and manage
+
+```python
+async def main():
+    task = asyncio.create_task(fetch_user(1))   # starts running now
+    # ... do other work ...
+    user = await task
+```
+
+## Blocking vs Non-Blocking
+
+Blocking calls (`time.sleep`, heavy CPU loops, sync DB drivers) **freeze the
+whole loop**. Offload them to a thread:
+
+```python
+import asyncio
+
+def cpu_heavy(n):
+    return sum(i * i for i in range(n))
+
+async def main():
+    # run blocking code without freezing the loop
+    result = await asyncio.to_thread(cpu_heavy, 10_000_000)
+```
+
+## Async HTTP Calls
+
+Use an async client (e.g. `httpx`) instead of blocking `requests`:
+
+```python
+import httpx, asyncio
+
+async def get_json(url: str) -> dict:
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(url)
+        resp.raise_for_status()
+        return resp.json()
+
+async def main():
+    data = await asyncio.gather(
+        get_json("https://httpbin.org/get"),
+        get_json("https://httpbin.org/uuid"),
+    )
+```
+
+## When NOT to Use Async
+
+- **CPU-bound work** (parsing, math, ML inference on CPU): async won't help; use processes or threads.
+- Simple scripts with no concurrency needs — async adds complexity for nothing.
+- When your libraries are sync-only and can't be offloaded.
+
+## Concurrency Models Compared
+
+| Model | Best for | Parallel? | Notes |
+| --- | --- | --- | --- |
+| asyncio | Many I/O waits | No (1 thread) | Cheap concurrency |
+| Threads | I/O + blocking libs | Limited by GIL | `to_thread`, `ThreadPoolExecutor` |
+| Processes | CPU-bound | Yes | `multiprocessing`, side-steps the GIL |
+
+### The GIL
+
+CPython's **Global Interpreter Lock** allows only one thread to execute Python
+bytecode at a time. So threads help with I/O but not CPU-bound parallelism —
+use **multiprocessing** for CPU parallelism.
+
+## Common Mistakes
+
+- Calling a coroutine without `await` (nothing runs; you get a warning).
+- Using blocking `requests`/`time.sleep` inside async endpoints.
+- Expecting asyncio to speed up CPU-bound code.
+- Creating multiple event loops instead of using `asyncio.run` once.
+
+## Interview Questions
+
+- async vs sync — what problem does async solve?
+- What is the event loop? How many per thread?
+- Why doesn't asyncio help CPU-bound work? (the GIL)
+- Threading vs multiprocessing vs asyncio?
+- What happens if you block the event loop?
+
+## Things to Remember
+
+- `await` = "pause here until this I/O finishes; let others run."
+- Never block the loop; offload with `asyncio.to_thread`.
+- I/O-bound → asyncio/threads; CPU-bound → processes.
+
+## Mini Exercise
+
+Write `main()` that fetches three URLs concurrently with `httpx` + `gather`
+and prints how long it took vs doing them sequentially.
+
+## Done When
+
+- [ ] You can write and run coroutines with `asyncio.run`.
+- [ ] You can run tasks concurrently with `gather`.
+- [ ] You can explain when async helps and when it doesn't.

@@ -1,0 +1,124 @@
+---
+title: Install & Basics
+description: Install Ollama, pull a model, run it in the terminal, and understand models, tags, and system requirements.
+---
+
+import TOCInline from '@theme/TOCInline';
+
+# Install & Basics
+
+<TOCInline toc={toc} minHeadingLevel={2} maxHeadingLevel={2} />
+
+:::tip[In this guide]
+Get Ollama running, pull your first model, and chat with it from the terminal.
+:::
+
+## What Is Ollama?
+
+Ollama is a tool that downloads, manages, and runs open LLMs locally, exposing
+a simple HTTP API on your machine. Think "Docker for models".
+
+## Why Local?
+
+- **Privacy** — data stays on your machine.
+- **Cost** — free to experiment.
+- **Offline** — works without internet after download.
+
+## Install
+
+- **macOS**: download the app from [ollama.com](https://ollama.com/download), or use Homebrew.
+- **Linux**:
+
+```bash
+curl -fsSL https://ollama.com/install.sh | sh
+```
+
+- **Windows**: download the installer from the site.
+
+Verify:
+
+```bash
+ollama --version
+```
+
+Ollama runs a background service (default: `http://localhost:11434`).
+
+## Pull and Run a Model
+
+Pull a small, capable model to start:
+
+```bash
+ollama pull llama3.2         # general-purpose, small
+```
+
+Chat interactively:
+
+```bash
+ollama run llama3.2
+>>> Explain RAG in one sentence.
+```
+
+Type `/bye` to exit.
+
+## Models and Tags
+
+Models come in sizes and variants, selected by a tag:
+
+```bash
+ollama pull llama3.2:1b      # smaller/faster
+ollama pull llama3.2:3b      # larger/smarter
+ollama pull mistral          # alternative family
+```
+
+List and manage:
+
+```bash
+ollama list                  # installed models
+ollama rm llama3.2:1b        # remove one
+ollama ps                    # running models
+```
+
+## Choosing a Model
+
+| Priority | Pick |
+| --- | --- |
+| Speed / low RAM | 1–3B models (`llama3.2:1b`, `phi3`) |
+| Quality | 7–8B models (`llama3.1:8b`, `mistral`) |
+| Embeddings (next section) | `nomic-embed-text` |
+
+Bigger models need more RAM/VRAM and run slower on CPU. Start small.
+
+## System Requirements (Rules of Thumb)
+
+- 1–3B models: ~4–8GB RAM, usable on CPU.
+- 7–8B models: ~8–16GB RAM; a GPU helps a lot.
+- Quantized variants (e.g. `q4`) trade a little quality for much less memory.
+
+## Common Mistakes
+
+- Pulling a huge model on a laptop and wondering why it's slow.
+- Forgetting the Ollama service must be running for API calls.
+- Assuming all models behave identically — prompts may need tuning per model.
+
+## Interview Questions
+
+- What does running a model locally buy you vs a hosted API?
+- What is quantization and what's the tradeoff?
+- How does model size relate to memory and latency?
+
+## Things to Remember
+
+- `ollama pull` then `ollama run`.
+- Start with a small model; scale up as needed.
+- The service listens on `localhost:11434`.
+
+## Mini Exercise
+
+Pull two models of different sizes, chat with each with the same prompt, and
+note the difference in speed and answer quality.
+
+## Done When
+
+- [ ] `ollama --version` works.
+- [ ] You can pull and chat with a model in the terminal.
+- [ ] You understand model tags and rough RAM needs.

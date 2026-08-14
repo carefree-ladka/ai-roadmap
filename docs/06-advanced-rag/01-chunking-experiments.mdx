@@ -1,0 +1,137 @@
+---
+title: Chunking Experiments
+description: Chunking strategies — fixed-size, sentence/recursive, structure-aware — plus size/overlap tradeoffs and metadata for filtering and citations.
+---
+
+import TOCInline from '@theme/TOCInline';
+
+# Chunking Experiments
+
+<TOCInline toc={toc} minHeadingLevel={2} maxHeadingLevel={2} />
+
+:::tip[In this guide]
+Chunking is the highest-leverage knob in RAG. Learn the strategies, the
+size/overlap tradeoffs, and how metadata makes chunks filterable and citable.
+:::
+
+## What Is It?
+
+Chunking splits documents into the pieces you embed and retrieve. The strategy
+shapes what the retriever can find.
+
+## Why Does It Matter?
+
+If a chunk mixes several topics, its embedding is muddy and retrieval suffers.
+If chunks are too small, answers lack context. Chunking usually beats swapping
+models for quality gains.
+
+## Strategies
+
+### Fixed-size (character/token)
+
+Simple and predictable (your [baseline](../05-rag-fundamentals/01-ingestion-pipeline.mdx)):
+
+```python
+def fixed_chunks(text, size=800, overlap=100):
+    out, start = [], 0
+    while start < len(text):
+        out.append(text[start:start + size])
+        start += size - overlap
+    return out
+```
+
+Good default; ignores sentence/paragraph boundaries.
+
+### Sentence / recursive splitting
+
+Split on natural boundaries (paragraphs → sentences) and pack up to a size.
+This avoids cutting mid-sentence:
+
+```python
+import re
+
+def sentence_chunks(text, max_chars=800):
+    sentences = re.split(r"(?<=[.!?])\s+", text)
+    chunks, current = [], ""
+    for s in sentences:
+        if len(current) + len(s) > max_chars and current:
+            chunks.append(current.strip())
+            current = ""
+        current += " " + s
+    if current.strip():
+        chunks.append(current.strip())
+    return chunks
+```
+
+### Structure-aware (Markdown/HTML/code)
+
+Split on headings, list items, or functions so each chunk is a coherent unit.
+Keep the heading path in metadata (e.g. `"H2 > H3"`), which improves both
+retrieval and citations.
+
+## Size and Overlap Tradeoffs
+
+| | Too small | Too large |
+| --- | --- | --- |
+| Context | Fragmented, lacks detail | Enough context |
+| Relevance | Precise | Diluted by unrelated text |
+| Count/cost | Many chunks | Fewer chunks |
+
+Starting points: **500–1000 chars** (~100–250 tokens), **10–20% overlap**.
+Then measure with [evaluation](./03-evaluation.mdx) — don't guess.
+
+## Metadata Is Not Optional
+
+Attach rich metadata to every chunk:
+
+```python
+metadata = {
+    "source": "handbook.md",
+    "section": "Onboarding > Accounts",
+    "page": 12,
+    "chunk": 3,
+}
+```
+
+It powers:
+
+- **Filtering**: restrict search to a doc, section, or date.
+- **Citations**: show exactly where an answer came from.
+- **Debugging**: trace a bad answer back to a bad chunk.
+
+## Improving the Project
+
+Swap fixed chunking for sentence/structure-aware chunking in your
+`IngestionService`, and enrich metadata. Re-ingest, then compare answers on a
+handful of known questions.
+
+## Common Mistakes
+
+- Chunking mid-sentence or mid-code-block.
+- Uniform strategy for very different document types.
+- Thin metadata → no filtering or citations.
+- Changing chunking without re-ingesting (old vectors linger).
+
+## Interview Questions
+
+- What chunking strategies exist and their tradeoffs?
+- How do you pick chunk size and overlap?
+- Why is metadata important in RAG?
+- How would you chunk code vs prose differently?
+
+## Things to Remember
+
+- Chunking is often the biggest quality lever.
+- Respect natural boundaries; keep overlap.
+- Metadata enables filtering, citations, debugging.
+
+## Mini Exercise
+
+Implement sentence-based chunking, re-ingest your docs, and compare retrieved
+chunks for two questions against the fixed-size baseline.
+
+## Done When
+
+- [ ] You can implement at least two chunking strategies.
+- [ ] You attach useful metadata to each chunk.
+- [ ] You can articulate the size/overlap tradeoff.

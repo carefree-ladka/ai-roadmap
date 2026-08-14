@@ -1,0 +1,133 @@
+---
+title: Tradeoff Discussions
+description: The key AI/RAG tradeoffs interviewers probe — RAG vs fine-tuning, latency, cost, consistency, scaling — plus a consolidated interview question bank.
+---
+
+import TOCInline from '@theme/TOCInline';
+
+# Tradeoff Discussions
+
+<TOCInline toc={toc} minHeadingLevel={2} maxHeadingLevel={2} />
+
+:::tip[In this guide]
+Senior signal is defending decisions with reasons. Here are the tradeoffs
+interviewers push on, plus a consolidated Python/FastAPI/AI question bank.
+:::
+
+## What Is It?
+
+The recurring "why did you choose X over Y?" decisions in AI systems, and how to
+reason about them out loud.
+
+## Why Does It Matter?
+
+There's rarely one right answer. Interviewers want to see you weigh options
+against requirements (latency, cost, quality, privacy).
+
+## Core Tradeoffs
+
+### RAG vs Fine-tuning
+
+| | RAG | Fine-tuning |
+| --- | --- | --- |
+| Fresh/changing data | Easy (update the store) | Retrain to update |
+| Grounding/citations | Yes | Not inherently |
+| Upfront cost | Lower | Higher (training) |
+| Teaches style/format | Weak | Strong |
+
+Rule of thumb: **RAG for knowledge**, **fine-tuning for behavior/format**. They
+compose.
+
+### Latency vs Quality
+
+More retrieval, reranking, and bigger models improve answers but add latency.
+Budget per stage; cache; use a reranker only when it earns its cost.
+
+### Cost vs Quality
+
+LLM tokens dominate cost. Levers: smaller/local models, lower top-k, caching,
+shorter prompts, and truncating context to what's needed.
+
+### Consistency vs Availability
+
+Right after ingest, is stale retrieval acceptable for a moment? Usually yes —
+favor availability and eventual consistency for the knowledge base.
+
+### Chunk Size / Top-k
+
+Small chunks + higher top-k = precise but fragmented; large chunks + low top-k =
+more context but more noise. Tune with [evaluation](../06-advanced-rag/03-evaluation.mdx).
+
+### Local vs Hosted Models
+
+Local (Ollama): privacy, no per-token cost, control. Hosted: top-tier quality,
+no infra. Choose on data sensitivity, budget, and quality needs.
+
+## Interview Question Bank
+
+### Python
+
+- `list` vs `tuple`? Shallow vs deep copy? Generator vs iterator?
+- What is a decorator? A context manager? A dataclass?
+- What is the GIL? Multiprocessing vs threading? async vs sync?
+- The mutable default argument trap? `*args` vs `**kwargs`?
+
+(Answers: [Python section](../01-python/index.mdx).)
+
+### FastAPI
+
+- Why FastAPI? ASGI vs WSGI?
+- How does dependency injection work? async vs sync endpoints?
+- How does Pydantic validation work? What is middleware?
+- How do you do authentication / JWT? Database session lifecycle?
+- How would you structure a production FastAPI app?
+
+(Answers: [FastAPI section](../02-fastapi/index.mdx).)
+
+### AI / RAG
+
+- What are embeddings? What is cosine similarity?
+- What is chunking and how do you choose size/overlap?
+- What is a vector database? What is hybrid search? Reranking?
+- RAG vs fine-tuning? What causes hallucinations and how do you reduce them?
+- How do you evaluate a RAG system? What is prompt injection?
+- How do you scale RAG? Where's the bottleneck?
+
+(Answers: sections [03](../03-local-llms-ollama/index.mdx)–[08](../09-production-patterns/index.mdx).)
+
+## How to Answer Tradeoff Questions
+
+1. Restate the requirement that matters (latency? cost? freshness?).
+2. Give the options and their pros/cons.
+3. Make a recommendation **for this context**.
+4. Note how you'd validate it (metrics/eval).
+
+## Common Mistakes
+
+- Absolute claims ("X is always better").
+- Ignoring the stated requirements.
+- No plan to measure the decision.
+
+## Interview Questions
+
+- RAG vs fine-tuning — when each?
+- How do you reduce latency without wrecking quality?
+- How do you control LLM cost?
+- Local vs hosted models — how do you decide?
+
+## Things to Remember
+
+- Tie every decision to a requirement.
+- RAG = knowledge; fine-tuning = behavior.
+- Always say how you'd measure the choice.
+
+## Mini Exercise
+
+For your project, write a short "decision log": chunk size, top-k, reranking,
+and local-model choice — each with the tradeoff and how you'd validate it.
+
+## Done When
+
+- [ ] You can argue both sides of the core tradeoffs.
+- [ ] You can answer the question bank in your own words.
+- [ ] You always connect decisions to requirements and metrics.

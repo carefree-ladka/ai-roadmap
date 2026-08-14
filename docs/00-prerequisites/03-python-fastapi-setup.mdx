@@ -1,0 +1,167 @@
+---
+title: Python + FastAPI Setup
+description: Install Python 3.11+, create a virtual environment, install FastAPI, and get a live /health endpoint with Swagger UI.
+---
+
+import TOCInline from '@theme/TOCInline';
+
+# Python + FastAPI Setup
+
+<TOCInline toc={toc} minHeadingLevel={2} maxHeadingLevel={2} />
+
+:::tip[In this guide]
+A reproducible environment you'll reuse for the whole roadmap: Python 3.11+,
+a virtual environment, FastAPI + Uvicorn, and a running `/health` endpoint.
+:::
+
+## Goal
+
+End this page with a working API you can hit in the browser.
+
+## 1. Check Your Python Version
+
+Target **Python 3.11+** (3.12 is great too).
+
+```bash
+python3 --version
+```
+
+If it prints `3.11.x` or higher, you're set. If not, install a newer Python.
+
+### Optional: pyenv for multiple versions
+
+When you need several Python versions side by side, `pyenv` is the cleanest
+option:
+
+```bash
+curl https://pyenv.run | bash
+```
+
+Then follow the printed instructions to add `pyenv` to your shell, and:
+
+```bash
+pyenv install 3.12.3
+pyenv local 3.12.3     # pins this folder to 3.12.3
+```
+
+## 2. Create a Project + Virtual Environment
+
+A **virtual environment** isolates a project's dependencies so they don't
+collide with other projects or the system Python.
+
+```bash
+mkdir rag-api && cd rag-api
+```
+
+### Option A — venv (built in, recommended default)
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+On Windows (PowerShell):
+
+```text
+.venv\Scripts\activate
+```
+
+You'll know it worked when your prompt shows `(.venv)`.
+
+### Option B — Poetry (dependency + packaging tool)
+
+```bash
+curl -sSL https://install.python-poetry.org | python3 -
+poetry init
+poetry add fastapi uvicorn requests chromadb pydantic
+```
+
+### Which should you use?
+
+- **venv + pip** — simplest, universal, nothing new to learn. **Use this as the default for the roadmap.**
+- **Poetry** — better for reproducible builds, lockfiles, and publishing packages. Adopt it once you're comfortable.
+
+## 3. Install FastAPI + Uvicorn
+
+With `.venv` activated:
+
+```bash
+pip install "fastapi" "uvicorn[standard]" requests chromadb pydantic
+```
+
+Record your dependencies:
+
+```bash
+pip freeze > requirements.txt
+```
+
+## 4. Your First Endpoint
+
+Create `main.py`:
+
+```python
+from fastapi import FastAPI
+
+app = FastAPI()
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+```
+
+Run it (the `--reload` flag restarts on file changes):
+
+```bash
+uvicorn main:app --reload
+```
+
+## 5. Verify
+
+Open these in your browser:
+
+- API: [http://localhost:8000/health](http://localhost:8000/health) → `{"status":"ok"}`
+- Swagger UI: [http://localhost:8000/docs](http://localhost:8000/docs)
+- ReDoc: [http://localhost:8000/redoc](http://localhost:8000/redoc)
+
+:::note
+`main:app` means "in `main.py`, use the object named `app`." If you rename the
+file or variable, update this command.
+:::
+
+## Dependencies by Roadmap Section
+
+Install more only when a section needs it:
+
+| Section | Adds |
+| --- | --- |
+| Prereqs / FastAPI | `fastapi`, `uvicorn[standard]`, `requests`, `pydantic` |
+| Embeddings / Vector DB | `chromadb`, `sentence-transformers` |
+| LangChain / LCEL | `langchain`, `langchain-ollama` |
+
+## Common Mistakes
+
+- Forgetting to activate `.venv` (packages "disappear" because you're using system Python).
+- Running `uvicorn` from the wrong directory (it can't find `main.py`).
+- Committing `.venv/`. Add it to `.gitignore`.
+
+## Interview Questions
+
+- What problem does a virtual environment solve?
+- What is `uvicorn`, and what is ASGI?
+- Where does Swagger UI come from in FastAPI?
+
+## Things to Remember
+
+- Activate `.venv` **every** new terminal session.
+- `pip freeze > requirements.txt` after installing.
+- `/docs` is free interactive documentation.
+
+## Done When
+
+- [ ] `python3 --version` → 3.11+.
+- [ ] `.venv` activates and deactivates.
+- [ ] `uvicorn main:app --reload` serves the app.
+- [ ] `/health` returns `{"status":"ok"}`.
+- [ ] Swagger UI loads at `/docs`.
+
+Next: start the [Python roadmap](../01-python/index.mdx).

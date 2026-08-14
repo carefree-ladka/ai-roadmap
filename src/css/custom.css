@@ -1,0 +1,462 @@
+/**
+ * Global theme for the Local-First AI Engineer Roadmap.
+ *
+ * Identity: ink-on-paper technical documentation, with a PCB / schematic
+ * undertone (this is a site about running models on hardware you own).
+ * Deliberately avoids the purple-gradient + glass-navbar + neon-accent
+ * look most AI-product sites default to right now.
+ *
+ * Fonts:
+ *   Newsreader     — headings (serif, editorial/engineering-journal feel)
+ *   Inter          — body copy (neutral, excellent long-form readability)
+ *   JetBrains Mono — code + small technical labels (dotted zero, real
+ *                    ligatures, one of the strongest general-purpose
+ *                    coding faces available)
+ *
+ * IMPORTANT: this file only sets font-family — the fonts themselves still
+ * need to be loaded. Add to docusaurus.config.js `head` (or index.html):
+ *
+ *   <link rel="preconnect" href="https://fonts.googleapis.com">
+ *   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+ *   <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,500&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+ */
+
+/* ---------- Fonts ---------- */
+:root {
+  --ifm-font-family-base: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto,
+    sans-serif;
+  --ifm-heading-font-family: 'Newsreader', Georgia, 'Times New Roman', serif;
+  --ifm-font-family-monospace: 'JetBrains Mono', ui-monospace, SFMono-Regular,
+    Menlo, monospace;
+  --ifm-font-size-base: 16px;
+  --ifm-line-height-base: 1.7;
+  --ifm-heading-font-weight: 600;
+}
+
+code,
+kbd,
+pre {
+  font-feature-settings: 'liga' 1, 'calt' 1, 'tnum' 1;
+}
+
+/* ---------- Light theme ---------- */
+:root {
+  --ifm-color-primary: #2f6f4e;
+  --ifm-color-primary-dark: #255a3f;
+  --ifm-color-primary-darker: #1f4c35;
+  --ifm-color-primary-darkest: #163524;
+  --ifm-color-primary-light: #3f8760;
+  --ifm-color-primary-lighter: #55a078;
+  --ifm-color-primary-lightest: #8fc3a8;
+
+  --ifm-background-color: #faf9f6;
+  --ifm-background-surface-color: #ffffff;
+  --ifm-navbar-background-color: #faf9f6;
+  --ifm-code-font-size: 90%;
+  --ifm-code-background: rgba(47, 111, 78, 0.07);
+
+  --ra-ink: #14171a;
+  --ra-ink-soft: #4a4f54;
+  --ra-copper: #a8672e;
+  --ra-copper-soft: rgba(168, 103, 46, 0.14);
+  --ra-grid-line: rgba(20, 23, 26, 0.05);
+  --ra-card-border: rgba(20, 23, 26, 0.12);
+  --ra-shadow: 0 6px 20px -12px rgba(20, 23, 26, 0.22);
+  --ra-focus-ring: rgba(47, 111, 78, 0.55);
+  --docusaurus-highlighted-code-line-bg: rgba(47, 111, 78, 0.12);
+
+  /* Footer text — set explicitly, since Docusaurus's footer defaults to
+     light-on-dark and won't auto-invert just because the background did. */
+  --ifm-footer-background-color: #ffffff;
+  --ifm-footer-color: var(--ra-ink-soft);
+  --ifm-footer-link-color: var(--ra-ink);
+  --ifm-footer-link-hover-color: var(--ifm-color-primary);
+  --ifm-footer-title-color: var(--ra-ink);
+}
+
+/* ---------- Dark theme ---------- */
+[data-theme='dark'] {
+  --ifm-color-primary: #5fae82;
+  --ifm-color-primary-dark: #4a9a6d;
+  --ifm-color-primary-darker: #3f8760;
+  --ifm-color-primary-darkest: #2f6f4e;
+  --ifm-color-primary-light: #79c098;
+  --ifm-color-primary-lighter: #93cdac;
+  --ifm-color-primary-lightest: #bfe3cd;
+
+  --ifm-background-color: #0e1310;
+  --ifm-background-surface-color: #141a17;
+  --ifm-navbar-background-color: #0e1310;
+  --ifm-code-background: rgba(95, 174, 130, 0.1);
+
+  --ra-ink: #e7e9e4;
+  --ra-ink-soft: #a4aba5;
+  --ra-copper: #d69a57;
+  --ra-copper-soft: rgba(214, 154, 87, 0.14);
+  --ra-grid-line: rgba(231, 233, 228, 0.05);
+  --ra-card-border: rgba(231, 233, 228, 0.13);
+  --ra-shadow: 0 10px 28px -14px rgba(0, 0, 0, 0.6);
+  --ra-focus-ring: rgba(95, 174, 130, 0.6);
+  --docusaurus-highlighted-code-line-bg: rgba(95, 174, 130, 0.16);
+
+  --ifm-footer-background-color: #141a17;
+  --ifm-footer-color: var(--ra-ink-soft);
+  --ifm-footer-link-color: var(--ra-ink);
+  --ifm-footer-link-hover-color: var(--ifm-color-primary);
+  --ifm-footer-title-color: var(--ra-ink);
+}
+
+/* ---------- Motion & accessibility baseline ---------- */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+:is(a, button, [role='button'], input, .menu__link, .pagination-nav__link):focus-visible {
+  outline: 2px solid var(--ra-focus-ring);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--ifm-color-primary) 30%, transparent);
+}
+
+/* ---------- Base page: quiet graph-paper texture, no color blobs ---------- */
+html,
+body {
+  background-color: var(--ifm-background-color);
+}
+
+body {
+  background-image: linear-gradient(var(--ra-grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--ra-grid-line) 1px, transparent 1px);
+  background-size: 32px 32px;
+  background-attachment: fixed;
+}
+
+/* Hero gets the one bolder moment: the grid resolves into a schematic
+   trace pattern that fades out — signature element, used exactly once. */
+.hero {
+  position: relative;
+  overflow: hidden;
+  background-color: transparent;
+}
+
+.hero::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(
+      circle at 1px 1px,
+      color-mix(in srgb, var(--ifm-color-primary) 35%, transparent) 1.4px,
+      transparent 1.4px
+    ),
+    linear-gradient(var(--ra-grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--ra-grid-line) 1px, transparent 1px);
+  background-size: 64px 64px, 32px 32px, 32px 32px;
+  mask-image: radial-gradient(ellipse 75% 55% at 50% 0%, black 30%, transparent 100%);
+  -webkit-mask-image: radial-gradient(
+    ellipse 75% 55% at 50% 0%,
+    black 30%,
+    transparent 100%
+  );
+  pointer-events: none;
+}
+
+.hero > * {
+  position: relative;
+}
+
+/* ---------- Headings ---------- */
+h1,
+h2,
+h3 {
+  color: var(--ra-ink);
+  letter-spacing: -0.01em;
+  font-weight: 600;
+}
+
+.markdown h1:first-child {
+  font-size: clamp(2rem, 1.6rem + 1.6vw, 2.6rem);
+  letter-spacing: -0.02em;
+}
+
+/* Trace-to-via rule under H2s: a hairline that terminates in a filled
+   dot, like a PCB trace landing on a via. The one recurring motif. */
+.markdown > h2 {
+  position: relative;
+  padding-bottom: 0.4rem;
+  margin-top: 2.6rem;
+  border-bottom: 1px solid var(--ra-card-border);
+}
+
+.markdown > h2::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  bottom: -4px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ifm-color-primary);
+}
+
+/* Eyebrow-style small caps label, for use above H1s where desired */
+.ra-eyebrow {
+  display: inline-block;
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ra-copper);
+  margin-bottom: 0.5rem;
+}
+
+/* ---------- Navbar: solid and crisp, no blur/glass ---------- */
+.navbar {
+  border-bottom: 1px solid var(--ra-card-border);
+  box-shadow: none;
+}
+
+.navbar__title {
+  font-family: var(--ifm-heading-font-family);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.navbar__link {
+  font-weight: 500;
+  font-size: 0.94rem;
+}
+
+.navbar__link:hover {
+  color: var(--ifm-color-primary);
+}
+
+.header-github-link:hover {
+  opacity: 0.7;
+}
+.header-github-link::before {
+  content: '';
+  width: 21px;
+  height: 21px;
+  display: flex;
+  background-color: var(--ifm-navbar-link-color);
+  mask-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12'/%3E%3C/svg%3E");
+  mask-repeat: no-repeat;
+  mask-position: center;
+}
+
+/* ---------- Links ---------- */
+.markdown a {
+  color: var(--ifm-color-primary);
+  font-weight: 500;
+  text-decoration-color: color-mix(in srgb, var(--ifm-color-primary) 45%, transparent);
+  text-underline-offset: 3px;
+  transition: text-decoration-color 0.12s ease;
+}
+.markdown a:hover {
+  text-decoration-color: var(--ifm-color-primary);
+}
+
+/* ---------- Code ---------- */
+/* Scoped to :not(pre) so this only styles inline code — it was
+   previously applying to code inside blocks too, which is what made
+   block code look cramped and oddly bordered line-by-line. */
+:not(pre) > code {
+  border: 1px solid var(--ra-card-border);
+  border-radius: 4px;
+  padding: 0.15rem 0.4rem;
+  font-size: 0.88em;
+}
+
+.theme-code-block,
+div[class^='codeBlockContainer'] {
+  border-radius: 8px !important;
+  border: 1px solid var(--ra-card-border);
+  box-shadow: var(--ra-shadow);
+}
+
+/* Comfortable breathing room inside the block itself */
+.theme-code-block pre,
+div[class^='codeBlockContainer'] pre {
+  padding: 1.15rem 1.25rem !important;
+  font-size: 0.87rem;
+  line-height: 1.65;
+}
+
+/* Line numbers (used when a fence has `showLineNumbers`, or globally
+   if you add the remark plugin below). Infima adds the counter via
+   this ::before on each line when the container carries this class. */
+.theme-code-block pre.prism-code[class*='language-'] {
+  counter-reset: line-count;
+}
+div[class*='codeLine'] {
+  padding-right: 0;
+}
+.theme-code-block .codeLineNumber::before {
+  color: var(--ra-ink-soft);
+  opacity: 0.5;
+}
+
+/* ---------- Tables ---------- */
+.markdown table {
+  display: table;
+  width: 100%;
+  border-radius: 6px;
+  overflow: hidden;
+  border-collapse: collapse;
+  border: 1px solid var(--ra-card-border);
+  font-size: 0.94rem;
+}
+
+.markdown table thead {
+  background: color-mix(in srgb, var(--ifm-color-primary) 8%, transparent);
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 0.8rem;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.markdown table th,
+.markdown table td {
+  border: 1px solid var(--ra-card-border);
+}
+
+/* ---------- Blockquotes / admonitions ---------- */
+.markdown blockquote {
+  border-left: 3px solid var(--ra-copper);
+  background: var(--ra-copper-soft);
+  border-radius: 0 6px 6px 0;
+  color: var(--ra-ink-soft);
+}
+
+.theme-admonition {
+  border-radius: 8px;
+  border: 1px solid var(--ra-card-border);
+}
+
+/* ---------- Sidebar: trace-bar on the active item ---------- */
+.menu__link {
+  border-radius: 6px;
+  font-size: 0.9rem;
+  border-left: 2px solid transparent;
+  padding-left: calc(var(--ifm-menu-link-padding-horizontal) - 2px);
+  transition: border-color 0.12s ease, background-color 0.12s ease;
+}
+
+.menu__link:hover {
+  background: color-mix(in srgb, var(--ifm-color-primary) 6%, transparent);
+}
+
+.menu__link--active {
+  font-weight: 600;
+  border-left-color: var(--ifm-color-primary);
+  background: color-mix(in srgb, var(--ifm-color-primary) 8%, transparent);
+}
+
+.menu__list-item-collapsible {
+  border-radius: 6px;
+  font-weight: 600;
+}
+
+/* ---------- Inline TOC ---------- */
+.table-of-contents__left-border {
+  border-left-color: var(--ra-card-border);
+}
+
+.table-of-contents__link--active {
+  color: var(--ifm-color-primary);
+  font-weight: 600;
+}
+
+/* ---------- Pagination cards ---------- */
+.pagination-nav__link {
+  border: 1px solid var(--ra-card-border);
+  border-radius: 8px;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+.pagination-nav__link:hover {
+  border-color: var(--ifm-color-primary);
+  transform: translateY(-2px);
+}
+.pagination-nav__label {
+  font-family: var(--ifm-heading-font-family);
+}
+
+/* ---------- Footer ---------- */
+.footer {
+  background: var(--ifm-footer-background-color);
+  border-top: 1px solid var(--ra-card-border);
+}
+
+.footer__title {
+  font-family: var(--ifm-heading-font-family);
+  font-weight: 600;
+  color: var(--ifm-footer-title-color);
+}
+
+.footer__link-item {
+  color: var(--ifm-footer-link-color);
+  opacity: 0.75;
+}
+.footer__link-item:hover {
+  opacity: 1;
+  color: var(--ifm-footer-link-hover-color);
+}
+
+/* ---------- Scrollbar ---------- */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--ifm-color-primary) 40%, transparent)
+    transparent;
+}
+*::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+*::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--ifm-color-primary) 40%, transparent);
+  border-radius: 4px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+/* ---------- Buttons: solid ink, copper underline on hover — no gradient fill ---------- */
+.button--primary {
+  background: var(--ra-ink);
+  color: var(--ifm-background-color);
+  border: none;
+  border-radius: 6px;
+  box-shadow: none;
+  position: relative;
+  transition: transform 0.15s ease;
+}
+.button--primary::after {
+  content: '';
+  position: absolute;
+  left: 0.9rem;
+  right: 0.9rem;
+  bottom: 4px;
+  height: 2px;
+  background: var(--ra-copper);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.18s ease;
+}
+.button--primary:hover {
+  transform: translateY(-1px);
+}
+.button--primary:hover::after {
+  transform: scaleX(1);
+}
+.button--primary:active {
+  transform: translateY(0);
+}

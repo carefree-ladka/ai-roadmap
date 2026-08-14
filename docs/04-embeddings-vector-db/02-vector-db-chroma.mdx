@@ -1,0 +1,155 @@
+---
+title: Vector DB with Chroma
+description: Why vector databases exist, ANN search, using Chroma — collections, adding documents, metadata, querying, and persistence.
+---
+
+import TOCInline from '@theme/TOCInline';
+
+# Vector DB with Chroma
+
+<TOCInline toc={toc} minHeadingLevel={2} maxHeadingLevel={2} />
+
+:::tip[In this guide]
+Store embeddings and search them fast with Chroma: collections, documents +
+metadata, querying by similarity, and persisting to disk.
+:::
+
+## What Is It?
+
+A **vector database** stores embeddings and finds the nearest ones to a query
+vector quickly, even across millions of items. **Chroma** is a simple,
+local-first option perfect for learning.
+
+## Why Does It Matter?
+
+Comparing a query against every stored vector is O(n) and slow at scale. Vector
+DBs use **approximate nearest neighbor (ANN)** indexes to return the top matches
+in milliseconds.
+
+## Install
+
+```bash
+pip install chromadb
+```
+
+## Collections
+
+A collection groups related vectors (like a table). Chroma can embed text for
+you or accept precomputed vectors.
+
+```python
+import chromadb
+
+client = chromadb.Client()                       # in-memory
+collection = client.create_collection("docs")
+```
+
+## Adding Documents
+
+Let Chroma embed the text (uses a default embedder), storing text + metadata +
+ids:
+
+```python
+collection.add(
+    ids=["doc1", "doc2", "doc3"],
+    documents=[
+        "RAG retrieves relevant context before generating an answer.",
+        "Chroma is a local-first vector database.",
+        "FastAPI builds typed Python APIs.",
+    ],
+    metadatas=[
+        {"source": "rag.md", "topic": "rag"},
+        {"source": "chroma.md", "topic": "vectordb"},
+        {"source": "fastapi.md", "topic": "backend"},
+    ],
+)
+```
+
+To supply your own embeddings (e.g. from [sentence-transformers](./01-embeddings.mdx)),
+pass `embeddings=[...]` alongside `documents`.
+
+## Querying by Similarity
+
+```python
+results = collection.query(
+    query_texts=["What is retrieval augmented generation?"],
+    n_results=2,
+)
+for doc, meta, dist in zip(
+    results["documents"][0], results["metadatas"][0], results["distances"][0]
+):
+    print(round(dist, 3), meta["source"], "→", doc)
+```
+
+`n_results` is your **top-k**. Lower distance = more similar.
+
+## Metadata Filtering
+
+Combine semantic search with structured filters:
+
+```python
+results = collection.query(
+    query_texts=["how do I build an API?"],
+    n_results=3,
+    where={"topic": "backend"},        # only backend docs
+)
+```
+
+Metadata (source, page, date, author) also powers **citations** later.
+
+## Persistence
+
+Keep data across restarts by writing to disk:
+
+```python
+import chromadb
+
+client = chromadb.PersistentClient(path="./chroma")   # saved to ./chroma
+collection = client.get_or_create_collection("docs")
+```
+
+## Distance Metrics
+
+Chroma collections default to a distance metric (e.g. L2). You can configure
+cosine, which pairs naturally with normalized embeddings:
+
+```python
+collection = client.create_collection(
+    "docs",
+    metadata={"hnsw:space": "cosine"},
+)
+```
+
+`hnsw` refers to the ANN index (Hierarchical Navigable Small World) Chroma uses.
+
+## Common Mistakes
+
+- Recreating the collection each run and losing data (use `PersistentClient` + `get_or_create_collection`).
+- Mixing embedding models between `add` and `query`.
+- Ignoring metadata — you'll want it for filtering and citations.
+- Setting `n_results` too high (irrelevant chunks dilute the prompt).
+
+## Interview Questions
+
+- Why use a vector DB instead of scanning all vectors?
+- What is approximate nearest neighbor search?
+- What is a collection, and what is top-k?
+- How does metadata support filtering and citations?
+
+## Things to Remember
+
+- Vector DB = fast ANN search over embeddings.
+- Store text + metadata + ids together.
+- Persist to disk; keep the embedding model consistent.
+
+## Mini Exercise
+
+Create a persistent Chroma collection, add five documents with `source`
+metadata, and query it — print the top-2 results with their sources and
+distances.
+
+## Done When
+
+- [ ] You can create (persistent) collections.
+- [ ] You can add documents with metadata and query top-k.
+- [ ] You can filter by metadata and explain ANN search.
