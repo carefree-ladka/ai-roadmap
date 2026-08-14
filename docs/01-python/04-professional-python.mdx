@@ -1,0 +1,752 @@
+---
+title: "Phase 4 — Professional Python"
+description: Type hints, mypy, dataclasses, virtual environments, pip, requirements.txt, pyproject.toml, logging, testing with pytest, async Python, context managers, decorators, and clean backend patterns.
+---
+
+import TOCInline from '@theme/TOCInline';
+
+# Phase 4 — Professional Python
+
+<TOCInline toc={toc} minHeadingLevel={2} maxHeadingLevel={2} />
+
+:::tip[In this guide]
+This is what separates "I can write a script" from "I can ship a service."
+Typed code that `mypy` checks, reproducible environments, structured logging,
+a real test suite, `async` for I/O-bound work, context managers for safe
+resource handling, decorators for cross-cutting concerns, and the clean
+architecture patterns that FastAPI and RAG services are built on.
+:::
+
+## What Is It?
+
+The tools and practices that make Python maintainable in a team and in
+production: static typing, environment management, packaging, logging, testing,
+concurrency, and structural patterns.
+
+## Why Does It Matter?
+
+FastAPI is "just Python" that leans on **type hints** and **async**. Production
+RAG services need **logging**, **tests**, and **clean structure** to be
+debuggable and safe to change. Every topic here pays off directly in the later
+phases of the roadmap.
+
+---
+
+## Type Hints
+
+Type hints annotate what a function expects and returns. Python **does not
+enforce** them at runtime — they're for humans, editors, and type checkers like
+`mypy`. But they power autocomplete, catch bugs early, and drive Pydantic/FastAPI.
+
+```python
+def greet(name: str, times: int = 1) -> str:
+    return f"Hello {name}! " * times
+
+age: int = 36
+scores: list[int] = [90, 85]
+user: dict[str, int] = {"ada": 36}
+pair: tuple[str, int] = ("ada", 36)
+```
+
+### The typing toolbox
+
+```python
+from typing import Optional, Union, Any, Callable
+
+# Optional[X] means "X or None"  (same as X | None on 3.10+)
+def find(uid: int) -> Optional[str]:
+    ...
+
+# Union / the | operator: "one of these types"
+def parse(value: str) -> int | float:
+    ...
+
+# Callable: a function type -> Callable[[args], return]
+handler: Callable[[int, int], int] = lambda a, b: a + b
+
+# Modern built-in generics (3.9+): use list/dict/tuple, not List/Dict/Tuple
+names: list[str] = []
+```
+
+### TypedDict, Protocol, and generics
+
+```python
+from typing import TypedDict, Protocol, TypeVar
+
+# TypedDict: a dict with a known shape
+class UserDict(TypedDict):
+    name: str
+    age: int
+
+# Protocol: structural typing — "anything with these methods" (typed duck typing)
+class SupportsClose(Protocol):
+    def close(self) -> None: ...
+
+def shutdown(resource: SupportsClose) -> None:
+    resource.close()          # any object with .close() satisfies this
+
+# TypeVar + generics: preserve the input type in the output
+T = TypeVar("T")
+def first(items: list[T]) -> T:
+    return items[0]
+
+first([1, 2, 3])      # inferred as int
+first(["a", "b"])     # inferred as str
+```
+
+:::info[Theory: gradual, erased typing]
+Python's typing is **gradual** (annotate as much or as little as you like) and
+**erased** (annotations don't affect runtime behavior). `def f(x: int)` still
+happily accepts a `str` at runtime — nothing checks it unless you run `mypy` or
+use a validating library like Pydantic. Hints are documentation the tools can
+verify.
+:::
+
+:::note[Highlight: `Protocol` = typed duck typing]
+`Protocol` lets you type "duck typing" from Phase 3: a parameter is valid if it
+has the right *methods/attributes*, regardless of its class or base. This is how
+you write flexible, testable interfaces without forcing inheritance.
+:::
+
+---
+
+## mypy
+
+`mypy` is a static type checker. It reads your annotations and flags mismatches
+**before** you run the code.
+
+```bash
+pip install mypy
+mypy app/                    # check a package
+mypy --strict app/           # recommended: turn on all the safety checks
+```
+
+```python
+def add(a: int, b: int) -> int:
+    return a + b
+
+add("1", "2")     # mypy error: Argument 1 has incompatible type "str"
+```
+
+Configure it in `pyproject.toml`:
+
+```toml
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unused_ignores = true
+```
+
+:::note[Highlight: catch bugs before runtime]
+`mypy` finds a whole class of errors (`None` where a value is required,
+wrong argument types, missing return paths) at edit/CI time instead of in
+production. Run it in CI alongside your tests. Start loose, then move toward
+`--strict`.
+:::
+
+---
+
+## Dataclasses
+
+Covered in depth in [Phase 3 → Dataclasses](./03-oop.mdx#dataclasses). In
+professional code they shine as typed containers for **configuration**, **DTOs**
+(data transfer objects), and **service results** — anywhere you want structure
+without hand-written boilerplate.
+
+```python
+from dataclasses import dataclass
+
+@dataclass(frozen=True)          # immutable config is safer to share
+class Settings:
+    db_url: str
+    pool_size: int = 5
+    debug: bool = False
+```
+
+:::info[Theory: dataclass vs Pydantic in a service]
+Use a `@dataclass` for **trusted, internal** data. Use a Pydantic model when
+data arrives from **outside** (an HTTP request, an env file, an LLM response)
+and needs **validation/parsing**. FastAPI uses Pydantic for exactly this reason.
+:::
+
+---
+
+## Virtual Environments
+
+A virtual environment is an isolated Python + packages for one project, so
+projects don't clash over dependency versions.
+
+```bash
+python -m venv .venv           # create it (a .venv folder)
+
+source .venv/bin/activate      # activate (macOS / Linux)
+# .venv\Scripts\activate       # activate (Windows)
+
+python -m pip install fastapi  # installs INTO the venv only
+deactivate                     # leave the environment
+```
+
+:::warning[Always work inside a venv]
+Installing packages globally pollutes your system Python and guarantees
+version conflicts between projects eventually. Create a `.venv` per project and
+add it to `.gitignore`. Your prompt usually shows `(.venv)` when it's active.
+:::
+
+:::info[Theory: why isolation matters]
+Project A may need `pydantic 1.x` while project B needs `pydantic 2.x`. Without
+isolation they'd fight over one global install. A venv gives each project its
+own `site-packages`, making builds reproducible across machines and CI.
+:::
+
+---
+
+## pip
+
+`pip` installs packages from PyPI (the Python Package Index).
+
+```bash
+pip install requests                 # latest version
+pip install "fastapi==0.115.0"       # exact (pinned) version
+pip install "httpx>=0.27,<1.0"       # a compatible range
+pip install --upgrade requests       # upgrade
+pip uninstall requests
+pip list                             # what's installed
+pip show fastapi                     # metadata for one package
+```
+
+:::caution[Pin versions for reproducibility]
+`pip install fastapi` grabs whatever is newest today, which may differ next
+week or on a teammate's machine. Pin exact versions for applications so builds
+are reproducible. Libraries can use ranges to stay compatible with their users.
+:::
+
+---
+
+## requirements.txt
+
+The classic way to record and reinstall an app's dependencies.
+
+```text
+# requirements.txt
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+httpx>=0.27,<1.0
+pydantic==2.9.2
+```
+
+```bash
+pip freeze > requirements.txt        # snapshot EXACTLY what's installed
+pip install -r requirements.txt      # reproduce that environment
+```
+
+:::note[Highlight: split app vs dev dependencies]
+Keep runtime deps in `requirements.txt` and testing/linting tools
+(`pytest`, `mypy`, `ruff`) in a separate `requirements-dev.txt`. Your production
+image then installs only what it needs, staying smaller and more secure.
+:::
+
+---
+
+## pyproject.toml
+
+The modern, standardized project file (PEP 517/518/621). It replaces
+`setup.py`, centralizes dependencies, and configures your tools in one place.
+
+```toml
+[project]
+name = "rag-service"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi==0.115.0",
+    "pydantic==2.9.2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest==8.3.3", "mypy==1.11.2", "ruff==0.6.9"]
+
+[tool.ruff]
+line-length = 99
+
+[tool.mypy]
+strict = true
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+```
+
+```bash
+pip install -e .            # install this project (editable) + its deps
+pip install -e ".[dev]"     # also install the dev extras
+```
+
+:::info[Theory: one file to rule them all]
+`pyproject.toml` unifies packaging metadata **and** tool config (`ruff`, `mypy`,
+`pytest`). Modern tools like `uv`, `poetry`, `pdm`, and `hatch` build on it.
+Prefer it over `setup.py` + scattered `.cfg`/`.ini` files for new projects.
+:::
+
+---
+
+## Logging
+
+Use the `logging` module, never `print`, for anything that runs beyond a quick
+script. Logging gives you levels, timestamps, module names, and routing to
+files/aggregators — configurable without touching call sites.
+
+```python
+import logging
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+
+logger = logging.getLogger(__name__)     # one logger per module
+
+logger.debug("Fine-grained detail")      # hidden at INFO level
+logger.info("Server started on :8000")
+logger.warning("Retrying request %s", req_id)   # lazy %-formatting
+logger.error("DB connection failed")
+try:
+    risky()
+except Exception:
+    logger.exception("Unhandled error")   # ERROR + full traceback
+```
+
+### Levels, low to high
+
+`DEBUG` → `INFO` → `WARNING` → `ERROR` → `CRITICAL`. Setting the level to
+`INFO` shows `INFO` and above; `DEBUG` messages are suppressed.
+
+:::warning[Don't log with print, and don't f-string log args]
+
+```python
+logger.info("user %s logged in", user_id)   # GOOD: lazy — formats only if emitted
+logger.info(f"user {user_id} logged in")     # wasteful: builds string even if filtered
+```
+
+`print` can't be filtered by level, has no timestamps, and can't be routed to
+files/observability tools. Use `logging`.
+:::
+
+:::note[Highlight: one logger per module]
+`logging.getLogger(__name__)` gives each module its own named logger, so you can
+raise/lower verbosity per subsystem and see *where* a message came from. Never
+log secrets, tokens, or full request bodies.
+:::
+
+---
+
+## Testing with pytest
+
+`pytest` is the de facto test framework: plain functions, plain `assert`, rich
+failure output.
+
+```python
+# tests/test_math.py
+from myapp.math_utils import add
+
+def test_add_positive():
+    assert add(2, 3) == 5
+
+def test_add_negative():
+    assert add(-1, -1) == -2
+```
+
+```bash
+pip install pytest
+pytest                      # discover and run tests/
+pytest -v                   # verbose
+pytest tests/test_math.py::test_add_positive   # one test
+pytest -k "add and not negative"               # filter by name
+```
+
+### Fixtures — reusable setup
+
+```python
+import pytest
+
+@pytest.fixture
+def sample_user():
+    return {"id": 1, "name": "Ada"}
+
+def test_name(sample_user):          # ask for the fixture by parameter name
+    assert sample_user["name"] == "Ada"
+```
+
+### Parametrize — many cases, one test
+
+```python
+@pytest.mark.parametrize("a, b, expected", [
+    (2, 3, 5),
+    (0, 0, 0),
+    (-1, 1, 0),
+])
+def test_add(a, b, expected):
+    assert add(a, b) == expected     # runs three times
+```
+
+### Testing exceptions and mocking
+
+```python
+def test_divide_by_zero():
+    with pytest.raises(ZeroDivisionError):
+        1 / 0
+
+from unittest.mock import patch
+
+def test_calls_api():
+    with patch("myapp.client.requests.get") as mock_get:
+        mock_get.return_value.json.return_value = {"ok": True}
+        assert fetch_status() == {"ok": True}
+```
+
+### Async tests
+
+```python
+import pytest
+
+@pytest.mark.asyncio             # needs the pytest-asyncio plugin
+async def test_fetch():
+    result = await fetch_data()
+    assert result is not None
+```
+
+:::note[Highlight: AAA and fast, isolated tests]
+Structure tests as **Arrange, Act, Assert**. Keep each test independent (no
+shared mutable state, no ordering dependencies) and fast. Mock external I/O
+(network, DB) so unit tests don't hit real services. Aim to cover behavior, not
+implementation details.
+:::
+
+---
+
+## Async Python
+
+`async`/`await` enables **concurrency for I/O-bound** work — many network calls,
+DB queries, or file reads overlapping while each waits. It is not parallelism:
+one thread cooperatively switches between tasks at `await` points.
+
+```python
+import asyncio
+
+async def fetch(url: str) -> str:
+    print(f"start {url}")
+    await asyncio.sleep(1)        # simulate I/O; yields control while waiting
+    print(f"done {url}")
+    return f"data:{url}"
+
+async def main():
+    # Run three fetches CONCURRENTLY — total ~1s, not 3s
+    results = await asyncio.gather(
+        fetch("a"), fetch("b"), fetch("c"),
+    )
+    print(results)
+
+asyncio.run(main())               # entry point that starts the event loop
+```
+
+### Rules of the async world
+
+```python
+async def get_user(uid: int) -> dict:
+    return await db.fetch_one(uid)    # 'await' only inside 'async def'
+
+# Calling an async function returns a COROUTINE — it doesn't run yet
+coro = get_user(1)                    # nothing happened
+result = await coro                   # now it runs (inside another async fn)
+```
+
+:::info[Theory: async vs threads vs processes (and the GIL)]
+- **`asyncio`** — single thread, cooperative. Best for **I/O-bound** work
+  (APIs, DB, files). Lightweight; thousands of tasks are cheap.
+- **Threads** — OS-managed, preemptive. Limited for CPU work by the **GIL**
+  (Global Interpreter Lock), which lets only one thread run Python bytecode at a
+  time — but great for blocking I/O in libraries that release the GIL.
+- **Processes** (`multiprocessing`) — true parallelism for **CPU-bound** work,
+  each with its own interpreter and memory.
+
+Rule of thumb: I/O-bound → `asyncio`; CPU-bound → processes.
+:::
+
+:::warning[Never block the event loop]
+Calling a blocking function (`time.sleep`, heavy CPU, sync DB driver) inside
+`async` code freezes *every* task on that loop. Use async equivalents
+(`asyncio.sleep`, async DB drivers) or push blocking work to a thread/process
+pool via `asyncio.to_thread(...)`.
+:::
+
+---
+
+## Context Managers
+
+A context manager guarantees **setup and teardown** around a block, even if an
+exception is raised. You've used one already: `with open(...)`.
+
+```python
+with open("data.txt", encoding="utf-8") as f:
+    data = f.read()
+# file is closed here automatically, even on error
+```
+
+### Build your own with a class
+
+```python
+class Timer:
+    def __enter__(self):
+        import time
+        self.start = time.perf_counter()
+        return self                       # value bound to 'as'
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        import time
+        self.elapsed = time.perf_counter() - self.start
+        print(f"took {self.elapsed:.3f}s")
+        return False                       # False -> don't suppress exceptions
+
+with Timer() as t:
+    do_work()
+```
+
+### The easier way: `contextlib.contextmanager`
+
+```python
+from contextlib import contextmanager
+
+@contextmanager
+def transaction(conn):
+    tx = conn.begin()
+    try:
+        yield tx                 # everything before yield = setup
+        tx.commit()              # runs if the block succeeded
+    except Exception:
+        tx.rollback()            # runs on error
+        raise
+    finally:
+        tx.close()               # always runs
+
+with transaction(conn) as tx:
+    tx.execute("INSERT ...")
+```
+
+:::info[Theory: `__enter__` / `__exit__`]
+`with obj as x:` calls `obj.__enter__()` (its return value is bound to `x`), runs
+the block, then always calls `obj.__exit__(exc_type, exc_val, tb)`. If `__exit__`
+returns `True`, the exception is suppressed; return `False`/`None` to let it
+propagate. This is the mechanism behind safe file, lock, and DB-session handling.
+:::
+
+---
+
+## Decorators
+
+A decorator is a function that **wraps** another function to add behavior
+(logging, timing, caching, auth) without changing its body. It relies on
+functions being first-class objects and on `*args`/`**kwargs` forwarding.
+
+```python
+import functools
+
+def log_calls(func):
+    @functools.wraps(func)               # preserve name/docstring of func
+    def wrapper(*args, **kwargs):
+        print(f"-> {func.__name__}")
+        result = func(*args, **kwargs)
+        print(f"<- {func.__name__}")
+        return result
+    return wrapper
+
+@log_calls                                # sugar for: greet = log_calls(greet)
+def greet(name):
+    return f"Hi {name}"
+
+greet("Ada")     # prints -> greet / <- greet, returns "Hi Ada"
+```
+
+### A decorator with arguments
+
+```python
+def retry(times: int):
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            for attempt in range(times):
+                try:
+                    return func(*args, **kwargs)
+                except Exception:
+                    if attempt == times - 1:
+                        raise
+        return wrapper
+    return decorator
+
+@retry(times=3)
+def flaky_call():
+    ...
+```
+
+### Decorators you'll use from the standard library
+
+```python
+from functools import cache, cached_property
+
+@cache                     # memoize results by arguments
+def fib(n: int) -> int:
+    return n if n < 2 else fib(n - 1) + fib(n - 2)
+```
+
+:::note[Highlight: always use `functools.wraps`]
+Without `@functools.wraps(func)`, the wrapper replaces the original function's
+`__name__`, `__doc__`, and signature — breaking debugging, docs, and
+introspection. It's a one-line habit that prevents confusing tracebacks.
+:::
+
+:::info[Theory: what the `@` really does]
+`@decorator` above a function is pure syntax sugar for
+`func = decorator(func)`. Decorators with arguments (`@retry(times=3)`) are
+functions that *return* a decorator — hence the extra nesting layer. FastAPI's
+`@app.get("/")` is exactly this pattern.
+:::
+
+---
+
+## Backend Patterns and Clean Architecture
+
+The structural habits that keep a growing service maintainable: separate
+concerns into layers, centralize configuration, and depend on abstractions so
+code stays testable.
+
+### Layered structure
+
+```text
+app/
+├── main.py            # entrypoint / wiring
+├── config.py          # settings from env (typed)
+├── api/               # HTTP layer: routes, request/response models
+├── services/          # business logic (no HTTP details)
+├── repositories/      # data access (DB, external APIs)
+└── models/            # domain types / dataclasses
+```
+
+:::info[Theory: separation of concerns]
+Each layer has one job and knows only about the layer below it. Routes parse
+HTTP and delegate; services hold business rules; repositories talk to
+storage. This keeps logic testable without a running server or database, and
+lets you swap an implementation (e.g. a vector DB) without touching the API.
+:::
+
+### Typed configuration from the environment
+
+```python
+import os
+from dataclasses import dataclass
+
+@dataclass(frozen=True)
+class Settings:
+    db_url: str
+    llm_model: str = "llama3"
+    debug: bool = False
+
+    @classmethod
+    def from_env(cls) -> "Settings":
+        return cls(
+            db_url=os.environ["DATABASE_URL"],      # required: fail fast if missing
+            llm_model=os.getenv("LLM_MODEL", "llama3"),
+            debug=os.getenv("DEBUG", "false").lower() == "true",
+        )
+```
+
+### The service pattern: depend on an abstraction
+
+Wrap external systems (an LLM API, a vector store) behind a small class so your
+routes and tests never hardcode HTTP or SDK details.
+
+```python
+from typing import Protocol
+
+class LlmClient(Protocol):                # the abstraction (typed interface)
+    async def complete(self, prompt: str) -> str: ...
+
+class OllamaClient:                       # a concrete implementation
+    def __init__(self, base_url: str):
+        self.base_url = base_url
+
+    async def complete(self, prompt: str) -> str:
+        ...                               # real HTTP call to Ollama
+
+class ChatService:                        # business logic, unaware of HTTP
+    def __init__(self, client: LlmClient):
+        self._client = client             # injected dependency
+
+    async def answer(self, question: str) -> str:
+        prompt = f"Answer concisely: {question}"
+        return await self._client.complete(prompt)
+```
+
+:::note[Highlight: dependency injection makes tests trivial]
+Because `ChatService` accepts *any* `LlmClient`, tests pass a fake:
+
+```python
+class FakeLlm:
+    async def complete(self, prompt: str) -> str:
+        return "stubbed answer"
+
+async def test_answer():
+    svc = ChatService(FakeLlm())
+    assert await svc.answer("hi") == "stubbed answer"
+```
+
+No network, no real model — fast, deterministic tests. This is the exact pattern
+you'll reuse for FastAPI services and RAG pipelines later in the roadmap.
+:::
+
+---
+
+## Common Mistakes
+
+- Skipping the virtualenv and installing globally.
+- Unpinned dependencies → "works on my machine" drift.
+- Using `print` instead of `logging` in real services.
+- Blocking the event loop with sync calls inside `async` code.
+- Forgetting `functools.wraps` in decorators.
+- Not running `mypy`/tests in CI, so regressions ship.
+- Putting business logic directly in route handlers (no service layer).
+
+## Interview Questions
+
+- Are type hints enforced at runtime? What does `mypy` add?
+- `Optional[X]` vs `X | None`? What is a `Protocol`?
+- Why use a virtual environment? `requirements.txt` vs `pyproject.toml`?
+- `logging` vs `print` — why does it matter in production?
+- What are pytest fixtures and `parametrize` for?
+- `asyncio` vs threads vs multiprocessing — and what is the GIL?
+- How does a context manager guarantee cleanup?
+- What does the `@` decorator syntax desugar to? Why `functools.wraps`?
+
+## Things to Remember
+
+- Type hints + `mypy` catch bugs before runtime; they don't run your code.
+- One venv per project; pin dependencies; centralize config in `pyproject.toml`.
+- `logging.getLogger(__name__)`, lazy `%` args, never log secrets.
+- `asyncio` for I/O-bound, processes for CPU-bound; never block the loop.
+- Context managers guarantee teardown; decorators add cross-cutting behavior.
+- Layer your code and inject dependencies so it stays testable.
+
+## Mini Exercise
+
+Build a tiny `WeatherService` that depends on a `WeatherClient` `Protocol`.
+Write a real HTTP client and a fake one. Add type hints, a `@retry` decorator on
+the fetch, structured logging, a `pyproject.toml` with a `dev` extra, and
+`pytest` tests (using the fake client and `parametrize`) that pass `mypy --strict`.
+
+## Done When
+
+- [ ] You annotate code and it passes `mypy --strict`.
+- [ ] You set up a venv, pin deps, and configure tools in `pyproject.toml`.
+- [ ] You use structured `logging`, not `print`.
+- [ ] You write pytest tests with fixtures, `parametrize`, and mocks (incl. async).
+- [ ] You know when to use `async`, and never block the loop.
+- [ ] You write context managers and decorators, and structure code into layers.
+
+Next: [02 · FastAPI](../02-fastapi/index.mdx) — everything here, applied to a real API.

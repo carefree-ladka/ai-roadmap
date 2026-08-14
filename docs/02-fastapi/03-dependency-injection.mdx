@@ -1,0 +1,381 @@
+---
+title: "Phase 3 — Dependency Injection"
+description: Depends, dependency functions, dependency classes, nested and shared dependencies, yield-based database sessions, authentication and authorization dependencies, dependency overrides, and testing dependencies.
+---
+
+import TOCInline from '@theme/TOCInline';
+
+# Phase 3 — Dependency Injection
+
+<TOCInline toc={toc} minHeadingLevel={2} maxHeadingLevel={2} />
+
+:::tip[In this guide]
+Dependency injection is arguably the most important concept in FastAPI. It's how
+you share database sessions, enforce authentication, check permissions, and keep
+handlers small. Master `Depends` and you unlock clean, testable, reusable code
+across your whole application.
+:::
+
+## What Is It?
+
+Dependency injection (DI) is a pattern where a function declares what it needs,
+and the framework supplies it. In FastAPI, you declare dependencies with
+`Depends()`, and FastAPI resolves them before your handler runs — calling the
+dependency, caching its result within the request, and injecting the value as an
+argument.
+
+## Why Does It Matter?
+
+DI is how you avoid copy-pasting the same setup code into every endpoint. Getting
+a database session, extracting the current user from a token, checking a role,
+reading pagination params — these are all dependencies. Declaring them once and
+reusing them keeps handlers focused on business logic and makes every piece
+independently testable and replaceable.
+
+---
+
+## `Depends`
+
+`Depends()` is FastAPI's built-in dependency injection mechanism. You pass it a
+**callable** (a function or a class), and FastAPI calls that callable and injects
+the return value into your handler. Here is the canonical example:
+
+```python
+from fastapi import Depends, FastAPI
+
+app = FastAPI()
+
+def get_current_user():
+    return {"id": 1}
+
+@app.get("/profile")
+def profile(user=Depends(get_current_user)):
+    return user
+```
+
+When a request hits `/profile`, FastAPI first calls `get_current_user()`, takes
+its return value, and passes it as the `user` argument. The handler never calls
+the dependency itself — the framework does.
+
+:::info[Theory: inversion of control]
+DI is a form of **inversion of control**. Instead of your handler reaching out to
+fetch what it needs, control is inverted: the framework builds the dependencies
+and hands them in. This decouples "what a handler needs" from "how that thing is
+created," which is exactly what makes the code easy to test and change.
+:::
+
+---
+
+## Dependency Functions
+
+The most common dependency is a plain function. It can itself take path/query
+parameters, other dependencies, and request objects — FastAPI resolves all of
+them. A classic use is shared pagination parameters.
+
+```python
+from typing import Annotated
+from fastapi import Depends
+
+def pagination(limit: int = 10, offset: int = 0) -> dict:
+    return {"limit": min(limit, 100), "offset": offset}
+
+@app.get("/items")
+def list_items(page: Annotated[dict, Depends(pagination)]):
+    return {"query": page}
+
+@app.get("/users")
+def list_users(page: Annotated[dict, Depends(pagination)]):
+    return {"query": page}
+```
+
+Both endpoints now share identical, validated pagination logic. The
+`Annotated[..., Depends(...)]` form is the modern, recommended style because the
+type and the dependency live together.
+
+---
+
+## Dependency Classes (callable classes)
+
+Because `Depends` accepts any callable, a class works too — FastAPI treats the
+class itself as the callable and calls its `__init__`. This is handy when a
+dependency needs configuration or holds state.
+
+```python
+from typing import Annotated
+from fastapi import Depends
+
+class Paginator:
+    def __init__(self, limit: int = 10, offset: int = 0):
+        self.limit = min(limit, 100)
+        self.offset = offset
+
+@app.get("/products")
+def products(page: Annotated[Paginator, Depends(Paginator)]):
+    return {"limit": page.limit, "offset": page.offset}
+```
+
+You get a typed `Paginator` instance with attribute access instead of a dict.
+
+:::note[Highlight: class dependencies give you types]
+A class dependency returns a real typed object, so your editor autocompletes
+`page.limit` and type checkers verify it. A function dependency returning a dict
+loses that. Prefer classes when the dependency's result has meaningful structure.
+:::
+
+---
+
+## Nested Dependencies (dependencies that use dependencies)
+
+Dependencies can depend on other dependencies, forming a graph. FastAPI resolves
+the whole graph in order and injects each result where it's needed.
+
+```python
+from typing import Annotated
+from fastapi import Depends, Header, HTTPException
+
+def get_token(authorization: Annotated[str | None, Header()] = None) -> str:
+    if authorization is None:
+        raise HTTPException(status_code=401, detail="Missing Authorization header")
+    return authorization.removeprefix("Bearer ").strip()
+
+def get_current_user(token: Annotated[str, Depends(get_token)]) -> dict:
+    # normally you'd decode/verify the token here
+    if token != "valid-token":
+        raise HTTPException(status_code=401, detail="Invalid token")
+    return {"id": 1, "role": "admin"}
+
+@app.get("/me")
+def me(user: Annotated[dict, Depends(get_current_user)]):
+    return user
+```
+
+`get_current_user` depends on `get_token`, which depends on the `Authorization`
+header. FastAPI walks that chain automatically.
+
+---
+
+## Shared Dependencies
+
+Within a single request, FastAPI **caches** each dependency's result by default.
+If two dependencies (or a handler and a sub-dependency) both need
+`get_current_user`, it runs only once per request.
+
+```python
+from typing import Annotated
+from fastapi import Depends
+
+@app.get("/dashboard")
+def dashboard(
+    user: Annotated[dict, Depends(get_current_user)],
+    token: Annotated[str, Depends(get_token)],   # already resolved for user; reused
+):
+    return {"user": user, "token": token}
+```
+
+You can also attach dependencies at the router or app level so they run for every
+route without appearing in each signature (useful for global auth).
+
+:::info[Theory: per-request caching]
+FastAPI caches dependency results per request so expensive setup isn't repeated.
+If you genuinely need a fresh result each time a dependency is used, pass
+`Depends(fn, use_cache=False)`. Caching is the default because most dependencies
+(current user, DB session) should be shared within a request.
+:::
+
+---
+
+## Database Dependencies (yield-based session dependency)
+
+The most important real-world dependency is a database session. Using `yield`
+lets you set up the session, hand it to the handler, and guarantee cleanup after
+the response — even if an error occurs.
+
+```python
+from typing import Annotated
+from fastapi import Depends
+from sqlalchemy.orm import Session
+
+def get_db():
+    db = SessionLocal()          # SessionLocal defined in Phase 5
+    try:
+        yield db                 # session is injected into the handler
+    finally:
+        db.close()               # always runs, even on exceptions
+
+@app.get("/users/{user_id}")
+def read_user(user_id: int, db: Annotated[Session, Depends(get_db)]):
+    return db.get(User, user_id)
+```
+
+:::caution[Always clean up in `finally`]
+The code after `yield` runs during teardown. Putting `db.close()` in a `finally`
+block guarantees the connection returns to the pool whether the request succeeded
+or raised. Skipping this leaks connections and eventually exhausts the pool.
+Database sessions and pooling are covered in [Phase 5 — Database](./05-database.mdx).
+:::
+
+---
+
+## Authentication Dependencies
+
+Authentication answers "who is this?" A dependency extracts and verifies
+credentials (a token, a session cookie) and returns the current user, or raises
+`401`. Every protected endpoint then depends on it.
+
+```python
+from typing import Annotated
+from fastapi import Depends, HTTPException
+from fastapi.security import OAuth2PasswordBearer
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+
+def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]) -> dict:
+    user = decode_and_lookup(token)      # verify signature, load user
+    if user is None:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    return user
+
+@app.get("/settings")
+def settings(user: Annotated[dict, Depends(get_current_user)]):
+    return {"owner": user["id"]}
+```
+
+Full token handling, hashing, and OAuth2 flows are covered in
+[Phase 7 — Authentication & Authorization](./07-authentication-authorization.mdx).
+
+---
+
+## Authorization Dependencies (role checks)
+
+Authorization answers "are they allowed to do this?" Build it on top of the
+authentication dependency. A neat trick is a dependency **factory** that returns
+a dependency configured for a required role.
+
+```python
+from typing import Annotated
+from fastapi import Depends, HTTPException
+
+def require_role(required: str):
+    def checker(user: Annotated[dict, Depends(get_current_user)]) -> dict:
+        if user.get("role") != required:
+            raise HTTPException(status_code=403, detail="Insufficient permissions")
+        return user
+    return checker
+
+@app.delete("/users/{user_id}")
+def delete_user(
+    user_id: int,
+    admin: Annotated[dict, Depends(require_role("admin"))],
+):
+    return {"deleted": user_id, "by": admin["id"]}
+```
+
+:::note[Highlight: 401 vs 403]
+Authentication failures return **401 Unauthorized** ("we don't know who you
+are"). Authorization failures return **403 Forbidden** ("we know who you are, but
+you can't do this"). Keeping these distinct makes your API's behavior predictable
+and its logs meaningful.
+:::
+
+---
+
+## Dependency Overrides (`app.dependency_overrides`)
+
+FastAPI lets you swap out any dependency at runtime via
+`app.dependency_overrides`. This is the key to testing: replace the real database
+or the real current user with a fake one.
+
+```python
+def get_db():
+    ...     # real session
+
+def override_get_db():
+    db = TestingSessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+app.dependency_overrides[get_db] = override_get_db   # every get_db now uses the test session
+```
+
+To restore normal behavior, clear it: `app.dependency_overrides.clear()`.
+
+---
+
+## Testing Dependencies
+
+Because dependencies are injected, tests can replace them without touching
+handler code. Combine `dependency_overrides` with FastAPI's `TestClient`.
+
+```python
+from fastapi.testclient import TestClient
+
+def fake_user():
+    return {"id": 99, "role": "admin"}
+
+app.dependency_overrides[get_current_user] = fake_user
+
+client = TestClient(app)
+
+def test_settings_returns_owner():
+    response = client.get("/settings")
+    assert response.status_code == 200
+    assert response.json() == {"owner": 99}
+```
+
+:::info[Theory: DI makes code testable]
+The real payoff of dependency injection is testability. A handler that fetches
+its own database connection is hard to test in isolation; a handler that
+*declares* a `db` dependency can be handed a fake in one line. This is why DI is
+worth learning deeply — it changes how testable your whole codebase is. See
+[Phase 15 — Testing](./15-testing.mdx) and Python testing at
+[professional Python](../01-python/04-professional-python.mdx#testing-with-pytest).
+:::
+
+---
+
+## Common Mistakes
+
+- Calling the dependency yourself (`get_current_user()`) instead of `Depends(get_current_user)`.
+- Forgetting the `finally` block in a `yield` dependency, leaking DB connections.
+- Confusing authentication (401) with authorization (403).
+- Expecting a dependency to re-run within one request (it's cached unless `use_cache=False`).
+- Forgetting to `clear()` overrides between tests, causing cross-test contamination.
+- Putting heavy synchronous work in a dependency and blocking the event loop.
+
+## Interview Questions
+
+- What is dependency injection and how does `Depends` implement it in FastAPI?
+- Why use a `yield`-based dependency for database sessions?
+- How does FastAPI cache dependencies within a request, and how do you disable it?
+- How would you implement role-based authorization with dependencies?
+- How do dependency overrides help you write tests?
+- What's the difference between a function dependency and a class dependency?
+
+## Things to Remember
+
+- `Depends()` accepts any callable — functions and classes both work.
+- Dependencies can depend on other dependencies, forming a resolved graph.
+- Results are cached per request by default.
+- `yield` dependencies run cleanup after the response, even on errors.
+- `app.dependency_overrides` swaps dependencies for testing.
+
+## Mini Exercise
+
+Build a small protected API. Write a `get_db` yield dependency, a
+`get_current_user` dependency that reads a token header, and a `require_role`
+factory for admin-only routes. Add `GET /me` (any authenticated user) and
+`DELETE /users/{id}` (admin only). Then write two tests that override
+`get_current_user` — one returning a regular user (expect 403 on delete) and one
+returning an admin (expect success).
+
+## Done When
+
+- [ ] You can declare and inject function and class dependencies with `Depends`.
+- [ ] You can build nested dependencies and explain per-request caching.
+- [ ] You can write a `yield`-based database session dependency with cleanup.
+- [ ] You can implement authentication and role-based authorization dependencies.
+- [ ] You can override dependencies to test endpoints in isolation.
+
+Next: [Phase 4 — Project Architecture](./04-project-architecture.mdx).

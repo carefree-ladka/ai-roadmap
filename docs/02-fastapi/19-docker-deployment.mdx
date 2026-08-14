@@ -1,0 +1,354 @@
+---
+title: "Phase 19 — Docker & Deployment"
+description: Docker images and containers, writing a Dockerfile for FastAPI with uvicorn/gunicorn, multi-stage builds, Docker Compose wiring FastAPI with PostgreSQL and Redis, and deploying to AWS, Azure, GCP, and PaaS like Railway and Render.
+---
+
+import TOCInline from '@theme/TOCInline';
+
+# Phase 19 — Docker & Deployment
+
+<TOCInline toc={toc} minHeadingLevel={2} maxHeadingLevel={2} />
+
+:::tip[In this guide]
+How to package a FastAPI app into a portable, reproducible container and run it
+alongside PostgreSQL and Redis with Docker Compose. You'll write a lean
+multi-stage `Dockerfile`, wire the services together, and then survey where to
+run it — the big clouds (AWS, Azure, GCP) and the simpler PaaS options
+(Railway, Render).
+:::
+
+## What Is It?
+
+**Docker** packages your app and all its dependencies into an **image** — a
+read-only, layered filesystem snapshot. Running an image produces a **container**:
+an isolated process with its own filesystem and network. The image is the recipe;
+the container is the running dish.
+
+## Why Does It Matter?
+
+Containers kill "works on my machine." The same image runs identically on your
+laptop, in CI, and in production. Combined with the externalized config from
+[Phase 17 — Configuration & Environment](./17-configuration-environment.mdx),
+one artifact plus environment variables gives you reproducible deploys anywhere.
+
+---
+
+## Docker
+
+Docker builds images from a `Dockerfile` and runs them as containers. The mental
+model:
+
+```mermaid
+flowchart LR
+    D[Dockerfile] -->|docker build| I[Image]
+    I -->|docker run| C[Container]
+    I --> R[Registry]
+    R -->|docker pull| Prod[Production host]
+```
+
+- **Image** — immutable, versioned, shareable via a registry (Docker Hub, ECR, GHCR).
+- **Container** — a running instance of an image; ephemeral by design.
+- **Layer** — each Dockerfile instruction adds a cached layer; order them so the
+  slow, stable steps come before the fast, changing ones.
+
+---
+
+## Dockerfile
+
+A `Dockerfile` is the build recipe. For a FastAPI app you install dependencies,
+copy the code, and run an ASGI server. Two server choices:
+
+- **Uvicorn** alone — simple, good for a single process (let the platform scale
+  replicas).
+- **Gunicorn managing Uvicorn workers** — one container, multiple worker
+  processes. Worker tuning is covered in
+  [Phase 20 — Performance & Scalability](./20-performance-scalability.mdx).
+
+```dockerfile
+FROM python:3.12-slim
+
+WORKDIR /app
+
+# install deps first so this layer is cached when only code changes
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+EXPOSE 8000
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+```
+
+:::warning[Bind to `0.0.0.0` inside a container]
+Inside a container, `--host 127.0.0.1` only listens on the container's loopback,
+so nothing outside can reach it. Use `--host 0.0.0.0` to accept connections from
+the mapped port. This is the most common "the container runs but I can't connect"
+bug.
+:::
+
+---
+
+## Images
+
+An image is built once and promoted through environments unchanged. Keep them
+small and reproducible:
+
+- Start from a `-slim` base, not the full image.
+- Pin the Python version (`python:3.12-slim`), not `latest`.
+- Use `.dockerignore` to keep `.git`, `.venv`, `__pycache__`, and `.env` out of
+  the build context.
+
+```text
+# .dockerignore
+.git
+.venv
+__pycache__
+*.pyc
+.env
+```
+
+---
+
+## Containers
+
+A container is a running image. Build and run locally:
+
+```bash
+docker build -t rag-api:latest .
+docker run -p 8000:8000 --env-file .env rag-api:latest
+# host port 8000 -> container port 8000
+```
+
+:::caution[Containers are ephemeral — persist state elsewhere]
+Anything written to a container's filesystem vanishes when it's replaced. Keep
+state in a database, in Redis, or on a mounted volume — never on the container's
+own disk. This is why databases below use named volumes.
+:::
+
+---
+
+## Docker Compose
+
+Compose defines and runs multiple containers together with one file. This is the
+standard local development setup: FastAPI + PostgreSQL + Redis.
+
+### PostgreSQL container
+
+A `postgres` image with a named volume so data survives restarts, plus a
+healthcheck so dependents wait for it.
+
+### Redis container
+
+A lightweight `redis` image for caching and background-job brokering (see
+[Phase 14 — Caching](./14-caching.mdx)).
+
+### FastAPI container
+
+Built from your `Dockerfile`, depending on the database and Redis being healthy.
+
+```yaml
+# docker-compose.yml
+services:
+  fastapi:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://app:app@postgres:5432/app
+      REDIS_URL: redis://redis:6379/0
+      JWT_SECRET: ${JWT_SECRET}          # from your shell/.env, not committed
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      POSTGRES_DB: app
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+volumes:
+  pgdata:
+```
+
+```bash
+docker compose up --build      # start everything
+docker compose down            # stop (add -v to also drop volumes)
+```
+
+:::note[Highlight: service names are hostnames]
+Inside the Compose network, containers reach each other by **service name**. The
+FastAPI container connects to `postgres:5432` and `redis:6379` — not
+`localhost`, because each container has its own network namespace.
+:::
+
+---
+
+## Environment Variables in Compose
+
+Compose injects environment variables into containers, which Pydantic Settings
+then reads. Never hardcode secrets in the compose file — reference shell/`.env`
+values with `${VAR}` (Compose reads a `.env` in the project directory for
+substitution). Real secrets belong in a secret manager, per
+[Phase 16 — Security](./16-security.mdx).
+
+---
+
+## Multi-Stage Builds
+
+A multi-stage build uses one stage to compile/install dependencies and a second,
+minimal stage for the runtime — so build tools never ship in the final image,
+keeping it small and reducing attack surface.
+
+```dockerfile
+# ---- build stage: install deps into a venv ----
+FROM python:3.12-slim AS builder
+WORKDIR /app
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# ---- final stage: copy only the venv + code ----
+FROM python:3.12-slim
+WORKDIR /app
+COPY --from=builder /opt/venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+COPY . .
+
+# run as a non-root user for safety
+RUN useradd --create-home appuser
+USER appuser
+
+EXPOSE 8000
+CMD ["gunicorn", "app.main:app", \
+     "-k", "uvicorn.workers.UvicornWorker", \
+     "--workers", "4", "--bind", "0.0.0.0:8000"]
+```
+
+:::info[Theory: why multi-stage matters]
+Compilers, headers, and package caches are needed to *build* but not to *run*. A
+multi-stage build discards them, so the shipped image is often several times
+smaller. Smaller images pull faster, start faster, and expose fewer packages that
+could contain vulnerabilities.
+:::
+
+---
+
+## The Deployed Architecture
+
+The runtime shape stays the same whether you deploy to a big cloud or a PaaS:
+
+```mermaid
+flowchart TD
+    Client[Client / Browser] --> API[FastAPI container]
+    API --> Redis[(Redis)]
+    API --> PG[(PostgreSQL)]
+```
+
+---
+
+## Deployment
+
+Where to actually run the container. All of these consume the same image and
+inject config via environment variables.
+
+### AWS
+
+- **ECS on Fargate** — run containers without managing servers; pairs with an
+  Application Load Balancer.
+- **EKS** — managed Kubernetes for larger, multi-service systems.
+- **App Runner** — simplest: point it at an image or repo and it deploys.
+- Managed dependencies: **RDS** (PostgreSQL), **ElastiCache** (Redis),
+  secrets in **Secrets Manager**.
+
+### Azure
+
+- **Azure Container Apps** — serverless containers with autoscaling.
+- **AKS** — managed Kubernetes.
+- Managed dependencies: **Azure Database for PostgreSQL**, **Azure Cache for
+  Redis**, secrets in **Key Vault**.
+
+### GCP
+
+- **Cloud Run** — fully managed, scale-to-zero containers; very popular for
+  FastAPI.
+- **GKE** — managed Kubernetes.
+- Managed dependencies: **Cloud SQL** (PostgreSQL), **Memorystore** (Redis),
+  secrets in **Secret Manager**.
+
+### Railway and Render (PaaS)
+
+The simplest path: connect a git repo, and the platform builds your Dockerfile
+and deploys on push. Both offer managed PostgreSQL and Redis add-ons and inject
+their connection strings as environment variables — ideal for small teams and
+side projects where you'd rather not manage cloud infrastructure.
+
+:::note[Highlight: match the platform to the team]
+Start on a PaaS (Railway/Render) to ship fast with almost no ops. Move to managed
+containers (Cloud Run, Container Apps, App Runner) when you need more control or
+scale, and to Kubernetes only when the number of services and traffic justify the
+operational cost. Don't adopt Kubernetes on day one.
+:::
+
+---
+
+## Common Mistakes
+
+- Binding to `127.0.0.1` inside the container so the mapped port can't reach it.
+- Copying code before installing dependencies, busting the layer cache constantly.
+- Baking secrets or a real `.env` into the image instead of injecting at runtime.
+- Using `latest` tags, making builds non-reproducible.
+- Storing state on the container filesystem instead of a volume or database.
+- Shipping build tools in the runtime image (skipping multi-stage builds).
+- Running the container as root.
+
+## Interview Questions
+
+- What is the difference between an image and a container?
+- Why order Dockerfile instructions to install dependencies before copying code?
+- What problem does a multi-stage build solve?
+- Why must a containerized server bind to `0.0.0.0`?
+- How do services find each other in Docker Compose?
+- Uvicorn alone vs Gunicorn with Uvicorn workers — when do you use each?
+
+## Things to Remember
+
+- Image = recipe (immutable); container = running instance (ephemeral).
+- Layer caching: stable steps first, changing steps last.
+- Multi-stage builds keep the runtime image small and free of build tools.
+- Compose wires FastAPI + PostgreSQL + Redis; services reach each other by name.
+- Inject config/secrets at runtime; persist state in volumes/databases.
+
+## Mini Exercise
+
+Write a multi-stage `Dockerfile` that builds a venv and runs Gunicorn with
+Uvicorn workers as a non-root user, plus a `docker-compose.yml` wiring `fastapi`,
+`postgres` (named volume + healthcheck), and `redis`. Run `docker compose up
+--build`, confirm the API reaches the database and Redis by service name, and
+that data survives `docker compose down` (without `-v`).
+
+## Done When
+
+- [ ] A multi-stage `Dockerfile` produces a small image and runs as non-root.
+- [ ] The server binds to `0.0.0.0` and is reachable on the mapped port.
+- [ ] Compose brings up FastAPI, PostgreSQL, and Redis together correctly.
+- [ ] Config and secrets are injected at runtime, never baked into the image.
+- [ ] You can name a deployment target on AWS, Azure, GCP, and a PaaS.
+
+Next: [Phase 20 — Performance & Scalability](./20-performance-scalability.mdx).

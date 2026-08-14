@@ -1,0 +1,495 @@
+---
+title: "Phase 16 — Security"
+description: JWT security, password hashing, CORS, CSRF, SQL injection, XSS, SSRF, rate limiting, input validation, secrets management, HTTPS, secure headers, authentication and authorization vulnerabilities, and the OWASP Top 10 mapped to FastAPI.
+---
+
+import TOCInline from '@theme/TOCInline';
+
+# Phase 16 — Security
+
+<TOCInline toc={toc} minHeadingLevel={2} maxHeadingLevel={2} />
+
+:::tip[In this guide]
+The security practices every production API needs: hardening JWTs and password
+storage, locking down CORS, defending against injection, XSS, SSRF, and IDOR,
+managing secrets and headers, and mapping the OWASP Top 10 to concrete FastAPI
+mitigations.
+:::
+
+## What Is It?
+
+Security is the set of practices that keep your API and its data safe from
+misuse: proving who a caller is, deciding what they may do, validating every
+input, and refusing to leak or trust things you shouldn't. In FastAPI, much of
+it is convention plus a few well-placed libraries.
+
+## Why Does It Matter?
+
+Security is very important for production. A single missed check — an unhashed
+password, an over-broad CORS policy, an object reference a user can tamper with —
+can expose every account or leak your entire database. Attackers probe
+automatically, so "we're too small to target" is not a defense. Build the
+protections in from the start.
+
+---
+
+## JWT Security
+
+JSON Web Tokens carry identity claims signed by your server. They're convenient
+but easy to misuse.
+
+```python
+import jwt                          # PyJWT
+from datetime import datetime, timedelta, timezone
+
+def create_access_token(user_id: int, secret: str) -> str:
+    payload = {
+        "sub": str(user_id),
+        "exp": datetime.now(timezone.utc) + timedelta(minutes=15),  # short expiry
+        "iat": datetime.now(timezone.utc),
+    }
+    return jwt.encode(payload, secret, algorithm="HS256")
+```
+
+- **Short expiry** on access tokens (minutes), paired with longer-lived refresh
+  tokens you can revoke.
+- **Rotation**: issue a new refresh token on each use and invalidate the old one.
+- **Never store sensitive data in the payload** — a JWT is signed, not encrypted;
+  anyone can base64-decode and read it.
+
+:::warning[A JWT payload is readable by anyone]
+Signing proves the token wasn't altered; it does **not** hide the contents. Never
+put passwords, full PII, or secrets in the claims. Keep the payload to an id and
+minimal metadata, and always verify the signature and `exp` on every request.
+Full auth flows are in
+[Phase 7 — Authentication & Authorization](./07-authentication-authorization.mdx).
+:::
+
+---
+
+## Password Hashing
+
+Never store passwords in any recoverable form. Hash them with a slow, salted
+algorithm designed for passwords — **bcrypt** or **argon2** — never a fast hash
+like MD5 or SHA-256.
+
+```python
+from passlib.context import CryptContext
+
+pwd = CryptContext(schemes=["argon2", "bcrypt"], deprecated="auto")
+
+def hash_password(plain: str) -> str:
+    return pwd.hash(plain)
+
+def verify_password(plain: str, hashed: str) -> bool:
+    return pwd.verify(plain, hashed)
+```
+
+:::caution[Never store plaintext, never use fast hashes]
+Fast hashes (MD5, SHA-1, SHA-256) are built for speed, which is exactly what an
+attacker with a leaked database wants — billions of guesses per second. bcrypt
+and argon2 are deliberately slow and salted, so each guess is expensive and
+precomputed rainbow tables are useless. Storing plaintext means one breach exposes
+every account, including reused passwords elsewhere.
+:::
+
+---
+
+## CORS
+
+Cross-Origin Resource Sharing controls which browser origins may call your API.
+Lock it down to the exact frontends you trust — never reflect all origins.
+
+```python
+from fastapi.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["https://app.example.com"],   # explicit, not "*"
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PATCH", "DELETE"],
+    allow_headers=["Authorization", "Content-Type"],
+)
+```
+
+:::warning[`allow_origins=["*"]` with credentials is unsafe]
+A wildcard origin combined with `allow_credentials=True` is rejected by browsers
+and, where it does apply, exposes authenticated endpoints to any site. List the
+specific origins you own. CORS is a browser protection — it doesn't secure
+server-to-server calls, so it's one layer, not the whole defense.
+:::
+
+---
+
+## CSRF
+
+Cross-Site Request Forgery tricks a logged-in user's browser into making an
+unwanted request using their cookies. It only applies when you authenticate with
+**cookies**.
+
+- If you use `Authorization: Bearer <token>` headers (typical for SPAs and
+  mobile), CSRF largely doesn't apply — other sites can't set your header.
+- If you use session **cookies**, defend with a CSRF token (double-submit or
+  synchronizer pattern) and `SameSite` cookie attributes.
+
+```python
+# for cookie-based auth, harden the cookie
+response.set_cookie(
+    "session", value=token,
+    httponly=True, secure=True, samesite="strict",
+)
+```
+
+:::info[Theory: why token headers dodge CSRF]
+CSRF works because browsers *automatically* attach cookies to requests to your
+domain, even ones triggered by another site. A bearer token in a header is not
+sent automatically — the malicious page has no way to read or set it — so
+header-based auth sidesteps the attack. That's a key reason SPAs favor tokens
+over session cookies.
+:::
+
+---
+
+## SQL Injection
+
+Injection happens when user input is concatenated into a query and interpreted as
+code. The fix: never build queries by string formatting — use parameterized
+queries or an ORM, which pass values separately from the SQL.
+
+```python
+# DANGEROUS — never do this
+query = f"SELECT * FROM users WHERE email = '{email}'"    # '; DROP TABLE users; --
+
+# SAFE — parameterized (values bound, not interpolated)
+db.execute("SELECT * FROM users WHERE email = :email", {"email": email})
+
+# SAFE — ORM builds parameterized SQL for you
+db.query(User).filter(User.email == email).first()
+```
+
+:::caution[Parameterize everything, no exceptions]
+The moment you use an f-string or `%` formatting to inject user input into SQL,
+you've opened the door. Parameterized queries and ORMs treat input strictly as
+data, so `'; DROP TABLE users; --` is stored/searched literally, never executed.
+See [Phase 5 — Database](./05-database.mdx).
+:::
+
+---
+
+## XSS
+
+Cross-Site Scripting injects malicious scripts into pages your users view.
+FastAPI APIs returning JSON are less exposed than server-rendered HTML, but you
+still must be careful whenever your data reaches a browser.
+
+- Return JSON with the correct `Content-Type` (FastAPI does this by default) so
+  browsers don't sniff it as HTML.
+- Never build HTML responses by concatenating user input; if you render
+  templates, use autoescaping (Jinja2 escapes by default).
+- Treat stored user content as untrusted when a frontend renders it — the client
+  must escape on output.
+
+```python
+from fastapi.responses import HTMLResponse
+
+# DANGEROUS: reflecting raw user input into HTML
+# return HTMLResponse(f"<h1>Hello {name}</h1>")   # name = "<script>...</script>"
+```
+
+:::note[Highlight: XSS is mostly an output-encoding problem]
+The defense is escaping data at the point it's rendered into HTML, not at input.
+For a JSON API, keep responses as JSON and let the frontend framework escape on
+render. Set secure headers (below) like `X-Content-Type-Options: nosniff` to stop
+browsers from reinterpreting your JSON as HTML.
+:::
+
+---
+
+## SSRF
+
+Server-Side Request Forgery abuses an endpoint that fetches a user-supplied URL,
+tricking your server into requesting internal resources (cloud metadata,
+internal admin services). This is especially relevant to AI apps that fetch and
+ingest URLs.
+
+```python
+import ipaddress
+from urllib.parse import urlparse
+from fastapi import HTTPException
+
+ALLOWED_SCHEMES = {"http", "https"}
+
+def validate_outbound_url(raw: str) -> str:
+    parsed = urlparse(raw)
+    if parsed.scheme not in ALLOWED_SCHEMES or not parsed.hostname:
+        raise HTTPException(status_code=400, detail="Invalid URL")
+    # block private / loopback / link-local ranges (e.g. cloud metadata 169.254.x.x)
+    import socket
+    ip = ipaddress.ip_address(socket.gethostbyname(parsed.hostname))
+    if ip.is_private or ip.is_loopback or ip.is_link_local:
+        raise HTTPException(status_code=400, detail="URL points to an internal address")
+    return raw
+```
+
+:::warning[Validate every outbound URL in AI apps]
+A RAG pipeline that fetches "the URL the user pasted" is a classic SSRF target: an
+attacker submits `http://169.254.169.254/...` to steal cloud credentials, or an
+internal hostname to reach services never meant to be public. Allowlist schemes,
+resolve the host, and reject private/loopback/link-local addresses before
+fetching. File-fetch risks connect to [Phase 12 — File Uploads](./12-file-uploads.mdx).
+:::
+
+---
+
+## Rate Limiting
+
+Limit how often a client can call your API to blunt brute-force attacks, scraping,
+and abuse. Enforce it in a shared store so limits hold across all instances.
+
+```python
+from fastapi import HTTPException
+
+async def enforce_limit(client_id: str, limit: int = 100, window: int = 60):
+    key = f"rate:{client_id}:{int(time.time()) // window}"
+    count = await redis.incr(key)
+    if count == 1:
+        await redis.expire(key, window)
+    if count > limit:
+        raise HTTPException(status_code=429, detail="Too many requests")
+```
+
+:::note[Highlight: rate limiting is a security control]
+Beyond protecting performance, throttling defends login and token endpoints
+against credential-stuffing and brute force. Apply stricter limits to auth
+routes. Redis-backed implementations and token buckets are in
+[Phase 14 — Caching](./14-caching.mdx).
+:::
+
+---
+
+## Input Validation
+
+Pydantic is your first line of defense. Validate types, lengths, ranges, and
+formats at the edge so malformed or hostile input never reaches your logic.
+
+```python
+from pydantic import BaseModel, EmailStr, Field
+
+class SignupRequest(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=12, max_length=128)
+    display_name: str = Field(min_length=1, max_length=50)
+```
+
+:::info[Theory: validation as a security boundary]
+Every field you constrain is an attack you've narrowed. Length caps blunt
+buffer/DoS abuse, format checks reject junk early, and typed models mean a
+handler never sees a value it didn't expect. Treat all client input as hostile
+until Pydantic has vetted it — this is the cheapest, highest-leverage defense.
+See [Phase 2 — Pydantic & Data Validation](./02-pydantic-validation.mdx).
+:::
+
+---
+
+## Secrets Management
+
+API keys, database passwords, and JWT signing keys must never live in source
+code. Load them from the environment or a secrets manager, and keep them out of
+version control.
+
+```python
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+class Settings(BaseSettings):
+    database_url: str
+    jwt_secret: str
+    openai_api_key: str
+    model_config = SettingsConfigDict(env_file=".env")
+
+settings = Settings()      # reads from environment / .env
+```
+
+:::caution[Never commit secrets]
+A secret pushed to git is compromised — assume it's public the moment it lands in
+history, and rotate it. Add `.env` to `.gitignore`, inject secrets via the
+environment or a manager (AWS Secrets Manager, Vault) in production, and scan
+your history for leaks. Configuration patterns are in
+[Phase 17 — Configuration & Environment](./17-configuration-environment.mdx).
+:::
+
+---
+
+## HTTPS
+
+All traffic must travel over TLS. Plain HTTP exposes tokens, passwords, and data
+to anyone on the network path.
+
+- Terminate TLS at a reverse proxy or load balancer (Nginx, cloud LB).
+- Redirect HTTP to HTTPS and set HSTS (below) so browsers refuse plain HTTP.
+- Use valid certificates (Let's Encrypt or a managed cert).
+
+:::note[Highlight: TLS is non-negotiable for auth]
+Bearer tokens and cookies are only as safe as the channel carrying them. Over
+plain HTTP they can be sniffed and replayed. Deployment specifics are in
+[Phase 19 — Docker & Deployment](./19-docker-deployment.mdx).
+:::
+
+---
+
+## Secure Headers
+
+Response headers instruct the browser to enforce protections. Set them globally
+with middleware.
+
+```python
+@app.middleware("http")
+async def security_headers(request, call_next):
+    response = await call_next(request)
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    response.headers["Content-Security-Policy"] = "default-src 'self'"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    return response
+```
+
+| Header | Protects against |
+| --- | --- |
+| `Strict-Transport-Security` (HSTS) | Downgrade to HTTP |
+| `Content-Security-Policy` (CSP) | XSS, injected resources |
+| `X-Content-Type-Options: nosniff` | MIME sniffing |
+| `X-Frame-Options: DENY` | Clickjacking |
+
+Middleware mechanics are covered in
+[Phase 10 — Middleware & Request Lifecycle](./10-middleware-request-lifecycle.mdx).
+
+---
+
+## Authentication Vulnerabilities
+
+Weaknesses in *proving identity*:
+
+- Weak or missing rate limits on login → credential stuffing and brute force.
+- Long-lived, non-revocable tokens → a stolen token works indefinitely.
+- Leaking whether an email exists via different error messages → account enumeration.
+- Accepting the `alg: none` JWT or not verifying the signature → forged tokens.
+
+```python
+# generic message avoids revealing which part was wrong
+raise HTTPException(status_code=401, detail="Invalid email or password")
+```
+
+:::warning[Fail the same way for every auth error]
+Different responses for "no such user" versus "wrong password" let attackers
+enumerate valid accounts. Return one generic message and the same status for all
+authentication failures, and always verify the JWT signature and algorithm.
+:::
+
+---
+
+## Authorization Vulnerabilities
+
+Weaknesses in *enforcing permissions*. The most common is **IDOR** (Insecure
+Direct Object Reference), also called broken object-level authorization: a user
+changes an id in a URL and accesses someone else's data.
+
+```python
+# VULNERABLE: returns any order by id, regardless of owner
+@app.get("/orders/{order_id}")
+def get_order(order_id: int, user=Depends(get_current_user)):
+    return db.query(Order).get(order_id)
+
+# SAFE: scope the query to the current user
+@app.get("/orders/{order_id}")
+def get_order(order_id: int, user=Depends(get_current_user)):
+    order = db.query(Order).filter(
+        Order.id == order_id, Order.user_id == user.id
+    ).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    return order
+```
+
+:::caution[Check ownership on every object access]
+Authentication tells you *who* the caller is; authorization must confirm they may
+touch *this specific object*. Never trust an id from the client as proof of
+access — always constrain the query by the owner (or check a role/policy). Return
+`404` rather than `403` to avoid confirming the resource exists. Roles and
+policies live in [Phase 7 — Authentication & Authorization](./07-authentication-authorization.mdx).
+:::
+
+---
+
+## OWASP Top 10
+
+The OWASP Top 10 is the industry's canonical list of web app risks. A brief map
+to FastAPI mitigations:
+
+| OWASP risk | FastAPI mitigation |
+| --- | --- |
+| Broken Access Control | Scope queries by owner; enforce roles (IDOR fix above) |
+| Cryptographic Failures | HTTPS everywhere; argon2/bcrypt; don't expose secrets |
+| Injection | Parameterized queries / ORM; Pydantic validation |
+| Insecure Design | Threat-model; separate input/output models |
+| Security Misconfiguration | Lock CORS; secure headers; disable debug in prod |
+| Vulnerable Components | Pin and update dependencies; scan for CVEs |
+| Identification & Auth Failures | Short JWTs, rotation, rate-limited login |
+| Software & Data Integrity | Verify token signatures; validate outbound URLs (SSRF) |
+| Logging & Monitoring Failures | Structured logs and alerts (Phase 18) |
+| Server-Side Request Forgery | Allowlist and validate every fetched URL |
+
+:::info[Theory: defense in depth]
+No single control is sufficient. Validation, parameterized queries, TLS, secure
+headers, rate limiting, and least-privilege authorization each stop different
+attacks — and overlap so that one failure isn't catastrophic. Layer them, assume
+any layer can be bypassed, and keep the blast radius small. Logging and
+observability to detect attacks are in
+[Phase 18 — Logging & Observability](./18-logging-observability.mdx).
+:::
+
+---
+
+## Common Mistakes
+
+- Storing passwords in plaintext or with a fast hash instead of argon2/bcrypt.
+- Putting sensitive data in a JWT payload (it's readable by anyone).
+- Setting `allow_origins=["*"]` with credentials enabled.
+- Building SQL with f-strings instead of parameterized queries.
+- Fetching user-supplied URLs without SSRF validation (dangerous in AI apps).
+- Returning objects by id without checking the caller owns them (IDOR).
+- Committing `.env` or API keys to version control.
+- Revealing whether an account exists through distinct auth error messages.
+
+## Interview Questions
+
+- Why can't you store sensitive data in a JWT payload?
+- Why use bcrypt/argon2 instead of SHA-256 for passwords?
+- What is SSRF and why is it especially dangerous for AI apps that fetch URLs?
+- Explain IDOR and how you prevent it in a FastAPI endpoint.
+- How does header-based auth avoid CSRF?
+- Name three secure headers and what each prevents.
+
+## Things to Remember
+
+- Short-lived JWTs, rotation, minimal readable payload, verified signatures.
+- Hash passwords with argon2/bcrypt; never plaintext, never fast hashes.
+- Lock CORS to known origins; set HSTS, CSP, nosniff, frame-deny headers.
+- Parameterize all queries; let Pydantic validate every input first.
+- Validate outbound URLs to stop SSRF; check object ownership to stop IDOR.
+- Keep secrets out of code; run everything over HTTPS; layer your defenses.
+
+## Mini Exercise
+
+Harden a small auth API: hash passwords with argon2, issue a 15-minute JWT
+(nothing sensitive in the payload), lock CORS to one origin, add the four secure
+headers via middleware, and fix an IDOR by scoping `GET /orders/{id}` to the
+current user. Then add SSRF validation to an endpoint that fetches a
+user-supplied URL, rejecting private and loopback addresses.
+
+## Done When
+
+- [ ] Passwords are hashed with argon2/bcrypt and JWTs are short and minimal.
+- [ ] CORS, HTTPS, and secure headers are configured correctly.
+- [ ] Queries are parameterized and inputs are validated with Pydantic.
+- [ ] You can identify and fix IDOR and SSRF, and map risks to the OWASP Top 10.
+
+Next: [Phase 17 — Configuration & Environment](./17-configuration-environment.mdx).

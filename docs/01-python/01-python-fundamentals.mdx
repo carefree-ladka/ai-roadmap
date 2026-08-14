@@ -1,0 +1,908 @@
+---
+title: "Phase 1 — Python Fundamentals"
+description: Setup and execution, variables, data types, strings, numbers, booleans, if/elif/else, for and while loops, functions, scope, *args/**kwargs, modules and imports, exceptions, and file handling.
+---
+
+import TOCInline from '@theme/TOCInline';
+
+# Phase 1 — Python Fundamentals
+
+<TOCInline toc={toc} minHeadingLevel={2} maxHeadingLevel={2} />
+
+:::tip[In this guide]
+This is the bedrock phase. You'll go from "how do I run a file" to writing
+functions with flexible arguments, importing your own modules, catching errors,
+and reading/writing files. Everything in Phases 2–4 (and FastAPI, and RAG)
+sits on top of these primitives.
+:::
+
+## What Is It?
+
+The core mechanics of the language: how Python executes your code, how you
+store and combine values, how you control the flow of a program, and how you
+package logic into reusable functions and modules.
+
+## Why Does It Matter?
+
+You will use these ideas in **every single file** you ever write. A shaky grasp
+of scope or truthiness produces bugs that are hard to see; a solid grasp makes
+the advanced topics feel obvious.
+
+---
+
+## Python Setup and Execution
+
+Python is an **interpreted, dynamically typed** language. You write `.py`
+files and the CPython interpreter executes them line by line (after compiling
+to bytecode behind the scenes).
+
+### Three ways to run code
+
+```bash
+# 1. Run a script
+python main.py
+
+# 2. Start an interactive REPL (great for experiments)
+python
+>>> 2 + 2
+4
+
+# 3. Run a module as a script (uses the package machinery)
+python -m http.server 8000
+```
+
+### The `__main__` idiom
+
+Every module has a built-in `__name__` variable. When a file is run directly,
+`__name__ == "__main__"`. When it is *imported*, `__name__` is the module's
+name. This lets a file be both a runnable script and an importable library.
+
+```python
+def main() -> None:
+    print("Running as a script")
+
+if __name__ == "__main__":
+    main()          # only runs when executed directly, not on import
+```
+
+:::info[Theory: compiled vs interpreted]
+Python is *compiled to bytecode* (`.pyc` files in `__pycache__`) and then run
+by a virtual machine. It is not "interpreted line-by-line from source" in the
+naive sense, but it is not compiled to native machine code like C either. This
+is why Python is portable but slower than compiled languages.
+:::
+
+:::note[Highlight]
+`if __name__ == "__main__":` is not decoration — it is the single most common
+way to make a file safe to import. Without it, importing a script runs all its
+top-level code as a side effect.
+:::
+
+---
+
+## Variables
+
+A variable in Python is a **name bound to an object**. Assignment never copies
+a value; it makes a name *point at* an object in memory.
+
+```python
+name = "Ada"        # 'name' points at a str object
+age = 36            # 'age' points at an int object
+x = y = z = 0       # chained assignment: three names, same int object
+a, b = 1, 2         # tuple unpacking
+a, b = b, a         # swap without a temp variable
+```
+
+### Names are references, not boxes
+
+```python
+a = [1, 2, 3]
+b = a               # b points at the SAME list
+b.append(4)
+print(a)            # [1, 2, 3, 4]  -- a changed too!
+```
+
+:::warning[Common trap: aliasing]
+`b = a` does **not** copy the list. Both names reference one object, so
+mutating through either name is visible through both. To copy, use
+`b = a.copy()` or `b = list(a)`. This trap reappears constantly with lists and
+dicts.
+:::
+
+### Naming rules and conventions
+
+- Must start with a letter or `_`, then letters/digits/underscores.
+- Case-sensitive: `total` and `Total` are different.
+- Use `snake_case` for variables and functions, `UPPER_CASE` for constants.
+- A leading underscore (`_value`) signals "internal, don't touch."
+
+---
+
+## Data Types
+
+Python has a small set of built-in types you'll use constantly. Everything is
+an object, and every object has a **type** you can inspect.
+
+```python
+type(42)          # <class 'int'>
+type(3.14)        # <class 'float'>
+type("hi")        # <class 'str'>
+type(True)        # <class 'bool'>
+type(None)        # <class 'NoneType'>
+type([1, 2])      # <class 'list'>
+type((1, 2))      # <class 'tuple'>
+type({1, 2})      # <class 'set'>
+type({"a": 1})    # <class 'dict'>
+```
+
+| Category | Types | Mutable? |
+| --- | --- | --- |
+| Numbers | `int`, `float`, `complex` | No (immutable) |
+| Text | `str` | No |
+| Boolean | `bool` | No |
+| Sequence | `list`, `tuple`, `range` | list: yes, tuple: no |
+| Set | `set`, `frozenset` | set: yes |
+| Mapping | `dict` | Yes |
+| None | `NoneType` | — |
+
+### Type conversion (casting)
+
+```python
+int("10")         # 10
+int(3.9)          # 3   (truncates toward zero, does NOT round)
+float("3.14")     # 3.14
+str(42)           # "42"
+list("abc")       # ['a', 'b', 'c']
+bool(0)           # False
+```
+
+:::caution[`int()` truncates, it does not round]
+`int(3.9)` is `3`, not `4`. Use `round(3.9)` → `4` when you want rounding.
+`round` also uses *banker's rounding*: `round(2.5)` → `2`, `round(3.5)` → `4`.
+:::
+
+### Dynamic but strongly typed
+
+```python
+x = 5
+x = "now a string"    # allowed: names can rebind to any type (dynamic)
+"age: " + 5           # TypeError: can't add str and int (strongly typed)
+"age: " + str(5)      # "age: 5"   -- explicit conversion required
+```
+
+:::info[Theory: dynamic ≠ weak]
+Python is **dynamically typed** (a name can point at any type over time) but
+**strongly typed** (it will not silently coerce a `str` and an `int`). This is
+the opposite of JavaScript, which is dynamic *and* weakly typed.
+:::
+
+---
+
+## Strings
+
+Strings are **immutable** sequences of Unicode characters.
+
+```python
+single = 'hi'
+double = "hi"
+multiline = """line 1
+line 2"""
+raw = r"C:\new\path"     # backslashes are literal (great for regex/paths)
+```
+
+### f-strings are the default
+
+```python
+name = "Ada"
+score = 0.9876
+print(f"{name} scored {score:.2%}")   # Ada scored 98.76%
+print(f"{name = }")                    # name = 'Ada'   (debug form, 3.8+)
+print(f"{score:>10.3f}")               # right-align in width 10, 3 decimals
+```
+
+### Essential string methods
+
+```python
+s = "  Hello, World  "
+s.strip()                # "Hello, World"
+s.lower()                # "  hello, world  "
+s.replace("l", "L")      # "  HeLLo, WorLd  "
+"a,b,c".split(",")       # ['a', 'b', 'c']
+"-".join(["a", "b"])     # "a-b"
+"cat".startswith("ca")   # True
+"file.txt".endswith(".txt")  # True
+"Ada".find("d")          # 1   (-1 if not found)
+```
+
+### Slicing works on strings too
+
+```python
+text = "python"
+text[0]        # 'p'
+text[-1]       # 'n'
+text[1:4]      # 'yth'
+text[::-1]     # 'nohtyp'  (reverse)
+```
+
+:::warning[Strings are immutable]
+`s[0] = "H"` raises `TypeError`. Every "modification" returns a **new** string.
+Building a big string with `+=` in a loop is O(n²); use `"".join(list_of_parts)`
+instead.
+:::
+
+:::note[Highlight: build strings with join]
+
+```python
+# Slow (creates a new string every iteration)
+out = ""
+for word in words:
+    out += word
+
+# Fast (single allocation)
+out = "".join(words)
+```
+
+:::
+
+---
+
+## Numbers
+
+```python
+i = 42               # int  (arbitrary precision — no overflow!)
+f = 3.14             # float (64-bit IEEE 754 double)
+big = 2 ** 1000      # a 302-digit int, computed exactly
+c = 2 + 3j           # complex
+```
+
+### Arithmetic operators
+
+```python
+7 / 2        # 3.5    true division (always float)
+7 // 2       # 3      floor division
+7 % 3        # 1      modulo (remainder)
+2 ** 10      # 1024   exponent
+divmod(7, 3) # (2, 1) quotient and remainder together
+abs(-5)      # 5
+round(3.14159, 2)  # 3.14
+```
+
+:::caution[Theory: floating-point is not exact]
+
+```python
+0.1 + 0.2 == 0.3         # False!
+0.1 + 0.2                # 0.30000000000000004
+```
+
+Floats are binary approximations of decimals. For money or exact decimals, use
+the `decimal` module. To compare floats, use `math.isclose(a, b)` instead of
+`==`.
+:::
+
+```python
+from decimal import Decimal
+Decimal("0.1") + Decimal("0.2")   # Decimal('0.3')  -- exact
+
+import math
+math.isclose(0.1 + 0.2, 0.3)      # True
+```
+
+---
+
+## Booleans
+
+`bool` is a subclass of `int`: `True == 1` and `False == 0`.
+
+```python
+True + True       # 2   (yes, really)
+sum([True, False, True])   # 2  -- handy for counting matches
+```
+
+### Truthiness
+
+Every object is either "truthy" or "falsy" in a boolean context.
+
+| Falsy values | Everything else is truthy |
+| --- | --- |
+| `False`, `None` | non-empty containers |
+| `0`, `0.0`, `0j` | non-zero numbers |
+| `""`, `[]`, `()`, `{}`, `set()` | non-empty strings/collections |
+
+```python
+if items:           # Pythonic: "if the list is non-empty"
+    process(items)
+
+name = user_input or "Anonymous"   # default via 'or'
+```
+
+### Boolean operators return operands, not just True/False
+
+```python
+"" or "default"       # 'default'
+"value" or "default"  # 'value'
+5 and 0 and 99        # 0    (short-circuits at first falsy)
+1 and 2 and 3         # 3    (returns last if all truthy)
+```
+
+:::info[Theory: short-circuit evaluation]
+`and`/`or` stop evaluating as soon as the result is known and return the
+**operand** that decided the outcome, not a coerced `bool`. This is why
+`x or default` is a common idiom for fallbacks.
+:::
+
+---
+
+## if / elif / else
+
+```python
+score = 82
+
+if score >= 90:
+    grade = "A"
+elif score >= 80:
+    grade = "B"
+elif score >= 70:
+    grade = "C"
+else:
+    grade = "F"
+```
+
+### Ternary (conditional) expression
+
+```python
+status = "adult" if age >= 18 else "minor"
+```
+
+### Comparison chaining
+
+```python
+if 0 <= age <= 120:          # reads like math; no need for 'and'
+    print("valid age")
+```
+
+### match statement (structural pattern matching, 3.10+)
+
+```python
+def describe(point: tuple[int, int]) -> str:
+    match point:
+        case (0, 0):
+            return "origin"
+        case (x, 0):
+            return f"on x-axis at {x}"
+        case (0, y):
+            return f"on y-axis at {y}"
+        case (x, y):
+            return f"at ({x}, {y})"
+```
+
+:::note[Highlight: no switch before 3.10]
+Python had no `switch` for decades — you used `if/elif` or a dict dispatch.
+`match` is more powerful than a C switch because it *destructures* data, not
+just compares a single value.
+:::
+
+---
+
+## for loops
+
+`for` iterates over any **iterable** (lists, strings, dicts, ranges,
+generators). There is no C-style `for (i=0; i<n; i++)`.
+
+```python
+for char in "abc":
+    print(char)
+
+for i in range(3):          # 0, 1, 2
+    print(i)
+
+for i in range(2, 10, 2):   # start, stop, step -> 2, 4, 6, 8
+    print(i)
+```
+
+### enumerate and zip — use these instead of manual indexing
+
+```python
+names = ["Ada", "Alan", "Grace"]
+
+for index, name in enumerate(names, start=1):
+    print(index, name)      # 1 Ada / 2 Alan / 3 Grace
+
+scores = [90, 85, 95]
+for name, score in zip(names, scores):
+    print(f"{name}: {score}")
+```
+
+### Looping over a dict
+
+```python
+user = {"name": "Ada", "age": 36}
+for key in user:            # keys by default
+    print(key)
+for key, value in user.items():
+    print(key, value)
+```
+
+### for...else
+
+The `else` runs only if the loop finished **without** `break`.
+
+```python
+for item in data:
+    if item.is_target:
+        found = item
+        break
+else:
+    found = None            # ran only if we never broke out
+```
+
+:::warning[Never mutate a list while iterating it]
+
+```python
+# BUG: skips elements / raises RuntimeError
+for x in items:
+    if x < 0:
+        items.remove(x)
+
+# Fix: iterate a copy, or build a new list
+items = [x for x in items if x >= 0]
+```
+
+:::
+
+---
+
+## while loops
+
+Use `while` when you don't know the number of iterations up front.
+
+```python
+count = 0
+while count < 5:
+    print(count)
+    count += 1
+```
+
+### break and continue
+
+```python
+while True:                 # deliberate infinite loop
+    line = input("> ")
+    if line == "quit":
+        break               # exit the loop entirely
+    if not line.strip():
+        continue            # skip to the next iteration
+    process(line)
+```
+
+:::caution[Guard against infinite loops]
+Make sure something inside the loop changes the condition. Forgetting
+`count += 1` above gives an infinite loop. `while True:` is fine *as long as*
+there is a reachable `break`.
+:::
+
+---
+
+## Functions
+
+Functions are **first-class objects**: you can pass them around, store them in
+variables, and return them from other functions.
+
+```python
+def greet(name: str, greeting: str = "Hello") -> str:
+    """Return a greeting. `greeting` has a default value."""
+    return f"{greeting}, {name}!"
+
+greet("Ada")                       # "Hello, Ada!"
+greet("Ada", "Hi")                 # positional
+greet(name="Ada", greeting="Hey")  # keyword arguments
+greet(greeting="Yo", name="Ada")   # keyword order doesn't matter
+```
+
+### Return values
+
+```python
+def stats(nums: list[int]) -> tuple[int, float]:
+    return sum(nums), sum(nums) / len(nums)   # returns a tuple
+
+total, average = stats([1, 2, 3])              # unpack it
+```
+
+A function with no `return` (or a bare `return`) returns `None`.
+
+### The mutable default argument trap
+
+```python
+# BUG: the default list is created ONCE and shared across calls
+def add_item(item, bucket=[]):
+    bucket.append(item)
+    return bucket
+
+add_item(1)      # [1]
+add_item(2)      # [1, 2]  -- surprise! same list
+
+# Fix: use None as the sentinel
+def add_item(item, bucket=None):
+    if bucket is None:
+        bucket = []
+    bucket.append(item)
+    return bucket
+```
+
+:::warning[Classic interview trap: mutable defaults]
+Default arguments are evaluated **once**, when the function is defined — not on
+each call. A mutable default (`[]`, `{}`) is therefore shared between calls.
+Always default to `None` and create the object inside the body.
+:::
+
+### Positional-only and keyword-only parameters
+
+```python
+def connect(host, port, /, *, timeout=30):
+    ...
+# host, port: positional only (before /)
+# timeout: keyword only (after *)
+connect("localhost", 5432, timeout=10)   # ok
+connect(host="x", port=1)                # TypeError: host/port are positional-only
+```
+
+---
+
+## Scope
+
+Scope determines where a name is visible. Python resolves names using the
+**LEGB** rule.
+
+:::info[Theory: LEGB name resolution]
+Python looks up a name in this order and stops at the first match:
+
+1. **L**ocal — inside the current function.
+2. **E**nclosing — any outer function (for closures).
+3. **G**lobal — module level.
+4. **B**uilt-in — names like `len`, `print`, `range`.
+:::
+
+```python
+x = "global"
+
+def outer():
+    x = "enclosing"
+    def inner():
+        x = "local"
+        print(x)        # 'local'
+    inner()
+    print(x)            # 'enclosing'
+
+outer()
+print(x)                # 'global'
+```
+
+### global and nonlocal
+
+```python
+counter = 0
+
+def increment():
+    global counter      # rebind the module-level name
+    counter += 1
+
+def make_counter():
+    count = 0
+    def step():
+        nonlocal count  # rebind the enclosing function's name
+        count += 1
+        return count
+    return step
+```
+
+:::caution[You can read without declaring, but not rebind]
+Reading a global inside a function works without `global`. But *assigning* to a
+name makes it local for the whole function — so `counter += 1` without
+`global counter` raises `UnboundLocalError`.
+:::
+
+---
+
+## *args and **kwargs
+
+These let a function accept a variable number of arguments.
+
+- `*args` collects extra **positional** arguments into a **tuple**.
+- `**kwargs` collects extra **keyword** arguments into a **dict**.
+
+```python
+def report(title, *args, **kwargs):
+    print("title:", title)
+    print("args:", args)        # a tuple
+    print("kwargs:", kwargs)    # a dict
+
+report("Sales", 1, 2, 3, region="EU", year=2026)
+# title: Sales
+# args: (1, 2, 3)
+# kwargs: {'region': 'EU', 'year': 2026}
+```
+
+### Unpacking at the call site
+
+The same `*` and `**` operators *spread* a collection into arguments.
+
+```python
+def add(a, b, c):
+    return a + b + c
+
+nums = [1, 2, 3]
+add(*nums)                    # 6   -- spread the list as positionals
+
+config = {"a": 1, "b": 2, "c": 3}
+add(**config)                 # 6   -- spread the dict as keywords
+```
+
+### The universal wrapper pattern
+
+```python
+def logged(func):
+    def wrapper(*args, **kwargs):     # accept ANY signature
+        print(f"calling {func.__name__}")
+        return func(*args, **kwargs)  # forward everything
+    return wrapper
+```
+
+:::note[Highlight]
+`*args`/`**kwargs` in a wrapper is how decorators forward arbitrary arguments
+(covered in Phase 4). The names `args`/`kwargs` are convention only — the `*`
+and `**` are what matter.
+:::
+
+---
+
+## Modules and imports
+
+A **module** is a single `.py` file. A **package** is a directory of modules
+(historically marked with an `__init__.py`).
+
+```python
+# math_utils.py
+PI = 3.14159
+
+def area(r):
+    return PI * r * r
+```
+
+```python
+# main.py — several import styles
+import math_utils                       # use as math_utils.area(2)
+from math_utils import area, PI         # bring names into this namespace
+from math_utils import area as circle_area   # alias
+import math_utils as mu                  # module alias
+```
+
+### Standard library favorites
+
+```python
+import os                # os.getenv("HOME"), os.path.join(...)
+import sys               # sys.argv, sys.exit(1)
+import json              # json.dumps / json.loads
+import datetime          # datetime.datetime.now()
+from pathlib import Path # modern file paths
+from collections import Counter, defaultdict
+```
+
+:::warning[Avoid wildcard imports]
+`from module import *` dumps every public name into your namespace, hides where
+things came from, and can shadow built-ins. Import what you need explicitly.
+:::
+
+:::info[Theory: how Python finds modules]
+On `import x`, Python searches `sys.path` (the current dir, then `PYTHONPATH`,
+then site-packages). The module is executed **once** and cached in
+`sys.modules`; later imports reuse the cached object. This is why import-time
+side effects only run once.
+:::
+
+---
+
+## Exceptions
+
+Exceptions are how Python signals errors. You **handle** them with
+`try/except`, not by checking return codes.
+
+```python
+try:
+    value = int(user_input)
+    result = 100 / value
+except ValueError:
+    print("Not a number")
+except ZeroDivisionError:
+    print("Cannot divide by zero")
+except (KeyError, IndexError) as exc:     # catch several, capture the object
+    print(f"Lookup failed: {exc}")
+else:
+    print("Success:", result)             # runs only if no exception
+finally:
+    print("Always runs (cleanup)")        # runs no matter what
+```
+
+### The exception hierarchy (partial)
+
+```
+BaseException
+ └── Exception
+      ├── ValueError
+      ├── TypeError
+      ├── KeyError / IndexError  (LookupError)
+      ├── FileNotFoundError      (OSError)
+      └── ZeroDivisionError      (ArithmeticError)
+```
+
+### Raising and re-raising
+
+```python
+def withdraw(balance: float, amount: float) -> float:
+    if amount > balance:
+        raise ValueError(f"Insufficient funds: {amount} > {balance}")
+    return balance - amount
+
+# Wrap a low-level error in a domain-specific one, preserving the cause
+try:
+    config = json.loads(raw)
+except json.JSONDecodeError as exc:
+    raise ValueError("Invalid config file") from exc   # 'from' keeps context
+```
+
+### Custom exceptions
+
+```python
+class InsufficientFundsError(Exception):
+    """Raised when a withdrawal exceeds the balance."""
+
+    def __init__(self, balance: float, amount: float):
+        self.balance = balance
+        self.amount = amount
+        super().__init__(f"Need {amount}, have {balance}")
+```
+
+:::caution[Don't swallow exceptions with a bare except]
+
+```python
+# BAD: hides real bugs, catches even Ctrl-C and SystemExit
+try:
+    risky()
+except:
+    pass
+
+# GOOD: catch the specific type you expect, and log the rest
+try:
+    risky()
+except ValueError as exc:
+    logger.warning("Bad value: %s", exc)
+```
+
+A bare `except:` also catches `KeyboardInterrupt` and `SystemExit`, which you
+almost never want.
+:::
+
+:::note[Highlight: EAFP vs LBYL]
+Pythonic style prefers **EAFP** — "Easier to Ask Forgiveness than Permission":
+try the operation and catch the error, rather than **LBYL** ("Look Before You
+Leap") with lots of pre-checks. `try: d[key] except KeyError:` is often cleaner
+and faster than `if key in d:`.
+:::
+
+---
+
+## File handling
+
+Always use the `with` statement so files are closed automatically — even if an
+error is raised mid-block.
+
+```python
+# Reading
+with open("data.txt", "r", encoding="utf-8") as f:
+    content = f.read()          # whole file as one string
+
+with open("data.txt", encoding="utf-8") as f:
+    for line in f:              # memory-efficient: one line at a time
+        print(line.rstrip())
+
+# Writing ("w" truncates, "a" appends)
+with open("out.txt", "w", encoding="utf-8") as f:
+    f.write("first line\n")
+    f.writelines(["a\n", "b\n"])
+```
+
+### File modes
+
+| Mode | Meaning |
+| --- | --- |
+| `"r"` | Read (default), error if missing |
+| `"w"` | Write, **truncates** existing file |
+| `"a"` | Append to end |
+| `"x"` | Create, error if it already exists |
+| `"b"` | Binary (combine: `"rb"`, `"wb"`) |
+| `"+"` | Read and write |
+
+### Working with JSON
+
+```python
+import json
+
+data = {"name": "Ada", "skills": ["python", "rag"]}
+
+with open("user.json", "w", encoding="utf-8") as f:
+    json.dump(data, f, indent=2)      # write dict -> JSON file
+
+with open("user.json", encoding="utf-8") as f:
+    loaded = json.load(f)             # JSON file -> dict
+```
+
+### Modern paths with `pathlib`
+
+```python
+from pathlib import Path
+
+path = Path("data") / "users" / "ada.txt"   # OS-independent joining
+path.exists()
+path.suffix                 # '.txt'
+path.stem                   # 'ada'
+path.parent                 # Path('data/users')
+text = path.read_text(encoding="utf-8")      # shortcut, opens+closes for you
+path.write_text("hello", encoding="utf-8")
+```
+
+:::warning[Always specify encoding]
+Omitting `encoding="utf-8"` uses the platform default, which differs between
+machines (UTF-8 on Linux/macOS, sometimes cp1252 on Windows). This causes
+"works on my machine" bugs. Always pass `encoding="utf-8"` explicitly.
+:::
+
+:::info[Theory: why `with` matters]
+`open()` returns a *context manager*. The `with` block guarantees `f.close()`
+runs on exit, releasing the OS file handle even if an exception occurs.
+Forgetting to close files can exhaust file descriptors in long-running
+services. You'll build your own context managers in Phase 4.
+:::
+
+---
+
+## Common Mistakes
+
+- Using `is` instead of `==` for value comparison (`x is 5`).
+- Mutable default arguments (`def f(x=[])`).
+- Mutating a list while iterating over it.
+- Bare `except:` that hides real errors.
+- Building strings with `+=` in a loop instead of `str.join`.
+- Comparing floats with `==` instead of `math.isclose`.
+- Forgetting `global`/`nonlocal` when rebinding an outer name.
+
+## Interview Questions
+
+- What's the difference between `==` and `is`?
+- Why are mutable default arguments dangerous?
+- Explain the LEGB scope rule.
+- What is truthiness? Which values are falsy?
+- Difference between `*args` and `**kwargs`?
+- What does `if __name__ == "__main__":` do?
+- EAFP vs LBYL — which is more Pythonic and why?
+
+## Things to Remember
+
+- Variables are references; assignment never copies.
+- Strings and numbers are immutable; lists and dicts are mutable.
+- `and`/`or` short-circuit and return an operand, not a `bool`.
+- Always close files with `with`, and pass `encoding="utf-8"`.
+- Catch specific exceptions; never use a bare `except:`.
+
+## Mini Exercise
+
+Write a function `word_count(path)` that reads a text file and returns a dict
+mapping each word (lowercased, punctuation stripped) to how many times it
+appears. Handle a missing file by raising a clear custom exception.
+
+## Done When
+
+- [ ] You can run a script, a module (`-m`), and the REPL.
+- [ ] You can explain references vs copies and the aliasing trap.
+- [ ] You use f-strings, truthiness, and `enumerate`/`zip` naturally.
+- [ ] You write functions with defaults, `*args`, and `**kwargs`.
+- [ ] You handle errors with specific `except` clauses and `with` for files.
+
+Next: [Phase 2 — Data Structures](./02-data-structures.mdx).

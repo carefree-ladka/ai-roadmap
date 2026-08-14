@@ -1,0 +1,577 @@
+---
+title: "Phase 1 — FastAPI Fundamentals"
+description: Setup and project structure, ASGI and Uvicorn, your first app, routes and path operations, HTTP methods, path/query params, request bodies, headers, cookies, response models, status codes, HTTP exceptions, Swagger docs, JSON responses, form data, file uploads, and static files.
+---
+
+import TOCInline from '@theme/TOCInline';
+
+# Phase 1 — FastAPI Fundamentals
+
+<TOCInline toc={toc} minHeadingLevel={2} maxHeadingLevel={2} />
+
+:::tip[In this guide]
+Everything you need to build a real HTTP API: how FastAPI runs (ASGI + Uvicorn),
+how to declare routes and read every part of a request (path, query, body,
+headers, cookies, forms, files), and how to shape responses with models, status
+codes, and errors — all with automatic interactive docs.
+:::
+
+## What Is It?
+
+FastAPI is a modern, high-performance Python web framework built on **type
+hints**. Those hints drive request parsing, validation, serialization, and the
+automatic OpenAPI/Swagger documentation — you declare types, and the framework
+does the wiring.
+
+## Why Does It Matter?
+
+This phase is the vocabulary for everything else. Routing, request parsing, and
+response shaping appear in every endpoint you'll ever write, and the auto docs
+make your API self-describing for teammates and frontends.
+
+---
+
+## FastAPI Setup and Project Structure
+
+Install FastAPI and an ASGI server inside a virtual environment.
+
+```bash
+python -m venv .venv
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
+pip install "fastapi[standard]" uvicorn
+```
+
+A minimal but sane starting layout — you'll grow it in
+[Phase 4 — Project Architecture](./04-project-architecture.mdx):
+
+```text
+app/
+├── main.py          # creates the FastAPI() app and includes routers
+├── api/             # route modules
+├── core/            # config, security
+└── __init__.py
+```
+
+:::note[Highlight: `fastapi[standard]`]
+Installing `fastapi[standard]` pulls in Uvicorn, `httpx`, Jinja2, and the
+`fastapi` CLI, so `fastapi dev main.py` works out of the box. For production
+images you often install the slimmer `fastapi` plus a pinned `uvicorn`.
+:::
+
+---
+
+## ASGI and Uvicorn
+
+FastAPI apps speak **ASGI**, the asynchronous successor to WSGI. **Uvicorn** is
+the ASGI server that actually accepts network connections and calls your app.
+
+```mermaid
+flowchart LR
+    Browser --> Uvicorn[Uvicorn ASGI server]
+    Uvicorn --> App[FastAPI app]
+    App --> Uvicorn --> Browser
+```
+
+| | WSGI | ASGI |
+| --- | --- | --- |
+| Model | Synchronous | Asynchronous |
+| Concurrency | One request per worker thread | Many concurrent requests per worker |
+| Supports | Request/response | Request/response, WebSockets, streaming |
+| Servers | Gunicorn, uWSGI | Uvicorn, Hypercorn |
+
+:::info[Theory: why ASGI matters for AI]
+AI endpoints spend most of their time *waiting* on the network — an LLM call, a
+vector DB query, an embedding API. ASGI lets one worker handle hundreds of these
+in-flight waits concurrently instead of blocking a thread each. That's why
+FastAPI is a natural fit for AI backends.
+:::
+
+---
+
+## First FastAPI Application
+
+```python
+# main.py
+from fastapi import FastAPI
+
+app = FastAPI(
+    title="RAG API",
+    version="0.1.0",
+    description="Local-first AI API.",
+)
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+```
+
+Run it in development:
+
+```bash
+uvicorn main:app --reload      # module:variable, auto-reload on code changes
+# or:  fastapi dev main.py
+```
+
+:::warning[`main:app` is module:variable]
+`uvicorn main:app` means "in `main.py`, use the object named `app`." A mismatch
+here (`app:main`, wrong filename, or renaming `app`) is the most common
+"application not found" startup error.
+:::
+
+---
+
+## Routes and Path Operations
+
+A **path operation** is one HTTP method + one path + a handler function. The
+decorator binds them together.
+
+```python
+@app.get("/items")            # method = GET, path = /items
+def list_items():
+    return [{"id": 1}, {"id": 2}]
+```
+
+FastAPI returns Python objects (dicts, lists, Pydantic models) and serializes
+them to JSON automatically.
+
+---
+
+## HTTP Methods
+
+Each method maps to a decorator and a CRUD-style intent.
+
+| Method | Decorator | Intent | Idempotent? |
+| --- | --- | --- | --- |
+| GET | `@app.get` | Read | Yes |
+| POST | `@app.post` | Create | No |
+| PUT | `@app.put` | Replace (full update) | Yes |
+| PATCH | `@app.patch` | Partial update | No* |
+| DELETE | `@app.delete` | Remove | Yes |
+
+\*PATCH can be made idempotent depending on semantics.
+
+### GET
+
+```python
+@app.get("/users")
+def list_users():
+    return [{"id": 1, "name": "Ada"}]
+```
+
+### POST
+
+```python
+from pydantic import BaseModel
+
+class UserCreate(BaseModel):
+    name: str
+    email: str
+
+@app.post("/users", status_code=201)
+def create_user(user: UserCreate):     # body parsed & validated automatically
+    return {"id": 1, **user.model_dump()}
+```
+
+### PUT
+
+```python
+@app.put("/users/{user_id}")
+def replace_user(user_id: int, user: UserCreate):
+    return {"id": user_id, **user.model_dump()}    # full replacement
+```
+
+### PATCH
+
+```python
+class UserUpdate(BaseModel):
+    name: str | None = None
+    email: str | None = None
+
+@app.patch("/users/{user_id}")
+def update_user(user_id: int, patch: UserUpdate):
+    # apply only the fields that were provided (see Phase 2: partial updates)
+    return {"id": user_id, **patch.model_dump(exclude_unset=True)}
+```
+
+### DELETE
+
+```python
+@app.delete("/users/{user_id}", status_code=204)
+def delete_user(user_id: int):
+    return None                          # 204 No Content
+```
+
+:::info[Theory: idempotency]
+An operation is **idempotent** if calling it many times has the same effect as
+calling it once. `GET`, `PUT`, and `DELETE` are idempotent; `POST` is not
+(two POSTs create two resources). This matters for safe retries — clients and
+proxies can retry idempotent calls without side effects. More in
+[Phase 13 — API Design](./13-api-design.mdx#idempotency).
+:::
+
+---
+
+## Path Parameters
+
+Parts of the URL path, declared in `{braces}` and typed in the signature.
+
+```python
+@app.get("/users/{user_id}")
+def get_user(user_id: int):          # "42" -> int 42, validated
+    return {"user_id": user_id}
+```
+
+- FastAPI converts and validates types: `/users/abc` returns `422`.
+- Use an `Enum` to constrain allowed values.
+
+```python
+from enum import Enum
+
+class Role(str, Enum):
+    admin = "admin"
+    user = "user"
+
+@app.get("/roles/{role}")
+def by_role(role: Role):             # only "admin" or "user" accepted
+    return {"role": role}
+```
+
+:::warning[Path order matters]
+Define fixed paths before parameterized ones. `/users/me` must be declared
+**before** `/users/{user_id}`, or `me` gets captured as a `user_id` and fails
+validation.
+:::
+
+---
+
+## Query Parameters
+
+Function parameters that are **not** in the path become query parameters
+(`?key=value`).
+
+```python
+@app.get("/search")
+def search(q: str, limit: int = 10, offset: int = 0):
+    # /search?q=rag&limit=5  ->  q="rag", limit=5, offset=0 (default)
+    return {"q": q, "limit": limit, "offset": offset}
+```
+
+- No default → **required** query param.
+- With default → optional.
+- Use `Query` for validation and metadata.
+
+```python
+from typing import Annotated
+from fastapi import Query
+
+@app.get("/products")
+def products(
+    q: Annotated[str | None, Query(max_length=50)] = None,
+    tags: Annotated[list[str], Query()] = [],     # ?tags=a&tags=b
+):
+    return {"q": q, "tags": tags}
+```
+
+---
+
+## Request Bodies
+
+Declare a Pydantic model parameter and FastAPI reads, parses, and validates the
+JSON body. This is the key example from the roadmap:
+
+```python
+from fastapi import FastAPI
+from pydantic import BaseModel, EmailStr
+
+app = FastAPI()
+
+class UserCreate(BaseModel):
+    name: str
+    email: EmailStr
+    age: int
+
+@app.post("/users")
+def create_user(user: UserCreate):
+    return user                       # FastAPI validates the request for you
+```
+
+A bad request (missing field, wrong type, invalid email) automatically returns
+`422 Unprocessable Entity` with a precise error body — you write zero validation
+code. Pydantic is covered fully in
+[Phase 2 — Pydantic & Data Validation](./02-pydantic-validation.mdx).
+
+:::note[Highlight: how FastAPI decides where a param comes from]
+FastAPI infers the source from the type:
+
+- Declared in the path template (`{user_id}`) → **path** parameter.
+- A singular type (`int`, `str`, `bool`) not in the path → **query** parameter.
+- A Pydantic model → **request body** (JSON).
+
+You can override with `Path()`, `Query()`, `Body()`, `Header()`, `Cookie()`,
+`Form()`, and `File()`.
+:::
+
+---
+
+## Headers
+
+Read HTTP headers with `Header`. Underscores in parameter names map to hyphens
+in header names automatically.
+
+```python
+from typing import Annotated
+from fastapi import Header
+
+@app.get("/whoami")
+def whoami(user_agent: Annotated[str | None, Header()] = None):
+    return {"user_agent": user_agent}     # reads the "User-Agent" header
+```
+
+---
+
+## Cookies
+
+Read cookies with `Cookie`, and set them on a `Response`.
+
+```python
+from typing import Annotated
+from fastapi import Cookie, Response
+
+@app.get("/session")
+def read_session(session_id: Annotated[str | None, Cookie()] = None):
+    return {"session_id": session_id}
+
+@app.post("/login")
+def login(response: Response):
+    response.set_cookie(key="session_id", value="abc123", httponly=True)
+    return {"ok": True}
+```
+
+:::warning[Secure your cookies]
+For auth/session cookies always set `httponly=True` (JS can't read them),
+`secure=True` (HTTPS only), and an appropriate `samesite` value to reduce XSS
+and CSRF risk. See [Phase 16 — Security](./16-security.mdx).
+:::
+
+---
+
+## Response Models
+
+Declare `response_model` (or a return type annotation) to shape and **filter**
+the output. FastAPI validates the response and strips anything not in the model.
+
+```python
+from pydantic import BaseModel
+
+class UserOut(BaseModel):
+    id: int
+    name: str
+    # note: no password field -> it can never leak
+
+@app.get("/users/{user_id}", response_model=UserOut)
+def get_user(user_id: int):
+    return {"id": user_id, "name": "Ada", "password": "secret"}
+    # response is {"id": ..., "name": "Ada"} — password is filtered out
+```
+
+:::info[Theory: request vs response schemas]
+Keep **input** and **output** models separate. A `UserCreate` accepts a
+password; a `UserOut` never returns one. This separation prevents accidental
+data leaks and lets each side evolve independently — a core pattern you'll reuse
+throughout the roadmap.
+:::
+
+---
+
+## Status Codes
+
+Set the default success code per operation; use the `status` constants for
+readability.
+
+```python
+from fastapi import status
+
+@app.post("/items", status_code=status.HTTP_201_CREATED)
+def create_item():
+    return {"created": True}
+```
+
+Common codes: `200 OK`, `201 Created`, `204 No Content`, `400 Bad Request`,
+`401 Unauthorized`, `403 Forbidden`, `404 Not Found`,
+`422 Unprocessable Entity` (validation), `429 Too Many Requests`,
+`500 Internal Server Error`.
+
+---
+
+## HTTP Exceptions
+
+Raise `HTTPException` to return an error response with the right status code.
+
+```python
+from fastapi import HTTPException
+
+@app.get("/users/{user_id}")
+def get_user(user_id: int):
+    user = db.get(user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user
+```
+
+Full error-handling patterns (custom exceptions, global handlers, error
+schemas) are covered in [Phase 9 — Error Handling](./09-error-handling.mdx).
+
+---
+
+## Automatic Swagger / OpenAPI Docs
+
+FastAPI generates an OpenAPI schema from your types and serves two UIs — no
+configuration required:
+
+- **Swagger UI**: [http://localhost:8000/docs](http://localhost:8000/docs) — try requests live in the browser.
+- **ReDoc**: [http://localhost:8000/redoc](http://localhost:8000/redoc) — clean reference docs.
+- **Raw schema**: `/openapi.json`.
+
+:::note[Highlight: docs are driven by your code]
+Every type hint, `response_model`, status code, and docstring flows into the
+docs. Good models and clear function names give you accurate, always-current API
+documentation for free.
+:::
+
+---
+
+## JSON Responses
+
+Returning a dict, list, or Pydantic model produces a JSON response by default.
+For explicit control (custom headers, status, or a faster encoder) use response
+classes.
+
+```python
+from fastapi.responses import JSONResponse
+
+@app.get("/custom")
+def custom():
+    return JSONResponse(
+        content={"message": "hi"},
+        status_code=200,
+        headers={"X-Custom": "value"},
+    )
+```
+
+Other responses: `PlainTextResponse`, `HTMLResponse`, `RedirectResponse`,
+`StreamingResponse` (used for LLM token streaming in
+[Phase 22 — AI Backend](./22-ai-backend.mdx)).
+
+---
+
+## Form Data
+
+For HTML form submissions (`application/x-www-form-urlencoded`) use `Form`.
+Install `python-multipart` first.
+
+```python
+from typing import Annotated
+from fastapi import Form
+
+@app.post("/login")
+def login(
+    username: Annotated[str, Form()],
+    password: Annotated[str, Form()],
+):
+    return {"username": username}
+```
+
+:::warning[Form vs JSON body]
+A single endpoint reads **either** a JSON body **or** form fields, not both. If
+you mix a Pydantic body param with `Form(...)` params, the body wins and forms
+break. Pick one content type per endpoint.
+:::
+
+---
+
+## File Uploads
+
+Use `UploadFile` for uploaded files (`multipart/form-data`). `UploadFile` streams
+to a spooled temp file, so large uploads don't exhaust memory.
+
+```python
+from fastapi import UploadFile, File
+from typing import Annotated
+
+@app.post("/upload")
+async def upload(file: UploadFile):
+    contents = await file.read()             # bytes
+    return {"filename": file.filename, "size": len(contents),
+            "content_type": file.content_type}
+
+@app.post("/upload-many")
+async def upload_many(files: Annotated[list[UploadFile], File()]):
+    return {"count": len(files)}
+```
+
+Validation, size limits, streaming, and S3 presigned URLs are covered in
+[Phase 12 — File Uploads](./12-file-uploads.mdx).
+
+---
+
+## Static Files
+
+Serve a directory of static assets (images, CSS, a built frontend) with
+`StaticFiles`.
+
+```python
+from fastapi.staticfiles import StaticFiles
+
+app.mount("/static", StaticFiles(directory="static"), name="static")
+# GET /static/logo.png -> static/logo.png
+```
+
+:::note[Highlight: let a real server serve static files in production]
+Mounting `StaticFiles` is fine for development and small apps. In production,
+put static assets behind Nginx, a CDN, or object storage so your Python workers
+focus on dynamic requests. See [Phase 20 — Performance](./20-performance-scalability.mdx).
+:::
+
+---
+
+## Common Mistakes
+
+- Getting `uvicorn main:app` backwards (it's `module:variable`).
+- Declaring `/users/{id}` before `/users/me`, so `me` is captured as an id.
+- Returning internal fields because there's no `response_model`.
+- Forgetting `python-multipart`, so `Form`/`File` raise at import/run time.
+- Mixing a JSON body and `Form(...)` in the same endpoint.
+- Using a plain `dict` return when a typed `response_model` would validate and document it.
+
+## Interview Questions
+
+- What is FastAPI and why is it fast? ASGI vs WSGI?
+- How does FastAPI know whether a parameter is a path, query, or body value?
+- What status code does a validation failure return, and why?
+- What is `response_model` for, and how does it prevent data leaks?
+- When would you use `Form` vs a JSON body vs `File`?
+- Which HTTP methods are idempotent?
+
+## Things to Remember
+
+- Type hints drive parsing, validation, serialization, and docs.
+- Path vs query vs body is inferred from types; override with `Path/Query/Body`.
+- Separate request and response models; use `response_model` to filter output.
+- `UploadFile` streams large files; needs `python-multipart`.
+- `/docs`, `/redoc`, and `/openapi.json` are generated for you.
+
+## Mini Exercise
+
+Build a tiny in-memory user API: `POST /users` (validated `UserCreate` body),
+`GET /users/{id}` with a `UserOut` response model that hides the password,
+`GET /users?limit=&offset=` with query params, and a `DELETE /users/{id}` that
+returns `204` or raises `404`. Confirm everything appears correctly in `/docs`.
+
+## Done When
+
+- [ ] You can create and run a FastAPI app with Uvicorn and explain ASGI.
+- [ ] You can read path, query, body, header, cookie, form, and file inputs.
+- [ ] You use `response_model`, status codes, and `HTTPException` correctly.
+- [ ] You can navigate and use the auto-generated Swagger docs.
+
+Next: [Phase 2 — Pydantic & Data Validation](./02-pydantic-validation.mdx).

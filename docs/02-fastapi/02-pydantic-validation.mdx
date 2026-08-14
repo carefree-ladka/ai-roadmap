@@ -1,0 +1,658 @@
+---
+title: "Phase 2 — Pydantic & Data Validation"
+description: Pydantic fundamentals, BaseModel, Field, required vs optional fields, defaults, type validation, nested models, lists and dicts, Enum, Literal, custom/field/model validators, serialization and deserialization, request/response/partial-update schemas, Pydantic Settings, and the key Pydantic v2 changes.
+---
+
+import TOCInline from '@theme/TOCInline';
+
+# Phase 2 — Pydantic & Data Validation
+
+<TOCInline toc={toc} minHeadingLevel={2} maxHeadingLevel={2} />
+
+:::tip[In this guide]
+Pydantic is the data layer that makes FastAPI feel magical. You declare a model
+with type hints, and you get parsing, validation, clear error messages, and JSON
+serialization for free. This phase covers models, fields, validators, the
+request/response schema split, settings management, and everything that changed
+in Pydantic v2.
+:::
+
+## What Is It?
+
+Pydantic is a data validation library built on Python **type hints**. You define
+a class that inherits from `BaseModel`, annotate its attributes with types, and
+Pydantic enforces those types at runtime — coercing where sensible, rejecting
+where not, and producing structured error reports when data is invalid.
+
+FastAPI uses Pydantic for every request body, response model, and settings
+object. Learning Pydantic well is the single highest-leverage skill for writing
+correct FastAPI code.
+
+## Why Does It Matter?
+
+Validation is where most real bugs and security holes live. A field that should
+be an `int` arriving as a string, an email that isn't an email, a required key
+that's missing — Pydantic catches all of these at the edge of your system before
+they reach your business logic or database. It also documents your API: every
+model becomes part of the OpenAPI schema.
+
+---
+
+## Pydantic Fundamentals
+
+At its core, Pydantic turns untrusted input (a dict from JSON, environment
+variables, a form) into a validated, typed Python object. If the input can be
+coerced to match the declared types, you get a model instance. If it can't, you
+get a `ValidationError` describing exactly what went wrong.
+
+```python
+from pydantic import BaseModel, ValidationError
+
+class Point(BaseModel):
+    x: int
+    y: int
+
+p = Point(x="3", y=4)     # "3" is coerced to int 3
+print(p.x, p.y)           # 3 4
+
+try:
+    Point(x="not-a-number", y=1)
+except ValidationError as exc:
+    print(exc)            # 1 validation error: x -> value is not a valid integer
+```
+
+:::info[Theory: parse, don't validate]
+Pydantic follows the "parse, don't validate" philosophy. Instead of scattering
+`if not isinstance(...)` checks through your code, you parse raw input into a
+trusted type **once** at the boundary. After that point, the rest of your program
+can assume the data is well-formed. This shrinks the surface area for bugs
+dramatically.
+:::
+
+---
+
+## BaseModel
+
+`BaseModel` is the base class for every schema. Subclass it and annotate
+attributes; instances are then validated on construction and expose helpful
+methods like `model_dump()` and `model_validate()`.
+
+```python
+from pydantic import BaseModel
+
+class Product(BaseModel):
+    id: int
+    name: str
+    price: float
+    in_stock: bool = True
+
+product = Product(id=1, name="Keyboard", price=49.99)
+print(product.name)          # "Keyboard"
+print(product.in_stock)      # True (default)
+print(product.model_dump())  # {'id': 1, 'name': 'Keyboard', 'price': 49.99, 'in_stock': True}
+```
+
+Here is the canonical example you'll see everywhere in FastAPI. A model like this
+becomes a request body automatically:
+
+```python
+from fastapi import FastAPI
+from pydantic import BaseModel, EmailStr
+
+app = FastAPI()
+
+class UserCreate(BaseModel):
+    name: str
+    email: EmailStr
+    age: int
+```
+
+Used with a POST route, FastAPI validates the incoming JSON against the model
+before your function ever runs:
+
+```python
+@app.post("/users")
+def create_user(user: UserCreate):
+    # user is already validated: name is a str, email is a real email, age is an int
+    return user
+```
+
+A request with a missing field, a non-integer `age`, or an invalid email is
+rejected with a `422 Unprocessable Entity` and a precise error body — you write
+zero validation code.
+
+:::note[Highlight: `EmailStr` needs an extra package]
+`EmailStr` and other special types live behind optional dependencies. Install
+`pydantic[email]` (or `email-validator`) or importing `EmailStr` will fail at
+runtime.
+:::
+
+---
+
+## Fields (with `Field`)
+
+`Field` attaches metadata and constraints to an attribute: default values,
+validation rules, and documentation that flows into the OpenAPI schema.
+
+```python
+from pydantic import BaseModel, Field
+
+class Article(BaseModel):
+    title: str = Field(min_length=3, max_length=120)
+    body: str = Field(description="Markdown content of the article")
+    views: int = Field(default=0, ge=0)              # ge = greater than or equal
+    rating: float = Field(default=0.0, ge=0.0, le=5.0)
+```
+
+Common constraints: `min_length`/`max_length` for strings and collections,
+`ge`/`gt`/`le`/`lt` for numbers, `pattern` for regex, and `default_factory` for
+mutable defaults.
+
+```python
+from pydantic import BaseModel, Field
+
+class Cart(BaseModel):
+    items: list[str] = Field(default_factory=list)   # each instance gets its own list
+    discount: float = Field(default=0.0, ge=0.0, lt=1.0)
+```
+
+:::warning[Never use a mutable default directly]
+Writing `items: list[str] = []` shares one list across every instance — a classic
+Python bug. Use `Field(default_factory=list)` (or `dict`, `set`) so each model
+gets a fresh container.
+:::
+
+---
+
+## Required vs Optional Fields
+
+A field with no default is **required**. A field is optional only when it has a
+default value. Making a type accept `None` does not by itself make it optional.
+
+```python
+from pydantic import BaseModel
+
+class Account(BaseModel):
+    username: str                 # required
+    bio: str | None = None        # optional, defaults to None
+    is_active: bool = True        # optional, defaults to True
+```
+
+:::caution[`str | None` is not the same as optional]
+A field typed `nickname: str | None` with **no default** is still required — the
+caller must pass `None` explicitly. To make it truly optional, give it a default:
+`nickname: str | None = None`. This trips up almost everyone at first.
+:::
+
+---
+
+## Default Values
+
+Defaults make fields optional and define the value used when input omits them.
+Use `default_factory` for anything mutable or computed per-instance.
+
+```python
+from datetime import datetime, timezone
+from pydantic import BaseModel, Field
+
+class Event(BaseModel):
+    name: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    tags: list[str] = Field(default_factory=list)
+```
+
+---
+
+## Type Validation
+
+Pydantic validates and, where reasonable, coerces types. It converts `"3"` to
+`3` for an `int` field but rejects `"three"`. This coercion behavior is
+configurable, and Pydantic v2 is stricter than v1 by default.
+
+```python
+from pydantic import BaseModel
+
+class Settings(BaseModel):
+    debug: bool
+    port: int
+
+s = Settings(debug="true", port="8000")   # "true" -> True, "8000" -> 8000
+print(s.debug, s.port)                      # True 8000
+```
+
+For stricter behavior, use strict types or `model_config` (covered below) to
+disable coercion.
+
+---
+
+## Nested Models
+
+Models compose. A field typed as another `BaseModel` is validated recursively,
+so you can model deeply structured JSON with confidence.
+
+```python
+from pydantic import BaseModel
+
+class Address(BaseModel):
+    street: str
+    city: str
+    zipcode: str
+
+class Company(BaseModel):
+    name: str
+    address: Address          # nested model
+
+class Employee(BaseModel):
+    name: str
+    company: Company          # nested inside nested
+
+payload = {
+    "name": "Ada",
+    "company": {
+        "name": "Acme",
+        "address": {"street": "1 Main St", "city": "Metropolis", "zipcode": "00001"},
+    },
+}
+employee = Employee(**payload)
+print(employee.company.address.city)   # "Metropolis"
+```
+
+:::info[Theory: validation is recursive]
+When a model contains other models, Pydantic validates from the inside out. If
+the nested `Address` is invalid, the whole `Employee` construction fails with an
+error path like `company.address.zipcode`, telling you exactly where the problem
+is. This makes debugging complex payloads straightforward.
+:::
+
+---
+
+## Lists and Dictionaries
+
+Container types are fully typed and validated element by element. Wrap generics
+in backticks in prose, but inside code they are written normally.
+
+```python
+from pydantic import BaseModel
+
+class Order(BaseModel):
+    item_ids: list[int]                 # every element must be an int
+    quantities: dict[str, int]          # keys are str, values are int
+    tags: set[str] = set()
+
+order = Order(item_ids=["1", "2", 3], quantities={"sku-1": 4})
+print(order.item_ids)     # [1, 2, 3] — strings coerced to ints
+```
+
+An invalid element (for example `item_ids=["1", "abc"]`) fails with an error
+pointing at the offending index, such as `item_ids.1`.
+
+---
+
+## Enum
+
+Use Python `Enum` to constrain a field to a fixed set of values. Inheriting from
+`str` (a "string enum") makes the values JSON-friendly.
+
+```python
+from enum import Enum
+from pydantic import BaseModel
+
+class Status(str, Enum):
+    pending = "pending"
+    active = "active"
+    closed = "closed"
+
+class Ticket(BaseModel):
+    subject: str
+    status: Status = Status.pending
+
+t = Ticket(subject="Login bug", status="active")
+print(t.status)          # Status.active
+```
+
+Anything outside the allowed values is rejected, and the choices appear in your
+OpenAPI docs as an enumeration.
+
+---
+
+## Literal
+
+`Literal` restricts a field to specific constant values without defining an enum
+class. It's ideal for small, fixed choice sets and discriminated unions.
+
+```python
+from typing import Literal
+from pydantic import BaseModel
+
+class Payment(BaseModel):
+    method: Literal["card", "paypal", "bank_transfer"]
+    currency: Literal["USD", "EUR", "GBP"] = "USD"
+```
+
+:::note[Highlight: `Literal` vs `Enum`]
+Use `Literal` for a handful of inline constants that don't need a name elsewhere.
+Reach for `Enum` when the set of values is reused across models, needs methods,
+or benefits from a self-documenting type name. Both render as an enumeration in
+the schema.
+:::
+
+---
+
+## Custom Validators
+
+Sometimes type checks aren't enough — you need business rules. Pydantic v2
+provides two decorators: `@field_validator` for single fields and
+`@model_validator` for cross-field logic.
+
+---
+
+## Field Validators (`@field_validator`)
+
+A field validator runs custom logic for one (or several) named fields. It
+receives the value and returns the cleaned value, or raises `ValueError`.
+
+```python
+from pydantic import BaseModel, field_validator
+
+class SignUp(BaseModel):
+    username: str
+    password: str
+
+    @field_validator("username")
+    @classmethod
+    def username_is_lowercase(cls, value: str) -> str:
+        if not value.isalnum():
+            raise ValueError("username must be alphanumeric")
+        return value.lower()          # normalize while validating
+
+    @field_validator("password")
+    @classmethod
+    def password_strength(cls, value: str) -> str:
+        if len(value) < 8:
+            raise ValueError("password must be at least 8 characters")
+        return value
+```
+
+:::caution[Field validators are also transformers]
+A `@field_validator` can return a modified value, not just approve the input. The
+example above lowercases the username. Use this to normalize data (trim
+whitespace, canonicalize case) at the boundary so the rest of your code sees
+consistent values.
+:::
+
+---
+
+## Model Validators (`@model_validator`)
+
+A model validator sees the whole model, so it can enforce rules that span
+multiple fields — for example, "password and confirmation must match" or "end
+date must be after start date."
+
+```python
+from pydantic import BaseModel, model_validator
+
+class DateRange(BaseModel):
+    start: int
+    end: int
+
+    @model_validator(mode="after")
+    def check_order(self):
+        if self.end < self.start:
+            raise ValueError("end must be greater than or equal to start")
+        return self
+
+class Registration(BaseModel):
+    password: str
+    password_confirm: str
+
+    @model_validator(mode="after")
+    def passwords_match(self):
+        if self.password != self.password_confirm:
+            raise ValueError("passwords do not match")
+        return self
+```
+
+`mode="before"` runs on the raw input dict before field validation;
+`mode="after"` runs on the constructed model. Use `after` for cross-field checks
+that need already-validated fields.
+
+---
+
+## Serialization (`model_dump`, `model_dump_json`)
+
+Serialization turns a model back into plain data. `model_dump()` returns a dict;
+`model_dump_json()` returns a JSON string. Both accept options to filter and
+shape the output.
+
+```python
+from pydantic import BaseModel
+
+class User(BaseModel):
+    id: int
+    name: str
+    password: str
+
+user = User(id=1, name="Ada", password="secret")
+
+user.model_dump()                          # {'id': 1, 'name': 'Ada', 'password': 'secret'}
+user.model_dump(exclude={"password"})      # {'id': 1, 'name': 'Ada'}
+user.model_dump(include={"id", "name"})    # {'id': 1, 'name': 'Ada'}
+user.model_dump_json()                      # '{"id":1,"name":"Ada","password":"secret"}'
+```
+
+Useful options: `exclude`/`include`, `exclude_none=True`, `exclude_defaults=True`,
+`by_alias=True` (use field aliases in output), and `exclude_unset=True` (see
+partial updates below).
+
+---
+
+## Deserialization (`model_validate`)
+
+`model_validate()` builds and validates a model from a dict (or any mapping), and
+`model_validate_json()` does the same from a JSON string. These are the modern
+replacements for the v1 `parse_obj` / `parse_raw`.
+
+```python
+from pydantic import BaseModel
+
+class Item(BaseModel):
+    id: int
+    name: str
+
+data = {"id": "10", "name": "Mouse"}
+item = Item.model_validate(data)            # from a dict
+item2 = Item.model_validate_json('{"id": 11, "name": "Pad"}')   # from JSON text
+```
+
+---
+
+## Request Schemas
+
+A request schema describes what a client is allowed to send. It typically accepts
+raw input fields and may include write-only data like passwords.
+
+```python
+from pydantic import BaseModel, EmailStr, Field
+
+class UserCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    email: EmailStr
+    password: str = Field(min_length=8)
+```
+
+FastAPI uses this as the body schema, validates incoming JSON, and rejects
+anything that doesn't conform before your handler runs.
+
+---
+
+## Response Schemas
+
+A response schema describes what you return. Crucially, it should **never**
+include secrets. Keeping request and response models separate is a core safety
+pattern.
+
+```python
+from pydantic import BaseModel, EmailStr
+
+class UserOut(BaseModel):
+    id: int
+    name: str
+    email: EmailStr
+    # no password field: it can never leak to clients
+
+@app.post("/users", response_model=UserOut)
+def create_user(user: UserCreate):
+    saved = {"id": 1, **user.model_dump()}   # pretend we persisted it
+    return saved                              # password is filtered out by UserOut
+```
+
+:::info[Theory: the request/response split]
+Input and output models evolve for different reasons and carry different data. A
+`UserCreate` takes a password; a `UserOut` returns an id and hides the password.
+Modeling them separately prevents accidental data leaks, keeps your API contract
+clear, and lets each side change independently. This pattern recurs throughout
+the roadmap.
+:::
+
+---
+
+## Partial-Update Schemas (with `exclude_unset`)
+
+For `PATCH` endpoints you want to update only the fields the client actually
+sent. Make every field optional, then serialize with `exclude_unset=True` so
+untouched fields are left alone.
+
+```python
+from pydantic import BaseModel
+
+class UserUpdate(BaseModel):
+    name: str | None = None
+    email: str | None = None
+    bio: str | None = None
+
+@app.patch("/users/{user_id}")
+def update_user(user_id: int, patch: UserUpdate):
+    changes = patch.model_dump(exclude_unset=True)   # only fields the client sent
+    # apply `changes` to the stored record
+    return {"id": user_id, "updated_fields": list(changes.keys())}
+```
+
+:::note[Highlight: `exclude_unset` vs `exclude_none`]
+`exclude_unset=True` drops fields the client never provided — so an explicit
+`null` still comes through and can clear a value. `exclude_none=True` drops any
+field whose value is `None`, which cannot distinguish "not sent" from "set to
+null." For PATCH semantics, prefer `exclude_unset`.
+:::
+
+---
+
+## Pydantic Settings (`pydantic-settings`, `BaseSettings`)
+
+Configuration should be validated too. The `pydantic-settings` package provides
+`BaseSettings`, which loads values from environment variables (and `.env` files)
+and validates them with the same rules as any model.
+
+```bash
+pip install pydantic-settings
+```
+
+```python
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+class Settings(BaseSettings):
+    app_name: str = "RAG API"
+    database_url: str
+    debug: bool = False
+    max_connections: int = 10
+
+    model_config = SettingsConfigDict(env_file=".env", env_prefix="APP_")
+
+settings = Settings()   # reads APP_DATABASE_URL, APP_DEBUG, ... from env / .env
+```
+
+:::caution[Config is validated at startup]
+Because `Settings()` runs validation immediately, a missing required variable
+like `DATABASE_URL` fails **at startup** with a clear error rather than causing a
+mysterious crash later. Fail fast on bad configuration. Configuration management
+is covered fully in [Phase 17 — Configuration & Environment](./17-configuration-environment.mdx).
+:::
+
+---
+
+## Pydantic v2 (key changes from v1)
+
+Pydantic v2 was a ground-up rewrite. If you read older tutorials you'll see v1
+APIs — here is what changed and why it matters.
+
+| v1 | v2 | Notes |
+| --- | --- | --- |
+| `model.dict()` | `model.model_dump()` | dict output |
+| `model.json()` | `model.model_dump_json()` | JSON string output |
+| `Model.parse_obj(d)` | `Model.model_validate(d)` | from a dict |
+| `Model.parse_raw(s)` | `Model.model_validate_json(s)` | from JSON text |
+| `@validator` | `@field_validator` | single-field validation |
+| `@root_validator` | `@model_validator` | cross-field validation |
+| inner `class Config` | `model_config = ConfigDict(...)` | model configuration |
+
+```python
+from pydantic import BaseModel, ConfigDict
+
+class Strict(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+    name: str
+```
+
+:::info[Theory: why v2 is faster]
+Pydantic v2's validation core, **pydantic-core**, is written in Rust. Moving the
+hot path out of Python makes v2 several times faster than v1 at parsing and
+validating data — a real difference for high-throughput APIs. The trade-off is
+that some behaviors are stricter and the API method names changed, which is why
+migrating from v1 requires the renames above.
+:::
+
+---
+
+## Common Mistakes
+
+- Using a mutable default (`items: list = []`) instead of `Field(default_factory=list)`.
+- Assuming `str | None` makes a field optional — it still needs a default.
+- Returning models that include passwords or secrets because request and response schemas weren't separated.
+- Calling v1 methods (`.dict()`, `.json()`, `parse_obj`) on v2 models.
+- Using `exclude_none` for PATCH when `exclude_unset` is what you want.
+- Forgetting to install `pydantic[email]` before using `EmailStr`.
+
+## Interview Questions
+
+- What does Pydantic do, and how does FastAPI use it?
+- What's the difference between a required and an optional field?
+- When would you use `@field_validator` vs `@model_validator`?
+- Why keep request and response schemas separate?
+- How do you implement a partial update with PATCH? What does `exclude_unset` do?
+- What changed between Pydantic v1 and v2, and why is v2 faster?
+
+## Things to Remember
+
+- `BaseModel` + type hints gives you validation, coercion, and serialization.
+- `Field` adds constraints and metadata; use `default_factory` for mutables.
+- Validators can transform values, not just approve them.
+- Separate input (`Create`) and output (`Out`) models to prevent leaks.
+- v2 renamed core methods and moved validation to Rust (pydantic-core) for speed.
+
+## Mini Exercise
+
+Model a small blog API. Create a `PostCreate` request schema (title with length
+limits, body, and a `Status` enum defaulting to `draft`), a `PostOut` response
+schema that adds an `id` and a `created_at`, and a `PostUpdate` partial-update
+schema. Add a `@model_validator` that forbids publishing a post with an empty
+body, then wire them into `POST`, `GET`, and `PATCH` routes and confirm the
+schemas render correctly in `/docs`.
+
+## Done When
+
+- [ ] You can build models with `BaseModel`, `Field`, enums, and nested types.
+- [ ] You can write field and model validators and know when to use each.
+- [ ] You separate request, response, and partial-update schemas.
+- [ ] You can load and validate configuration with `BaseSettings`.
+- [ ] You can name the key differences between Pydantic v1 and v2.
+
+Next: [Phase 3 — Dependency Injection](./03-dependency-injection.mdx).

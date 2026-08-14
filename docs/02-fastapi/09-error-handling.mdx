@@ -1,0 +1,376 @@
+---
+title: "Phase 9 — Error Handling"
+description: HTTPException, custom domain exceptions, exception handlers, validation errors and the 422 body, global exception handling, consistent error response schemas, logging errors, mapping database exceptions to 409, and mapping business exceptions to HTTP responses.
+---
+
+import TOCInline from '@theme/TOCInline';
+
+# Phase 9 — Error Handling
+
+<TOCInline toc={toc} minHeadingLevel={2} maxHeadingLevel={2} />
+
+:::tip[In this guide]
+Good APIs fail clearly. You'll raise `HTTPException` for expected errors, define
+domain exceptions that stay decoupled from HTTP, register handlers that turn them
+into consistent JSON envelopes, understand FastAPI's `422` validation body, and
+map database and business errors to the right status codes.
+:::
+
+## What Is It?
+
+Error handling is the discipline of turning every failure — bad input, missing
+resource, database conflict, unexpected bug — into a clear, consistent HTTP
+response instead of a stack trace or a `500`. FastAPI gives you `HTTPException`,
+exception handlers, and automatic validation errors to do this cleanly.
+
+## Why Does It Matter?
+
+Clients build on your error contract as much as your success contract. Consistent
+status codes and error shapes let frontends show the right message and let
+services retry safely. Sloppy handling leaks internals, confuses callers, and
+turns every edge case into a `500`.
+
+---
+
+## HTTPException
+
+`HTTPException` is the standard way to return an expected error with a specific
+status code. Raise it anywhere in a handler or dependency. This is the core
+example:
+
+```python
+from fastapi import HTTPException
+
+if user is None:
+    raise HTTPException(
+        status_code=404,
+        detail="User not found"
+    )
+```
+
+FastAPI turns that into a `404` response with body `{"detail": "User not
+found"}`. You can add headers too:
+
+```python
+raise HTTPException(
+    status_code=401,
+    detail="Not authenticated",
+    headers={"WWW-Authenticate": "Bearer"},
+)
+```
+
+:::note[Highlight: raise, don't return]
+You `raise` an `HTTPException`; you don't return it. Raising short-circuits the
+handler immediately, which is exactly what you want when validation or a lookup
+fails — no need for nested `if/else` around the happy path.
+:::
+
+---
+
+## Custom Exceptions (Domain Exceptions)
+
+Your business logic shouldn't know about HTTP. Define plain **domain exceptions**
+in the service layer and translate them to HTTP at the edge. This keeps services
+reusable (a CLI or worker can catch the same exceptions).
+
+```python
+class DomainError(Exception):
+    """Base class for business errors."""
+
+class UserNotFound(DomainError):
+    def __init__(self, user_id: int):
+        self.user_id = user_id
+        super().__init__(f"User {user_id} not found")
+
+class EmailAlreadyExists(DomainError):
+    def __init__(self, email: str):
+        self.email = email
+        super().__init__(f"Email {email} already registered")
+```
+
+The service raises domain errors, never `HTTPException`:
+
+```python
+def get_user(user_id: int) -> User:
+    user = repo.find(user_id)
+    if user is None:
+        raise UserNotFound(user_id)
+    return user
+```
+
+:::info[Theory: separate layers, separate errors]
+Coupling business logic to `HTTPException` ties your core to the web framework. A
+domain exception (`UserNotFound`) expresses *what* went wrong; an exception
+handler decides *how* to present it over HTTP. Swap the transport (gRPC, a queue
+consumer) and the domain code stays untouched. This mirrors the layering in
+[Phase 4 — Project Architecture](./04-project-architecture.mdx).
+:::
+
+---
+
+## Exception Handlers
+
+Register a handler with `@app.exception_handler(...)` to convert an exception
+type into a response in one place. Now every route that raises `UserNotFound`
+gets the same `404`.
+
+```python
+from fastapi import Request
+from fastapi.responses import JSONResponse
+
+@app.exception_handler(UserNotFound)
+async def user_not_found_handler(request: Request, exc: UserNotFound):
+    return JSONResponse(
+        status_code=404,
+        content={"error": "user_not_found", "detail": str(exc)},
+    )
+
+@app.exception_handler(EmailAlreadyExists)
+async def email_exists_handler(request: Request, exc: EmailAlreadyExists):
+    return JSONResponse(
+        status_code=409,
+        content={"error": "email_exists", "detail": str(exc)},
+    )
+```
+
+Handlers keep routes clean — the endpoint just calls the service and lets the
+handler map failures.
+
+---
+
+## Validation Errors
+
+When request data fails validation, FastAPI raises `RequestValidationError` and
+returns `422 Unprocessable Entity` automatically. The default body lists every
+problem with its location:
+
+```text
+422 Unprocessable Entity
+{
+  "detail": [
+    {
+      "type": "missing",
+      "loc": ["body", "email"],
+      "msg": "Field required"
+    }
+  ]
+}
+```
+
+You can override it to match your own error envelope:
+
+```python
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+
+@app.exception_handler(RequestValidationError)
+async def validation_handler(request: Request, exc: RequestValidationError):
+    return JSONResponse(
+        status_code=422,
+        content={"error": "validation_error", "fields": exc.errors()},
+    )
+```
+
+:::note[Highlight: `loc` tells you where]
+Each error's `loc` array pinpoints the source — `["body", "email"]`, `["query",
+"limit"]`, `["path", "user_id"]`. Frontends use it to attach messages to the
+right field. Validation itself is Pydantic's job; see
+[Phase 2 — Pydantic & Data Validation](./02-pydantic-validation.mdx).
+:::
+
+---
+
+## Global Exception Handling
+
+A catch-all handler for unexpected errors guarantees clients always get JSON —
+never a leaked traceback — while you log the real cause server-side.
+
+```python
+@app.exception_handler(Exception)
+async def unhandled_handler(request: Request, exc: Exception):
+    logger.exception("Unhandled error on %s", request.url.path)
+    return JSONResponse(
+        status_code=500,
+        content={"error": "internal_error", "detail": "Something went wrong"},
+    )
+```
+
+:::warning[Never leak internals]
+In production, a `500` response must not include stack traces, SQL, or file
+paths — those help attackers and confuse users. Log the full detail internally
+and return a generic message. Keep verbose errors for local development only.
+:::
+
+---
+
+## Error Response Schemas
+
+Define a single Pydantic model for errors so every failure has the same shape.
+Clients parse one structure everywhere.
+
+```python
+from pydantic import BaseModel
+
+class ErrorResponse(BaseModel):
+    error: str          # machine-readable code, e.g. "user_not_found"
+    detail: str         # human-readable message
+    request_id: str | None = None
+
+@app.exception_handler(DomainError)
+async def domain_handler(request: Request, exc: DomainError):
+    body = ErrorResponse(error=type(exc).__name__, detail=str(exc))
+    return JSONResponse(status_code=400, content=body.model_dump())
+```
+
+:::info[Theory: a stable error envelope]
+Two fields carry most of the value: a stable machine-readable `error` code and a
+human-readable `detail`. Clients branch on the code (which never changes) and
+display the detail (which can be reworded freely). Adding a `request_id` ties an
+error the user reports back to your logs.
+:::
+
+---
+
+## Logging Errors
+
+Log enough context to debug without dumping errors on the client. Use
+`logger.exception` inside `except`/handlers to capture the traceback.
+
+```python
+import logging
+
+logger = logging.getLogger("app")
+
+@app.exception_handler(DomainError)
+async def domain_handler(request: Request, exc: DomainError):
+    logger.warning("Domain error on %s: %s", request.url.path, exc)
+    return JSONResponse(status_code=400, content={"detail": str(exc)})
+```
+
+- Log expected domain errors at `warning`; log unexpected ones at `error`/`exception`.
+- Include the request path and a correlation/request id.
+- Structured logging, correlation ids, and observability are covered in
+  [Phase 18 — Logging & Observability](./18-logging-observability.mdx).
+
+---
+
+## Database Exceptions
+
+Databases raise their own errors. Catch them and map to the right HTTP status —
+most notably a unique-constraint violation should become `409 Conflict`, not a
+`500`.
+
+```python
+from sqlalchemy.exc import IntegrityError
+
+@app.post("/users", status_code=201)
+def create_user(user: UserCreate, session=Depends(get_session)):
+    try:
+        obj = User(**user.model_dump())
+        session.add(obj)
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        raise HTTPException(status_code=409, detail="Email already exists")
+    return obj
+```
+
+Or handle it globally so no route forgets:
+
+```python
+@app.exception_handler(IntegrityError)
+async def integrity_handler(request: Request, exc: IntegrityError):
+    return JSONResponse(status_code=409, content={"detail": "Conflict"})
+```
+
+:::caution[Roll back on failure]
+After a failed write you must `rollback()` the session before reusing it, or the
+connection stays in a broken transaction state and subsequent queries fail. A
+dependency-managed session (yield + rollback on error) handles this for you — see
+[Phase 5 — Database](./05-database.mdx).
+:::
+
+---
+
+## Business Exceptions
+
+Beyond "not found" and "conflict", business rules fail in domain-specific ways:
+insufficient funds, quota exceeded, invalid state transition. Map each to a
+meaningful status code.
+
+```python
+class InsufficientFunds(DomainError): ...
+class QuotaExceeded(DomainError): ...
+
+@app.exception_handler(InsufficientFunds)
+async def funds_handler(request: Request, exc: InsufficientFunds):
+    return JSONResponse(status_code=402, content={"error": "insufficient_funds"})
+
+@app.exception_handler(QuotaExceeded)
+async def quota_handler(request: Request, exc: QuotaExceeded):
+    return JSONResponse(status_code=429, content={"error": "quota_exceeded"})
+```
+
+| Situation | Status |
+| --- | --- |
+| Resource missing | `404 Not Found` |
+| Unique constraint / duplicate | `409 Conflict` |
+| Validation failed | `422 Unprocessable Entity` |
+| Not authenticated | `401 Unauthorized` |
+| Authenticated but forbidden | `403 Forbidden` |
+| Rate/quota exceeded | `429 Too Many Requests` |
+| Unexpected bug | `500 Internal Server Error` |
+
+:::info[Theory: the status code is part of your contract]
+Choosing the right code lets clients react programmatically — retry on `429`,
+redirect to login on `401`, show a field error on `422`. Collapsing everything
+into `400` or `500` throws that signal away and forces clients to parse error
+strings.
+:::
+
+---
+
+## Common Mistakes
+
+- Returning an `HTTPException` instead of raising it.
+- Raising `HTTPException` deep in service/business logic (couples layers to HTTP).
+- Letting database `IntegrityError` bubble up as a `500` instead of a `409`.
+- Leaking stack traces or SQL in production error responses.
+- Inconsistent error shapes across endpoints (clients can't parse them).
+- Forgetting to `rollback()` after a failed transaction.
+- Catching `Exception` and silently swallowing it (no log, no re-raise).
+
+## Interview Questions
+
+- How do you return a custom error response in FastAPI?
+- Why keep domain exceptions separate from `HTTPException`?
+- What status code does validation return, and what's in the body?
+- How do you register a global exception handler, and why is a catch-all useful?
+- How would you map a database unique-constraint violation to an HTTP response?
+- What should and shouldn't appear in a production error body?
+
+## Things to Remember
+
+- `raise HTTPException(status_code=..., detail=...)` for expected errors.
+- Raise domain exceptions in services; translate them with `@app.exception_handler`.
+- Validation failures are `422` with a `loc`-based detail list.
+- Use one `ErrorResponse` schema for a consistent envelope everywhere.
+- Map `IntegrityError` to `409`; log the real cause, return a safe message.
+- Never leak internals; add a catch-all handler for unexpected errors.
+
+## Mini Exercise
+
+Build a `POST /users` endpoint backed by a service that raises `UserNotFound`
+and `EmailAlreadyExists` domain exceptions. Register handlers mapping them to
+`404` and `409`, override `RequestValidationError` to use an `ErrorResponse`
+envelope, add a catch-all `500` handler that logs the traceback, and trigger a
+duplicate insert to confirm you get a clean `409`.
+
+## Done When
+
+- [ ] You raise `HTTPException` with correct status codes for expected errors.
+- [ ] You separate domain exceptions from HTTP and translate them with handlers.
+- [ ] You return a consistent `ErrorResponse` envelope, including for `422`.
+- [ ] You map database and business errors to appropriate codes and log safely.
+
+Next: [Phase 10 — Middleware & Request Lifecycle](./10-middleware-request-lifecycle.mdx).

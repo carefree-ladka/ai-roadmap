@@ -1,0 +1,469 @@
+---
+title: "Phase 15 — Testing"
+description: Unit, integration, and API testing with pytest, TestClient and httpx.AsyncClient, async testing, fixtures, mocking, dependency overrides, database testing with rollback, test isolation, coverage, and contract testing.
+---
+
+import TOCInline from '@theme/TOCInline';
+
+# Phase 15 — Testing
+
+<TOCInline toc={toc} minHeadingLevel={2} maxHeadingLevel={2} />
+
+:::tip[In this guide]
+How to test a FastAPI app with confidence: the testing pyramid, driving your API
+with `TestClient` and async `httpx`, writing reusable fixtures, mocking and
+overriding dependencies, isolating database tests with rollbacks, and measuring
+coverage.
+:::
+
+## What Is It?
+
+Testing is writing code that verifies your code behaves as intended. With pytest
+you write small functions that call your app and assert on the results. FastAPI
+is built for testability: dependency injection and a real test client let you
+exercise endpoints in-process, without a running server.
+
+## Why Does It Matter?
+
+Tests are how you change code without fear. They catch regressions before users
+do, document expected behavior, and make refactoring safe. A well-tested API is
+one you can deploy on a Friday. This builds directly on
+[Professional Python — testing with pytest](../01-python/04-professional-python.mdx#testing-with-pytest).
+
+---
+
+## Unit Testing
+
+A **unit test** checks one small piece of logic in isolation — a pure function, a
+validator, a calculation — with no database, network, or framework involved. They
+are fast and pinpoint failures precisely.
+
+```python
+# app/pricing.py
+def apply_discount(price: float, percent: float) -> float:
+    if not 0 <= percent <= 100:
+        raise ValueError("percent must be between 0 and 100")
+    return round(price * (1 - percent / 100), 2)
+```
+
+```python
+# tests/test_pricing.py
+import pytest
+from app.pricing import apply_discount
+
+def test_apply_discount_basic():
+    assert apply_discount(100.0, 10) == 90.0
+
+def test_apply_discount_rejects_bad_percent():
+    with pytest.raises(ValueError):
+        apply_discount(100.0, 150)
+```
+
+:::info[Theory: the testing pyramid]
+Aim for many fast **unit** tests at the base, fewer **integration** tests in the
+middle, and a small number of **end-to-end** tests at the top. Unit tests catch
+logic bugs cheaply; higher-level tests catch wiring bugs but are slower and more
+brittle. A pyramid (not an inverted one) keeps your suite fast and stable.
+:::
+
+---
+
+## Integration Testing
+
+An **integration test** checks that several components work together — a route
+plus its service plus a real (test) database, for example. It catches wiring
+problems that unit tests miss: wrong queries, bad serialization, misconfigured
+dependencies.
+
+```python
+def test_create_and_fetch_user(client):
+    created = client.post("/users", json={"name": "Ada", "email": "ada@x.io"})
+    assert created.status_code == 201
+    user_id = created.json()["id"]
+
+    fetched = client.get(f"/users/{user_id}")
+    assert fetched.status_code == 200
+    assert fetched.json()["name"] == "Ada"
+```
+
+---
+
+## API Testing
+
+API tests drive your endpoints through HTTP-like calls and assert on status
+codes and response bodies. They verify the contract clients depend on: routes,
+validation, status codes, and payload shape.
+
+```python
+def test_validation_returns_422(client):
+    response = client.post("/users", json={"name": ""})   # missing email
+    assert response.status_code == 422
+    body = response.json()
+    assert "detail" in body
+```
+
+:::note[Highlight: test the contract, not the internals]
+API tests should assert on what a client sees — status code, headers, body —
+not on private implementation details. That way you can refactor internals
+freely as long as the contract holds. Contract expectations come from
+[Phase 13 — API Design](./13-api-design.mdx).
+:::
+
+---
+
+## TestClient
+
+FastAPI's `TestClient` (built on `httpx`) calls your app in-process — no server,
+no network. It's synchronous and perfect for most tests.
+
+```python
+from fastapi.testclient import TestClient
+from app.main import app
+
+client = TestClient(app)
+
+def test_health_check(client):
+    response = client.get("/health")
+    assert response.status_code == 200
+```
+
+For endpoints that must be exercised through the real async stack, use
+`httpx.AsyncClient` with `ASGITransport` pointed at your app:
+
+```python
+import pytest
+import httpx
+from httpx import ASGITransport
+from app.main import app
+
+@pytest.mark.asyncio
+async def test_health_async():
+    transport = ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as ac:
+        response = await ac.get("/health")
+    assert response.status_code == 200
+```
+
+:::info[Theory: TestClient vs AsyncClient]
+`TestClient` runs your async app inside a synchronous wrapper — convenient, and
+enough for most endpoint tests. `httpx.AsyncClient` with `ASGITransport` runs
+inside a real event loop, so it's the right choice when your test itself must
+`await` something (an async fixture, a background task, concurrent requests). Use
+`TestClient` by default; reach for `AsyncClient` when you need true async.
+:::
+
+---
+
+## Async Testing
+
+To write `async def` tests, install and enable `pytest-asyncio`. Mark async tests
+or set the mode to `auto` in config.
+
+```bash
+pip install pytest-asyncio
+```
+
+```python
+# pyproject.toml / pytest.ini
+# [tool.pytest.ini_options]
+# asyncio_mode = "auto"
+
+import pytest
+
+@pytest.mark.asyncio
+async def test_async_service():
+    result = await fetch_something()
+    assert result == "ok"
+```
+
+:::caution[Async tests need the plugin]
+Without `pytest-asyncio`, an `async def` test function is collected but never
+awaited — pytest reports it as passed while the body never runs. Install the
+plugin and either mark tests with `@pytest.mark.asyncio` or set
+`asyncio_mode = "auto"`.
+:::
+
+---
+
+## Fixtures
+
+Fixtures are reusable setup that pytest injects into tests by name. Define the
+`client` fixture once and every test can request it.
+
+```python
+# tests/conftest.py
+import pytest
+from fastapi.testclient import TestClient
+from app.main import app
+
+@pytest.fixture
+def client():
+    with TestClient(app) as c:              # startup/shutdown events run
+        yield c
+```
+
+```python
+def test_health_check(client):             # client is injected by name
+    response = client.get("/health")
+    assert response.status_code == 200
+```
+
+Fixtures have **scopes** that control how often they run:
+
+```python
+@pytest.fixture(scope="session")           # once per test run
+def settings():
+    return {"env": "test"}
+
+@pytest.fixture(scope="function")          # default: once per test
+def sample_user():
+    return {"name": "Ada", "email": "ada@x.io"}
+```
+
+:::note[Highlight: `conftest.py` shares fixtures]
+Fixtures defined in `conftest.py` are automatically available to every test in
+that directory tree — no imports needed. Put your `client`, database, and auth
+fixtures there so the whole suite reuses them.
+:::
+
+---
+
+## Mocking
+
+When code touches something slow or external (an LLM API, an email service),
+replace it with a stand-in. Use `unittest.mock` for objects and pytest's
+`monkeypatch` for attributes and environment.
+
+```python
+from unittest.mock import patch
+
+def test_sends_welcome_email(client):
+    with patch("app.services.email.send") as mock_send:
+        client.post("/users", json={"name": "Ada", "email": "ada@x.io"})
+        mock_send.assert_called_once()
+
+def test_reads_config(monkeypatch):
+    monkeypatch.setenv("FEATURE_FLAG", "on")
+    assert load_flag() is True
+```
+
+:::caution[Mock at the boundary, not the core]
+Mock the external edge — the network call, the third-party client — not your own
+business logic. Over-mocking produces tests that pass while the real system is
+broken, because you've replaced the very code you meant to verify. Mock the LLM
+HTTP call, then assert your logic handled the response correctly.
+:::
+
+---
+
+## Dependency Overrides
+
+FastAPI's `app.dependency_overrides` lets you swap any dependency for a test
+double at runtime — the cleanest way to inject fakes without patching internals.
+
+```python
+from app.main import app
+from app.deps import get_db, get_current_user
+
+def override_get_db():
+    db = TestingSession()
+    try:
+        yield db
+    finally:
+        db.close()
+
+app.dependency_overrides[get_db] = override_get_db
+```
+
+For endpoints protected by auth, override `get_current_user` so tests don't need
+real tokens:
+
+```python
+import pytest
+from app.main import app
+from app.deps import get_current_user
+
+def fake_current_user():
+    return {"id": 1, "email": "test@x.io", "role": "admin"}
+
+@pytest.fixture
+def auth_client():
+    app.dependency_overrides[get_current_user] = fake_current_user
+    from fastapi.testclient import TestClient
+    with TestClient(app) as c:
+        yield c
+    app.dependency_overrides.clear()        # reset so other tests are unaffected
+
+def test_protected_route(auth_client):
+    response = auth_client.get("/me")
+    assert response.status_code == 200
+    assert response.json()["role"] == "admin"
+```
+
+:::info[Theory: why overrides beat patching]
+Because your routes receive collaborators through `Depends(...)`, you replace
+them at the injection point instead of monkeypatching modules. The app runs
+exactly as in production — same routing, same validation — only the dependency
+differs. This is the practical payoff of
+[Phase 3 — Dependency Injection](./03-dependency-injection.mdx). Always
+`clear()` overrides afterward to avoid leaking state between tests.
+:::
+
+---
+
+## Database Testing
+
+Tests that hit the database should use a dedicated **test database** and undo
+their changes so tests don't pollute each other. A common pattern wraps each
+test in a transaction and rolls it back afterward.
+
+```python
+import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+engine = create_engine("postgresql://localhost/app_test")
+TestingSession = sessionmaker(bind=engine)
+
+@pytest.fixture
+def db():
+    connection = engine.connect()
+    transaction = connection.begin()
+    session = TestingSession(bind=connection)
+    try:
+        yield session
+    finally:
+        session.close()
+        transaction.rollback()              # undo everything this test did
+        connection.close()
+```
+
+:::warning[Never test against production data]
+Point tests at a disposable test database, never the real one. A rollback-per-
+test keeps runs fast and independent; recreating the schema each time is slower
+but simplest. Database setup patterns are in
+[Phase 5 — Database](./05-database.mdx).
+:::
+
+---
+
+## Test Isolation
+
+Each test must pass regardless of order and leave no trace behind. Shared mutable
+state — a leftover row, an uncleared override, a cached value — creates
+flaky tests that pass alone but fail in a suite.
+
+- Roll back or truncate the database between tests.
+- Call `app.dependency_overrides.clear()` after each test.
+- Avoid module-level global state; prefer function-scoped fixtures.
+- Reset caches (Redis test instance flushed per test) where relevant.
+
+:::note[Highlight: order independence is the goal]
+A healthy suite gives the same result whether you run one test or all of them,
+in any order. If a test only passes when another ran first, it has a hidden
+dependency — fix the shared state, not the symptom.
+:::
+
+---
+
+## Test Coverage
+
+Coverage measures which lines your tests actually execute. Use `pytest-cov` to
+generate a report and find untested code.
+
+```bash
+pip install pytest-cov
+pytest --cov=app --cov-report=term-missing
+```
+
+```text
+Name                 Stmts   Miss  Cover   Missing
+--------------------------------------------------
+app/pricing.py          12      0   100%
+app/services/user.py    40      6    85%   22-27
+--------------------------------------------------
+TOTAL                   52      6    88%
+```
+
+:::caution[Coverage is a floor, not a goal]
+High coverage means lines *ran*, not that behavior is *correct* — you can execute
+a line without asserting anything meaningful about it. Use coverage to find
+obviously untested paths, but judge quality by whether tests assert the right
+things, not by chasing 100%.
+:::
+
+---
+
+## Contract Testing
+
+Contract tests verify that the agreement between a provider (your API) and its
+consumers (frontends, other services) holds. They catch breaking changes — a
+renamed field, a changed status code — before they reach clients.
+
+- **Schema checks**: assert responses match the documented Pydantic/OpenAPI schema.
+- **Consumer-driven contracts**: consumers publish the shape they expect, and the
+  provider's test suite verifies it still satisfies them.
+
+```python
+from app.schemas import UserOut
+
+def test_user_response_matches_schema(client):
+    response = client.get("/users/1")
+    # parsing with the schema fails loudly if the contract drifted
+    UserOut.model_validate(response.json())
+```
+
+:::info[Theory: why contracts matter across services]
+Unit and integration tests confirm your service works in isolation. Contract
+tests confirm you haven't broken the *promise* other teams built against. In a
+system of many services, a silently renamed field can break a consumer in
+production; a contract test turns that into a failing build instead. This pairs
+with versioning from [Phase 13 — API Design](./13-api-design.mdx).
+:::
+
+---
+
+## Common Mistakes
+
+- Writing `async def` tests without `pytest-asyncio`, so they never actually run.
+- Testing against production or a shared database instead of a disposable one.
+- Forgetting to `clear()` dependency overrides, leaking state between tests.
+- Over-mocking your own logic so tests pass while the app is broken.
+- Asserting on internal details instead of the observable contract.
+- Chasing coverage percentage without meaningful assertions.
+- Order-dependent tests that pass alone but fail in the full suite.
+
+## Interview Questions
+
+- Describe the testing pyramid and why it's shaped that way.
+- When do you use `TestClient` vs `httpx.AsyncClient` with `ASGITransport`?
+- How do `app.dependency_overrides` help, and why are they cleaner than patching?
+- How do you isolate database tests so they don't affect each other?
+- What does code coverage tell you, and what does it not?
+- What problem does contract testing solve in a multi-service system?
+
+## Things to Remember
+
+- Many unit tests, fewer integration tests, few end-to-end tests.
+- `TestClient` for most tests; `AsyncClient` + `ASGITransport` when you need async.
+- `pytest-asyncio` is required for real async test execution.
+- Use `dependency_overrides` to inject test doubles; always clear them.
+- Isolate DB tests with a test database and rollback-per-test.
+- Coverage finds gaps; assertions prove correctness.
+
+## Mini Exercise
+
+Set up a `conftest.py` with a `client` fixture and a rollback-per-test `db`
+fixture. Write: a unit test for a pure function, an integration test that creates
+and fetches a user, an API test asserting a `422` on bad input, and a test of a
+protected route using `app.dependency_overrides` to fake `get_current_user`.
+Run `pytest --cov=app` and close the biggest gap it reports.
+
+## Done When
+
+- [ ] You can write unit, integration, and API tests with pytest.
+- [ ] You use `TestClient` and know when to switch to async `httpx`.
+- [ ] You override dependencies and isolate database tests cleanly.
+- [ ] You measure coverage and understand its limits.
+
+Next: [Phase 16 — Security](./16-security.mdx).

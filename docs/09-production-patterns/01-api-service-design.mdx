@@ -26,7 +26,7 @@ timeouts, retries, and caching, a demo becomes an outage.
 
 ## Configuration & Secrets
 
-Centralize config (from [backend patterns](../01-python/11-python-backend-patterns.mdx)),
+Centralize config (from [backend patterns](../01-python/04-professional-python.mdx#backend-patterns-and-clean-architecture)),
 and never commit secrets:
 
 ```python
@@ -101,7 +101,7 @@ Invalidate the answer cache when the underlying documents change.
 
 Create clients (httpx, DB pools) **once** and reuse them — don't open a new
 connection per request. In FastAPI, hold them in cached dependencies or app
-state (see [DI](../02-fastapi/04-dependency-injection.mdx)).
+state (see [DI](../02-fastapi/03-dependency-injection.mdx)).
 
 ## Graceful Degradation
 

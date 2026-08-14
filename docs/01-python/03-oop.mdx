@@ -1,0 +1,599 @@
+---
+title: "Phase 3 — Object-Oriented Python"
+description: Classes, objects, __init__, instance vs class attributes, methods, inheritance, polymorphism, encapsulation, abstract classes, magic/dunder methods, and dataclasses.
+---
+
+import TOCInline from '@theme/TOCInline';
+
+# Phase 3 — Object-Oriented Python
+
+<TOCInline toc={toc} minHeadingLevel={2} maxHeadingLevel={2} />
+
+:::tip[In this guide]
+Objects bundle data with the behavior that operates on it. This phase takes you
+from your first `class` to inheritance, polymorphism, abstract base classes,
+the dunder methods that make objects feel native, and `@dataclass` — the modern
+way to write data-holding classes with almost no boilerplate. Pydantic models
+(FastAPI) and RAG document classes are all built on these ideas.
+:::
+
+## What Is It?
+
+Object-Oriented Programming (OOP) models your problem as **objects**: things
+that hold state (attributes) and expose behavior (methods). A **class** is the
+blueprint; an **object** is a concrete instance built from it.
+
+## Why Does It Matter?
+
+Almost every library you'll use — FastAPI routers, Pydantic models, SQLAlchemy
+tables, LangChain components — is class-based. Understanding attributes,
+inheritance, and dunder methods lets you read and extend them with confidence.
+
+---
+
+## Classes and Objects
+
+A class defines a type. An object (instance) is a specific value of that type.
+
+```python
+class Dog:
+    def __init__(self, name: str, age: int):
+        self.name = name        # instance attribute
+        self.age = age
+
+    def bark(self) -> str:
+        return f"{self.name} says woof!"
+
+rex = Dog("Rex", 3)             # create an OBJECT (instance)
+buddy = Dog("Buddy", 5)         # a different, independent object
+rex.bark()                      # "Rex says woof!"
+rex.name                        # "Rex"
+type(rex)                       # <class '__main__.Dog'>
+isinstance(rex, Dog)            # True
+```
+
+:::info[Theory: class vs instance]
+The **class** is a factory and a namespace shared by all instances. Each
+**instance** carries its own data in a per-object namespace (`self.__dict__`).
+`Dog` is written once; `rex` and `buddy` are separate objects that don't share
+their `name`/`age`.
+:::
+
+---
+
+## `__init__`
+
+`__init__` is the **initializer** (often loosely called the constructor). It
+runs automatically right after a new object is created and sets up its initial
+state. The first parameter, `self`, is the object being built.
+
+```python
+class BankAccount:
+    def __init__(self, owner: str, balance: float = 0.0):
+        self.owner = owner
+        self.balance = balance          # default lets you omit it
+        self._transactions: list[float] = []   # start empty
+
+acc = BankAccount("Ada")                # balance defaults to 0.0
+acc2 = BankAccount("Alan", 100.0)
+```
+
+:::note[Highlight: `__init__` does not create the object]
+The actual object is created by `__new__` (which you rarely touch). `__init__`
+only *initializes* the already-created instance. That's why it returns `None` —
+returning anything else raises `TypeError`.
+:::
+
+:::warning[`self` is explicit in Python]
+Every instance method's first parameter is `self`, and you must accept it (and
+use `self.` to reach attributes). Forgetting `self.` — e.g. writing
+`balance = 0` instead of `self.balance = 0` — creates a throwaway local
+variable, not an attribute.
+:::
+
+---
+
+## Instance vs Class Attributes
+
+- **Instance attributes** live on each object (set via `self.x = ...`). Unique
+  per object.
+- **Class attributes** are defined in the class body and **shared** by all
+  instances.
+
+```python
+class Dog:
+    species = "Canis familiaris"      # CLASS attribute — shared
+
+    def __init__(self, name: str):
+        self.name = name              # INSTANCE attribute — per object
+
+rex = Dog("Rex")
+buddy = Dog("Buddy")
+rex.species                           # "Canis familiaris"
+buddy.species                         # "Canis familiaris" (same object)
+Dog.species = "Changed"               # changes it for ALL instances
+rex.species                           # "Changed"
+```
+
+### The shared-mutable-class-attribute trap
+
+```python
+class Team:
+    members = []                      # BUG: shared across ALL instances
+
+    def add(self, name):
+        self.members.append(name)
+
+a, b = Team(), Team()
+a.add("Ada")
+b.members                             # ['Ada'] — leaked into b!
+
+# Fix: make it an instance attribute in __init__
+class Team:
+    def __init__(self):
+        self.members = []             # each Team gets its own list
+```
+
+:::warning[Classic trap: mutable class attributes]
+A mutable class attribute (`[]`, `{}`) is shared by every instance — mutating it
+through one object affects all of them. This is the class-level version of the
+mutable-default-argument trap. Put mutable per-object state in `__init__`.
+:::
+
+:::info[Theory: attribute lookup order]
+When you read `obj.x`, Python checks the **instance** dict first, then the
+**class**, then base classes (following the MRO). Writing `obj.x = ...` always
+creates/updates it on the *instance*, which is why assigning through an instance
+can "shadow" a class attribute rather than change it for everyone.
+:::
+
+---
+
+## Methods
+
+Three kinds, distinguished by their first parameter and decorator.
+
+```python
+class Circle:
+    pi = 3.14159
+
+    def __init__(self, radius: float):
+        self.radius = radius
+
+    # 1. INSTANCE method — operates on a specific object (self)
+    def area(self) -> float:
+        return Circle.pi * self.radius ** 2
+
+    # 2. CLASS method — operates on the class (cls); great for alt constructors
+    @classmethod
+    def from_diameter(cls, diameter: float) -> "Circle":
+        return cls(diameter / 2)      # cls lets subclasses build the right type
+
+    # 3. STATIC method — no self/cls; a plain function grouped with the class
+    @staticmethod
+    def is_valid_radius(r: float) -> bool:
+        return r > 0
+
+c1 = Circle(5)
+c1.area()                             # instance method
+c2 = Circle.from_diameter(10)         # class method as a factory
+Circle.is_valid_radius(-1)            # static method -> False
+```
+
+:::info[Theory: `self` vs `cls` vs neither]
+- **Instance method** (`self`): needs a specific object's data.
+- **`@classmethod`** (`cls`): needs the class, not an instance — perfect for
+  *alternative constructors* like `from_dict`, `from_json`, `from_diameter`.
+- **`@staticmethod`** (neither): logically belongs to the class but uses no
+  instance/class state; it's a namespaced utility.
+:::
+
+### Properties: computed attributes with validation
+
+```python
+class Temperature:
+    def __init__(self, celsius: float):
+        self._celsius = celsius
+
+    @property
+    def fahrenheit(self) -> float:        # accessed like an attribute, no ()
+        return self._celsius * 9 / 5 + 32
+
+    @property
+    def celsius(self) -> float:
+        return self._celsius
+
+    @celsius.setter
+    def celsius(self, value: float) -> None:
+        if value < -273.15:
+            raise ValueError("Below absolute zero")
+        self._celsius = value
+
+t = Temperature(25)
+t.fahrenheit          # 77.0   — looks like an attribute, runs a method
+t.celsius = 30        # calls the setter (with validation)
+```
+
+:::note[Highlight: use `@property` instead of getters/setters]
+Don't write Java-style `get_x()`/`set_x()`. Start with a plain public
+attribute; if you later need validation or computation, promote it to a
+`@property` **without changing the calling code**. That's the Pythonic path.
+:::
+
+---
+
+## Inheritance
+
+A subclass reuses and extends a parent (base) class. Use `super()` to call the
+parent's implementation.
+
+```python
+class Animal:
+    def __init__(self, name: str):
+        self.name = name
+
+    def speak(self) -> str:
+        return "..."
+
+    def describe(self) -> str:
+        return f"{self.name} says {self.speak()}"
+
+class Dog(Animal):
+    def speak(self) -> str:               # override
+        return "Woof"
+
+class Cat(Animal):
+    def __init__(self, name: str, indoor: bool):
+        super().__init__(name)            # run Animal's __init__ first
+        self.indoor = indoor
+
+    def speak(self) -> str:
+        return "Meow"
+
+Dog("Rex").describe()                     # "Rex says Woof"
+Cat("Milo", True).describe()              # "Milo says Meow"
+```
+
+### Method Resolution Order (MRO)
+
+With multiple inheritance, Python searches base classes in a well-defined order.
+
+```python
+class A: ...
+class B(A): ...
+class C(A): ...
+class D(B, C): ...
+
+D.__mro__            # (D, B, C, A, object) — left-to-right, depth-aware (C3)
+D.mro()              # same, as a list
+```
+
+:::info[Theory: composition over inheritance]
+Inheritance models an **is-a** relationship (a `Dog` *is an* `Animal`). When you
+just want to *reuse* behavior, prefer **composition** (an object *has-a* helper)
+— it's more flexible and avoids deep, brittle hierarchies. Reach for
+inheritance when subtypes genuinely substitute for the base type.
+:::
+
+:::warning[Always call `super().__init__()`]
+If a subclass defines its own `__init__` and forgets `super().__init__(...)`,
+the parent's setup never runs and its attributes are missing. This is a frequent
+source of `AttributeError` in subclasses.
+:::
+
+---
+
+## Polymorphism
+
+"Many forms": different types responding to the **same** interface. Python uses
+**duck typing** — "if it walks like a duck and quacks like a duck, it's a duck."
+The object's *behavior* matters, not its declared type.
+
+```python
+class Dog:
+    def speak(self): return "Woof"
+
+class Cat:
+    def speak(self): return "Meow"
+
+class Robot:
+    def speak(self): return "Beep"
+
+def make_it_speak(thing) -> str:
+    return thing.speak()              # works for ANY object with .speak()
+
+for obj in (Dog(), Cat(), Robot()):
+    print(make_it_speak(obj))         # Woof / Meow / Beep
+```
+
+:::note[Highlight: duck typing]
+Python doesn't require a shared base class or interface for polymorphism. If an
+object has the method you call, it works. This keeps code flexible — the same
+`render(x)` function can accept anything with a `.to_html()` method, regardless
+of its class tree.
+:::
+
+---
+
+## Encapsulation
+
+Bundling data with the methods that manage it, and controlling access. Python
+has **no true private** members — it uses naming conventions.
+
+| Convention | Meaning |
+| --- | --- |
+| `name` | Public — part of the API |
+| `_name` | "Protected" — internal by convention; don't rely on it externally |
+| `__name` | Name-mangled to `_ClassName__name` to avoid subclass clashes |
+
+```python
+class Account:
+    def __init__(self, balance: float):
+        self._balance = balance       # "internal, please don't touch"
+
+    def deposit(self, amount: float) -> None:
+        if amount <= 0:
+            raise ValueError("Amount must be positive")
+        self._balance += amount
+
+    @property
+    def balance(self) -> float:       # controlled, read-only access
+        return self._balance
+
+acc = Account(100)
+acc.deposit(50)
+acc.balance                           # 150 (read-only via property)
+```
+
+### Name mangling
+
+```python
+class Base:
+    def __init__(self):
+        self.__id = 1                 # stored as _Base__id
+
+b = Base()
+# b.__id           # AttributeError
+b._Base__id                           # 1 — accessible, just mangled
+```
+
+:::info[Theory: "we're all consenting adults"]
+Python deliberately avoids hard access control. `_name` is a **signal** to other
+developers, not a lock. `__name` mangling exists mainly to prevent accidental
+name collisions in subclasses, not to enforce secrecy. Encapsulation here is
+about clear intent, not enforcement.
+:::
+
+---
+
+## Abstract Classes
+
+An abstract base class (ABC) defines an interface that subclasses **must**
+implement. You can't instantiate it directly.
+
+```python
+from abc import ABC, abstractmethod
+
+class Shape(ABC):
+    @abstractmethod
+    def area(self) -> float:
+        ...                           # no implementation — subclasses provide it
+
+    @abstractmethod
+    def perimeter(self) -> float:
+        ...
+
+    def describe(self) -> str:        # concrete method shared by all shapes
+        return f"area={self.area():.2f}, perimeter={self.perimeter():.2f}"
+
+class Rectangle(Shape):
+    def __init__(self, w: float, h: float):
+        self.w, self.h = w, h
+
+    def area(self) -> float:
+        return self.w * self.h
+
+    def perimeter(self) -> float:
+        return 2 * (self.w + self.h)
+
+# Shape()            # TypeError: can't instantiate abstract class
+Rectangle(3, 4).describe()            # "area=12.00, perimeter=14.00"
+```
+
+:::note[Highlight: ABCs enforce a contract]
+If a subclass forgets to implement an `@abstractmethod`, Python raises a
+`TypeError` **at instantiation time** — not deep inside your program when the
+missing method is finally called. This is how you define plugin interfaces (e.g.
+"every `VectorStore` must implement `add` and `search`").
+:::
+
+---
+
+## Magic / Dunder Methods
+
+"Dunder" = double underscore. These special methods hook your objects into
+Python's built-in syntax and functions, so `+`, `len()`, `print()`, `==`,
+indexing, and `for` all "just work."
+
+```python
+class Vector:
+    def __init__(self, x: float, y: float):
+        self.x, self.y = x, y
+
+    def __repr__(self) -> str:            # unambiguous, for developers/debugging
+        return f"Vector({self.x}, {self.y})"
+
+    def __str__(self) -> str:             # readable, for end users / print()
+        return f"({self.x}, {self.y})"
+
+    def __eq__(self, other) -> bool:      # enables ==
+        return (self.x, self.y) == (other.x, other.y)
+
+    def __add__(self, other) -> "Vector": # enables v1 + v2
+        return Vector(self.x + other.x, self.y + other.y)
+
+    def __len__(self) -> int:             # enables len(v)
+        return 2
+
+    def __getitem__(self, i):             # enables v[0], v[1], and iteration
+        return (self.x, self.y)[i]
+
+v = Vector(1, 2) + Vector(3, 4)           # Vector(4, 6)  via __add__
+print(v)                                  # (4, 6)         via __str__
+v == Vector(4, 6)                         # True           via __eq__
+v[0]                                      # 4              via __getitem__
+```
+
+### The most useful dunders
+
+| Dunder | Enables |
+| --- | --- |
+| `__init__` | Object initialization |
+| `__repr__` | `repr(obj)`, debugger/REPL display (always define this one) |
+| `__str__` | `str(obj)`, `print(obj)` |
+| `__eq__`, `__hash__` | `==` and use in sets/dict keys |
+| `__lt__`, `__gt__`, ... | `<`, `>`, sorting |
+| `__len__` | `len(obj)` |
+| `__getitem__`, `__setitem__` | `obj[key]` indexing |
+| `__iter__`, `__next__` | `for x in obj` (see Phase 2) |
+| `__call__` | Making an instance callable like a function |
+| `__enter__`, `__exit__` | `with obj:` context managers (Phase 4) |
+
+:::warning[Define `__hash__` if you define `__eq__`]
+If you implement `__eq__`, Python sets `__hash__` to `None`, making your object
+**unhashable** (can't go in a set or be a dict key). If instances are immutable,
+add `__hash__` too — e.g. `return hash((self.x, self.y))`. A `@dataclass(frozen=True)`
+does this for you.
+:::
+
+:::note[Highlight: always write `__repr__`]
+A good `__repr__` shows how to recreate the object (`Vector(1, 2)`). It makes
+logs, tracebacks, and debugger sessions dramatically more useful. If you write
+only one dunder, write `__repr__`.
+:::
+
+---
+
+## Dataclasses
+
+Writing `__init__`, `__repr__`, and `__eq__` by hand is tedious and error-prone.
+`@dataclass` generates them from type-annotated fields.
+
+```python
+from dataclasses import dataclass, field
+
+@dataclass
+class Point:
+    x: float
+    y: float = 0.0                    # default value
+
+p = Point(3, 4)
+p                                     # Point(x=3, y=4)   -- free __repr__
+Point(3, 4) == Point(3, 4)            # True              -- free __eq__
+```
+
+### Compare the hand-written equivalent
+
+```python
+# What @dataclass writes for you:
+class Point:
+    def __init__(self, x, y=0.0):
+        self.x = x
+        self.y = y
+    def __repr__(self):
+        return f"Point(x={self.x!r}, y={self.y!r})"
+    def __eq__(self, other):
+        return (self.x, self.y) == (other.x, other.y)
+```
+
+### Common options and patterns
+
+```python
+from dataclasses import dataclass, field
+
+@dataclass(frozen=True)               # immutable + hashable (usable as dict key)
+class Config:
+    host: str
+    port: int = 8000
+
+@dataclass(order=True)                # generates __lt__, __gt__, ... for sorting
+class Version:
+    major: int
+    minor: int
+
+@dataclass
+class Cart:
+    items: list[str] = field(default_factory=list)   # mutable default, done right
+    total: float = 0.0
+
+    def add(self, item: str) -> None:
+        self.items.append(item)
+
+    def __post_init__(self):          # runs after generated __init__
+        if self.total < 0:
+            raise ValueError("total cannot be negative")
+```
+
+:::warning[Use `field(default_factory=...)` for mutable defaults]
+You **cannot** write `items: list = []` in a dataclass — it raises `ValueError`
+precisely to prevent the shared-mutable-default bug. Use
+`field(default_factory=list)` so each instance gets a fresh list.
+:::
+
+:::info[Theory: dataclass vs namedtuple vs Pydantic]
+- **`namedtuple`** — immutable, tuple-like, minimal. Good for tiny fixed records.
+- **`@dataclass`** — mutable by default, supports methods, defaults, inheritance,
+  and `__post_init__`. The go-to for data-holding classes in app code.
+- **Pydantic `BaseModel`** (used by FastAPI) — like a dataclass but with runtime
+  **validation and parsing** from external data (JSON, forms). You'll meet it in
+  the FastAPI phase.
+
+Rule of thumb: dataclass for internal data; Pydantic when data crosses a trust
+boundary (an API request, a config file).
+:::
+
+---
+
+## Common Mistakes
+
+- Forgetting `self.` and creating a local variable instead of an attribute.
+- Mutable class attributes (`members = []`) shared across all instances.
+- Overriding `__init__` in a subclass without calling `super().__init__()`.
+- Implementing `__eq__` but forgetting `__hash__`, breaking set/dict usage.
+- Writing Java-style getters/setters instead of `@property`.
+- Using `list = []` as a dataclass field instead of `field(default_factory=list)`.
+
+## Interview Questions
+
+- Instance vs class attributes — and the mutable-class-attribute trap?
+- `@classmethod` vs `@staticmethod` vs instance method?
+- What is duck typing? How does Python do polymorphism without interfaces?
+- Difference between `__str__` and `__repr__`?
+- Why does defining `__eq__` require defining `__hash__`?
+- When would you use an abstract base class?
+- Composition vs inheritance — when to choose each?
+- What does `@dataclass` generate, and why `frozen=True`?
+
+## Things to Remember
+
+- `self` is explicit; class attributes are shared, instance attributes are not.
+- `super().__init__()` chains parent initialization.
+- Prefer `@property` over getters/setters, and composition over inheritance.
+- Always define `__repr__`; pair `__eq__` with `__hash__`.
+- `@dataclass` removes boilerplate; `frozen=True` makes it immutable/hashable.
+
+## Mini Exercise
+
+Model a small library: an abstract `Media` base with `@abstractmethod`
+`checkout()`, concrete `Book` and `DVD` subclasses, and a `@dataclass` `Member`
+that holds a list of checked-out media. Give `Media` a good `__repr__` and make
+`Book` comparable by title.
+
+## Done When
+
+- [ ] You can design a class with instance state and behavior.
+- [ ] You can explain instance vs class attributes and avoid the shared-mutable trap.
+- [ ] You use inheritance with `super()` and understand duck-typed polymorphism.
+- [ ] You define ABCs, key dunder methods, and dataclasses correctly.
+
+Next: [Phase 4 — Professional Python](./04-professional-python.mdx).

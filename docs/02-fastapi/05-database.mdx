@@ -1,0 +1,658 @@
+---
+title: "Phase 5 — Database"
+description: SQL fundamentals (tables, keys, CRUD, joins, indexes, transactions, constraints, normalization), PostgreSQL setup and features, and SQLAlchemy 2.x (engine, sessions, models, ORM, relationships, queries, pagination, transactions, and async).
+---
+
+import TOCInline from '@theme/TOCInline';
+
+# Phase 5 — Database
+
+<TOCInline toc={toc} minHeadingLevel={2} maxHeadingLevel={2} />
+
+:::tip[In this guide]
+Almost every backend job expects real database skill. This phase builds it in
+three layers: SQL fundamentals you can reason about, PostgreSQL specifics that
+matter in production, and SQLAlchemy 2.x — the modern ORM that connects your
+FastAPI code to the database, both synchronously and asynchronously.
+:::
+
+## What Is It?
+
+A database is durable, queryable storage for your application's data. This phase
+focuses on relational databases: **SQL** is the query language, **PostgreSQL** is
+the specific engine, and **SQLAlchemy** is the Python toolkit and ORM that maps
+Python objects to tables and generates SQL for you.
+
+## Why Does It Matter?
+
+Data is the heart of most applications, and databases are where correctness,
+performance, and integrity are won or lost. Understanding SQL keeps you in
+control when the ORM isn't enough; knowing PostgreSQL unlocks features that
+replace whole chunks of application code; and mastering SQLAlchemy is a baseline
+expectation for Python backend roles.
+
+---
+
+## SQL Basics
+
+SQL (Structured Query Language) is how you define and manipulate relational data.
+The core statements are `SELECT` (read), `INSERT` (create), `UPDATE` (modify),
+and `DELETE` (remove), plus `CREATE`/`ALTER`/`DROP` for schema.
+
+```sql
+SELECT id, name, email
+FROM users
+WHERE age >= 18
+ORDER BY name
+LIMIT 10;
+```
+
+:::info[Theory: declarative querying]
+SQL is **declarative** — you describe *what* data you want, not *how* to fetch
+it. The database's query planner figures out the most efficient execution.
+Writing clear, correct SQL and letting the planner optimize (helped by good
+indexes) is usually better than trying to micro-manage access patterns yourself.
+:::
+
+---
+
+## Tables
+
+A table is a set of rows with a fixed set of typed columns. You define columns,
+their types, and constraints when you create it.
+
+```sql
+CREATE TABLE users (
+    id          SERIAL PRIMARY KEY,
+    name        VARCHAR(80) NOT NULL,
+    email       VARCHAR(255) NOT NULL UNIQUE,
+    age         INTEGER,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+```
+
+---
+
+## Primary Keys
+
+A primary key uniquely identifies each row. It must be unique and non-null, and
+it's automatically indexed. Most tables use a synthetic integer id.
+
+```sql
+CREATE TABLE products (
+    id    SERIAL PRIMARY KEY,     -- unique, not null, indexed
+    sku   VARCHAR(32) NOT NULL UNIQUE
+);
+```
+
+---
+
+## Foreign Keys
+
+A foreign key links a row to a row in another table, enforcing referential
+integrity — you can't reference a user that doesn't exist.
+
+```sql
+CREATE TABLE orders (
+    id       SERIAL PRIMARY KEY,
+    user_id  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    total    NUMERIC(10, 2) NOT NULL
+);
+```
+
+:::note[Highlight: `ON DELETE` behavior]
+`ON DELETE CASCADE` deletes an order when its user is deleted. Alternatives are
+`ON DELETE RESTRICT` (block the delete) and `ON DELETE SET NULL` (orphan the
+row). Choosing the right behavior encodes your data's rules directly in the
+schema, so the database enforces them no matter which code path runs.
+:::
+
+---
+
+## CRUD
+
+CRUD is Create, Read, Update, Delete — the four fundamental operations.
+
+```sql
+-- Create
+INSERT INTO users (name, email, age) VALUES ('Ada', 'ada@example.com', 36);
+
+-- Read
+SELECT * FROM users WHERE email = 'ada@example.com';
+
+-- Update
+UPDATE users SET age = 37 WHERE email = 'ada@example.com';
+
+-- Delete
+DELETE FROM users WHERE email = 'ada@example.com';
+```
+
+---
+
+## Joins
+
+Joins combine rows from multiple tables on a related column. The common kinds are
+inner (only matching rows) and left (all rows from the left table plus matches).
+
+```sql
+-- every order with its user's name (inner join)
+SELECT orders.id, users.name, orders.total
+FROM orders
+JOIN users ON users.id = orders.user_id;
+
+-- all users, with their order count (left join keeps users with zero orders)
+SELECT users.name, COUNT(orders.id) AS order_count
+FROM users
+LEFT JOIN orders ON orders.user_id = users.id
+GROUP BY users.name;
+```
+
+:::info[Theory: joins vs N+1 queries]
+A single join fetches related data in one round trip. The alternative — querying
+users, then looping to query each user's orders separately — is the infamous
+**N+1 query problem**, which multiplies latency. Both raw SQL joins and ORM
+eager-loading exist to avoid it. Watch for N+1 patterns when using an ORM.
+:::
+
+---
+
+## Indexes
+
+An index is a data structure that speeds up lookups on specific columns, at the
+cost of extra storage and slightly slower writes. Index columns you frequently
+filter or join on.
+
+```sql
+CREATE INDEX idx_orders_user_id ON orders(user_id);
+CREATE UNIQUE INDEX idx_users_email ON users(email);
+```
+
+:::caution[Indexes are not free]
+Every index must be updated on each `INSERT`, `UPDATE`, and `DELETE`, and it
+consumes disk. Index the columns you query by, not every column. Too many indexes
+slow writes; too few slow reads. Measure with `EXPLAIN ANALYZE` before adding
+them speculatively.
+:::
+
+---
+
+## Transactions
+
+A transaction groups statements so they all succeed or all fail together. This is
+essential when multiple changes must stay consistent, like transferring money.
+
+```sql
+BEGIN;
+UPDATE accounts SET balance = balance - 100 WHERE id = 1;
+UPDATE accounts SET balance = balance + 100 WHERE id = 2;
+COMMIT;      -- ROLLBACK undoes everything if something goes wrong
+```
+
+:::info[Theory: ACID]
+Transactions give you **ACID** guarantees: **A**tomicity (all-or-nothing),
+**C**onsistency (constraints hold), **I**solation (concurrent transactions don't
+corrupt each other), and **D**urability (committed data survives crashes). These
+properties are why relational databases are trusted for money, inventory, and
+anything where partial updates would be catastrophic.
+:::
+
+---
+
+## Constraints
+
+Constraints are rules the database enforces on data: `NOT NULL`, `UNIQUE`,
+`CHECK`, `PRIMARY KEY`, and `FOREIGN KEY`. They keep bad data out regardless of
+which application writes it.
+
+```sql
+CREATE TABLE accounts (
+    id       SERIAL PRIMARY KEY,
+    email    VARCHAR(255) NOT NULL UNIQUE,
+    balance  NUMERIC(12, 2) NOT NULL DEFAULT 0 CHECK (balance >= 0)
+);
+```
+
+---
+
+## Normalization
+
+Normalization organizes tables to reduce redundancy and avoid update anomalies —
+each fact is stored in exactly one place. Instead of repeating a customer's
+address on every order, you store it once and reference it.
+
+```sql
+-- denormalized (bad): customer name repeated on every order
+-- normalized (good): orders reference a customer id
+CREATE TABLE customers (id SERIAL PRIMARY KEY, name VARCHAR(80));
+CREATE TABLE orders (
+    id           SERIAL PRIMARY KEY,
+    customer_id  INTEGER NOT NULL REFERENCES customers(id)
+);
+```
+
+:::note[Highlight: normalize, then denormalize deliberately]
+Start normalized — it prevents inconsistent data. Denormalize (duplicating data
+for speed) only when profiling proves you need it, and only where you can keep
+the copies in sync. Premature denormalization is a common source of subtle data
+bugs.
+:::
+
+---
+
+## PostgreSQL: Setup
+
+PostgreSQL is a powerful, standards-compliant open-source database. Install it,
+create a database, and connect.
+
+```bash
+# macOS (Homebrew)
+brew install postgresql@16
+brew services start postgresql@16
+
+createdb ragdb
+psql ragdb        # open an interactive shell
+```
+
+---
+
+## PostgreSQL: Database Connection
+
+Applications connect using a connection URL. The `postgresql+psycopg` (or
+`+asyncpg` for async) scheme tells SQLAlchemy which driver to use.
+
+```text
+postgresql+psycopg://user:password@localhost:5432/ragdb
+postgresql+asyncpg://user:password@localhost:5432/ragdb
+```
+
+:::caution[Never hardcode connection strings]
+Connection URLs contain credentials. Load them from environment variables via
+your settings object (Phase 4), never commit them to source control. A leaked
+production database URL is a serious security incident.
+:::
+
+---
+
+## PostgreSQL: Connection Pooling
+
+Opening a database connection is expensive. A connection pool keeps a set of open
+connections and hands them out, dramatically reducing overhead under load.
+SQLAlchemy pools by default; you tune the size.
+
+```python
+from sqlalchemy import create_engine
+
+engine = create_engine(
+    "postgresql+psycopg://user:pass@localhost/ragdb",
+    pool_size=10,          # persistent connections
+    max_overflow=20,       # extra temporary connections under burst
+    pool_pre_ping=True,    # check a connection is alive before using it
+)
+```
+
+:::info[Theory: why pooling matters at scale]
+Each PostgreSQL connection consumes memory and a backend process, so the server
+caps how many exist. A pool lets many concurrent requests share a small, fixed
+set of connections instead of each opening its own. Sizing the pool correctly is
+one of the most impactful performance decisions for a database-backed API.
+Performance is covered in [Phase 20](./20-performance-scalability.mdx).
+:::
+
+---
+
+## PostgreSQL: Transactions
+
+PostgreSQL transactions work as described above and integrate with SQLAlchemy
+sessions — a session's `commit()` and `rollback()` map to SQL `COMMIT` and
+`ROLLBACK`. You rarely write `BEGIN` by hand when using the ORM.
+
+---
+
+## PostgreSQL: PostgreSQL-specific features
+
+Postgres offers features that can replace application code. Knowing them
+separates a competent backend engineer from a beginner.
+
+```sql
+-- JSONB: store and query semi-structured data efficiently
+CREATE TABLE events (id SERIAL PRIMARY KEY, payload JSONB);
+SELECT payload->>'type' FROM events WHERE payload @> '{"type": "signup"}';
+
+-- Arrays: a column holding multiple values
+CREATE TABLE posts (id SERIAL PRIMARY KEY, tags TEXT[]);
+SELECT * FROM posts WHERE 'python' = ANY(tags);
+
+-- SERIAL / IDENTITY: auto-incrementing primary keys
+CREATE TABLE t1 (id SERIAL PRIMARY KEY);                    -- classic
+CREATE TABLE t2 (id INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY);  -- SQL standard
+
+-- RETURNING: get generated values back from a write
+INSERT INTO users (name, email) VALUES ('Grace', 'grace@example.com')
+RETURNING id, created_at;
+```
+
+:::note[Highlight: `JSONB` for AI metadata]
+`JSONB` is ideal for storing flexible metadata alongside relational data — model
+parameters, document attributes, or embedding metadata for a RAG system — while
+still supporting indexed queries. It's a pragmatic middle ground between rigid
+columns and a separate document store.
+:::
+
+---
+
+## SQLAlchemy: Fundamentals
+
+SQLAlchemy is Python's most popular database toolkit. It has two layers: the
+**Core** (SQL expression language) and the **ORM** (map classes to tables). Most
+FastAPI apps use the ORM. Version 2.x introduced a cleaner, typed style that's
+the modern default.
+
+```bash
+pip install "sqlalchemy>=2.0" psycopg     # sync driver
+# for async:  pip install "sqlalchemy>=2.0" asyncpg
+```
+
+---
+
+## SQLAlchemy: Engine
+
+The engine is the entry point to the database — it manages the connection pool
+and dialect. You create one per application.
+
+```python
+from sqlalchemy import create_engine
+
+engine = create_engine("postgresql+psycopg://user:pass@localhost/ragdb", echo=True)
+# echo=True logs generated SQL — great while learning
+```
+
+---
+
+## SQLAlchemy: Sessions
+
+A `Session` is your unit of work: it tracks objects you've loaded or changed and
+flushes them to the database on `commit()`. A `sessionmaker` produces sessions.
+
+```python
+from sqlalchemy.orm import sessionmaker
+
+SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db          # injected into FastAPI routes (see Phase 3)
+    finally:
+        db.close()
+```
+
+---
+
+## SQLAlchemy: Models (2.x `DeclarativeBase`, `Mapped`, `mapped_column`)
+
+In SQLAlchemy 2.x, models inherit from a `DeclarativeBase` subclass and use typed
+`Mapped` annotations with `mapped_column`. This gives real type checking and
+editor support.
+
+```python
+from datetime import datetime
+from sqlalchemy import String, func
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+class Base(DeclarativeBase):
+    pass
+
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(80))
+    email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+```
+
+:::info[Theory: `Mapped` types are real annotations]
+In 2.x the `Mapped[int]` annotation is a genuine type hint, so tools like mypy
+and your editor understand `user.id` is an `int` and `user.email` is a `str`.
+This is a major improvement over the untyped 1.x `Column(...)` style and is why
+new projects should start on 2.x.
+:::
+
+---
+
+## SQLAlchemy: ORM
+
+The ORM lets you work with Python objects instead of SQL rows. You add objects to
+a session and commit; SQLAlchemy generates the `INSERT`.
+
+```python
+db = SessionLocal()
+user = User(name="Ada", email="ada@example.com")
+db.add(user)
+db.commit()
+db.refresh(user)      # load DB-generated fields like id and created_at
+print(user.id)
+```
+
+---
+
+## SQLAlchemy: Relationships
+
+Relationships map foreign keys to Python attributes so you can navigate between
+objects. The three shapes are one-to-one, one-to-many, and many-to-many.
+
+```python
+from sqlalchemy import ForeignKey, Table, Column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+# one-to-many: a user has many posts
+class Post(Base):
+    __tablename__ = "posts"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    title: Mapped[str] = mapped_column()
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    author: Mapped["User"] = relationship(back_populates="posts")
+
+# on User:
+#   posts: Mapped[list["Post"]] = relationship(back_populates="author")
+
+# one-to-one: use uselist=False (or a unique FK)
+#   profile: Mapped["Profile"] = relationship(back_populates="user", uselist=False)
+
+# many-to-many: via an association table
+post_tags = Table(
+    "post_tags", Base.metadata,
+    Column("post_id", ForeignKey("posts.id"), primary_key=True),
+    Column("tag_id", ForeignKey("tags.id"), primary_key=True),
+)
+
+class Tag(Base):
+    __tablename__ = "tags"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(unique=True)
+    posts: Mapped[list["Post"]] = relationship(secondary=post_tags, back_populates="tags")
+```
+
+:::note[Highlight: many-to-many needs an association table]
+A many-to-many relationship (posts and tags) can't be expressed with a single
+foreign key — it needs a join table holding both ids. Pass it to `relationship`
+via `secondary=`. The association table can stay a plain `Table`, or become a
+full model if it needs its own columns.
+:::
+
+---
+
+## SQLAlchemy: Queries
+
+The 2.x query style uses `select()` with `session.execute()` and
+`scalars()`/`scalar_one_or_none()` to get ORM objects back.
+
+```python
+from sqlalchemy import select
+
+# all users
+users = db.execute(select(User)).scalars().all()
+
+# one user by id
+user = db.get(User, 1)                       # shortcut for primary-key lookup
+
+# one user by a column, or None
+stmt = select(User).where(User.email == "ada@example.com")
+user = db.execute(stmt).scalar_one_or_none()
+```
+
+---
+
+## SQLAlchemy: Filtering
+
+Build `WHERE` clauses with `.where()` and column comparisons. Combine conditions
+with `and_`/`or_` or by chaining.
+
+```python
+from sqlalchemy import select, and_, or_
+
+stmt = (
+    select(User)
+    .where(and_(User.age >= 18, User.email.like("%@example.com")))
+    .order_by(User.name)
+)
+adults = db.execute(stmt).scalars().all()
+```
+
+---
+
+## SQLAlchemy: Pagination (limit/offset)
+
+Paginate with `.limit()` and `.offset()`. Expose page and page-size as query
+params (see the pagination dependency in Phase 3).
+
+```python
+from sqlalchemy import select
+
+def list_users(db, limit: int = 10, offset: int = 0):
+    stmt = select(User).order_by(User.id).limit(limit).offset(offset)
+    return db.execute(stmt).scalars().all()
+```
+
+:::caution[Offset pagination degrades on large tables]
+`OFFSET 100000` still scans and discards 100,000 rows, so deep pages get slow.
+For large datasets, prefer **keyset (cursor) pagination** — filter by
+`WHERE id > last_seen_id` — which stays fast regardless of depth. Offset is fine
+for modest tables and admin screens.
+:::
+
+---
+
+## SQLAlchemy: Transactions
+
+The session manages transactions. Commit on success, roll back on failure. A
+context manager makes this clean.
+
+```python
+def transfer(db, from_id: int, to_id: int, amount: float):
+    try:
+        sender = db.get(Account, from_id)
+        receiver = db.get(Account, to_id)
+        sender.balance -= amount
+        receiver.balance += amount
+        db.commit()               # both changes persist together
+    except Exception:
+        db.rollback()             # or neither does
+        raise
+```
+
+---
+
+## SQLAlchemy: Async SQLAlchemy (`AsyncSession`, `create_async_engine`, asyncpg)
+
+For async FastAPI endpoints, use the async engine and session with the `asyncpg`
+driver. Queries are `await`ed, and the session is an `AsyncSession`.
+
+```python
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+from sqlalchemy import select
+
+engine = create_async_engine("postgresql+asyncpg://user:pass@localhost/ragdb")
+AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)
+
+async def get_async_db():
+    async with AsyncSessionLocal() as db:
+        yield db
+
+async def get_user(db: AsyncSession, user_id: int):
+    result = await db.execute(select(User).where(User.id == user_id))
+    return result.scalar_one_or_none()
+```
+
+:::info[Theory: async DB only helps if the whole path is async]
+Async database access pays off when your endpoints are `async def` and every I/O
+call — the DB driver, HTTP clients — is awaitable. Mixing a synchronous driver
+into an async handler blocks the event loop and erases the benefit. Async Python
+is covered in [professional Python](../01-python/04-professional-python.mdx#async-python),
+and async FastAPI patterns in [Phase 8](./08-async-fastapi.mdx).
+:::
+
+---
+
+## SQLAlchemy: SQLAlchemy 2.x style
+
+The 2.x style is the modern baseline: `DeclarativeBase` + `Mapped` +
+`mapped_column` for models, `select()` + `execute()` + `scalars()` for queries,
+and first-class async support. Avoid 1.x patterns (`Column(...)` without
+`Mapped`, `Query` objects via `session.query()`) in new code — they still work
+but are legacy.
+
+| 1.x style | 2.x style |
+| --- | --- |
+| `Column(Integer, primary_key=True)` | `Mapped[int] = mapped_column(primary_key=True)` |
+| `session.query(User).filter(...)` | `session.execute(select(User).where(...))` |
+| `.first()` / `.all()` on Query | `.scalars().first()` / `.scalars().all()` |
+| declarative_base() | `class Base(DeclarativeBase)` |
+
+---
+
+## Common Mistakes
+
+- Hardcoding connection strings instead of loading them from settings.
+- Forgetting to `commit()`, so changes never persist.
+- Not closing sessions, leaking connections from the pool.
+- Triggering N+1 queries by iterating relationships without eager loading.
+- Using deep `OFFSET` pagination on large tables.
+- Mixing a synchronous driver into an async handler and blocking the event loop.
+- Indexing everything (slows writes) or nothing (slows reads).
+
+## Interview Questions
+
+- Explain ACID and why transactions matter.
+- What is a foreign key and what does `ON DELETE CASCADE` do?
+- What is the N+1 query problem and how do you avoid it?
+- When would you add an index, and what's the cost?
+- What does connection pooling solve?
+- Contrast SQLAlchemy 1.x and 2.x query styles.
+- When does async SQLAlchemy actually help performance?
+
+## Things to Remember
+
+- SQL is declarative; let the planner optimize and help it with indexes.
+- Transactions give all-or-nothing consistency (ACID).
+- PostgreSQL extras like JSONB, arrays, and RETURNING can replace app code.
+- SQLAlchemy 2.x: `DeclarativeBase`, `Mapped`, `mapped_column`, `select()`.
+- Async DB access requires an async driver (asyncpg) and an async path throughout.
+
+## Mini Exercise
+
+Model a blog: `User`, `Post` (one-to-many from user), and `Tag`
+(many-to-many with posts via an association table) using SQLAlchemy 2.x. Write
+functions to create a user, add posts, tag them, and fetch a paginated list of a
+user's posts with their tags in a single query (no N+1). Then convert the fetch
+function to async with `AsyncSession`.
+
+## Done When
+
+- [ ] You can write SQL for tables, keys, joins, transactions, and constraints.
+- [ ] You can connect to PostgreSQL and configure a connection pool.
+- [ ] You can define 2.x models with relationships (1:1, 1:N, N:N).
+- [ ] You can query, filter, and paginate with `select()`.
+- [ ] You can run the same access async with `AsyncSession` and asyncpg.
+
+Next: [Phase 6 — Database Migrations](./06-database-migrations.mdx).

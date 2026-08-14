@@ -1,0 +1,388 @@
+---
+title: "Phase 17 — Configuration & Environment"
+description: Environment variables, .env files, Pydantic Settings for typed config, development vs production configuration, secret management, and validating configuration at startup.
+---
+
+import TOCInline from '@theme/TOCInline';
+
+# Phase 17 — Configuration & Environment
+
+<TOCInline toc={toc} minHeadingLevel={2} maxHeadingLevel={2} />
+
+:::tip[In this guide]
+How to feed configuration into your app without ever hardcoding it: read
+environment variables safely, load `.env` files in development, and turn all of
+it into a **typed, validated** settings object with `pydantic-settings`. You'll
+also learn where secrets belong (never git) and how to fail fast when config is
+wrong.
+:::
+
+## What Is It?
+
+Configuration is every value that changes between environments — database URLs,
+API keys, feature flags, log levels — kept **outside** your code. The classic
+guideline (the Twelve-Factor App) says config lives in the environment, so the
+same image runs unchanged in dev, staging, and production.
+
+## Why Does It Matter?
+
+Hardcoded config is how secrets leak into git and how "works on my machine"
+happens. Externalized, typed, validated config means a single artifact runs
+everywhere, misconfiguration is caught at startup instead of at 3 a.m., and
+secrets stay in a vault instead of a source file.
+
+---
+
+## Environment Variables
+
+The lowest common denominator: key/value strings the OS hands to your process.
+Read them with `os.environ` (or `os.getenv`).
+
+```python
+import os
+
+# os.getenv returns None (or a default) if missing — never raises
+log_level = os.getenv("LOG_LEVEL", "INFO")
+
+# os.environ["KEY"] raises KeyError if missing
+database_url = os.environ["DATABASE_URL"]
+```
+
+:::warning[Everything from the environment is a string]
+`os.getenv("PORT")` is `"8000"`, not `8000`. `os.getenv("DEBUG")` is `"false"`,
+a **truthy** non-empty string. You must convert and interpret types yourself —
+which is exactly the boilerplate Pydantic Settings removes below.
+:::
+
+### Fail fast on required variables
+
+If a required variable is missing, crash immediately at startup with a clear
+message rather than limping along and failing on the first request.
+
+```python
+import os
+import sys
+
+REQUIRED = ["DATABASE_URL", "JWT_SECRET"]
+
+missing = [name for name in REQUIRED if not os.getenv(name)]
+if missing:
+    sys.exit(f"Missing required environment variables: {', '.join(missing)}")
+```
+
+:::info[Theory: fail fast]
+A misconfigured app should refuse to start. A process that boots "successfully"
+but is missing its database URL will accept traffic and then 500 on every
+request — far harder to diagnose than a loud startup crash that names the exact
+variable.
+:::
+
+---
+
+## `.env` Files
+
+Setting real environment variables by hand for local development is tedious. A
+`.env` file stores them as key/value pairs, and `python-dotenv` loads them into
+`os.environ` at startup.
+
+```bash
+pip install python-dotenv
+```
+
+An example `.env` (development values only — never real secrets):
+
+```text
+DATABASE_URL=postgresql+asyncpg://app:app@localhost:5432/app
+JWT_SECRET=dev-only-not-a-real-secret
+REDIS_URL=redis://localhost:6379/0
+LOG_LEVEL=DEBUG
+```
+
+Load it before anything reads the environment:
+
+```python
+from dotenv import load_dotenv
+import os
+
+load_dotenv()                       # reads .env into os.environ
+database_url = os.getenv("DATABASE_URL")
+```
+
+:::caution[Add `.env` to `.gitignore` right now]
+The single most common secret leak is committing a `.env` full of real
+credentials. Commit a `.env.example` with **placeholder** values as
+documentation, and keep the real `.env` out of git forever.
+:::
+
+```text
+# .gitignore
+.env
+.env.*
+!.env.example
+```
+
+---
+
+## Pydantic Settings
+
+`pydantic-settings` gives you a typed, validated configuration object. You
+declare fields with types and defaults; it reads from environment variables (and
+`.env`), converts types, validates, and raises a clear error if something is
+wrong.
+
+```bash
+pip install pydantic-settings
+```
+
+```python
+from functools import lru_cache
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",            # load .env in development
+        env_file_encoding="utf-8",
+        extra="ignore",             # ignore unrelated env vars
+    )
+
+    # Types are enforced: "8000" -> int, "false" -> bool
+    database_url: str
+    jwt_secret: str
+    redis_url: str = "redis://localhost:6379/0"
+    log_level: str = "INFO"
+    debug: bool = False
+    port: int = 8000
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()               # constructed once, then cached
+```
+
+:::note[Highlight: `@lru_cache` makes it a singleton]
+`get_settings()` builds `Settings()` on first call and returns the same instance
+forever after. That means the `.env` is parsed once, not on every request, and
+you get one shared config object across the app.
+:::
+
+Use it as a **dependency** so routes and services receive settings via FastAPI's
+injection system (see [Phase 3 — Dependency Injection](./03-dependency-injection.mdx)):
+
+```python
+from typing import Annotated
+from fastapi import Depends, FastAPI
+
+app = FastAPI()
+
+SettingsDep = Annotated[Settings, Depends(get_settings)]
+
+@app.get("/config-check")
+def config_check(settings: SettingsDep):
+    # never return secrets — this is just to show injection
+    return {"debug": settings.debug, "log_level": settings.log_level}
+```
+
+### Nested and prefixed configuration
+
+Group related settings and namespace them with a prefix so environment variables
+read clearly.
+
+```python
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class DatabaseSettings(BaseSettings):
+    # reads DB_HOST, DB_PORT, DB_NAME from the environment
+    model_config = SettingsConfigDict(env_prefix="DB_")
+
+    host: str = "localhost"
+    port: int = 5432
+    name: str = "app"
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env")
+    db: DatabaseSettings = DatabaseSettings()
+    jwt_secret: str
+```
+
+With `env_prefix="DB_"`, the field `host` is populated from the `DB_HOST`
+environment variable.
+
+---
+
+## Development Configuration
+
+Local development favors convenience: verbose logging, auto-reload, permissive
+CORS, and a local database.
+
+```text
+# .env  (development)
+DEBUG=true
+LOG_LEVEL=DEBUG
+DATABASE_URL=postgresql+asyncpg://app:app@localhost:5432/app
+REDIS_URL=redis://localhost:6379/0
+JWT_SECRET=dev-only-not-a-real-secret
+```
+
+```python
+if settings.debug:
+    # extra tooling that must never run in production
+    app = FastAPI(debug=True)
+```
+
+---
+
+## Production Configuration
+
+Production flips those defaults: `DEBUG=false`, structured logs, real secrets
+injected by the platform (not a `.env` file), and strict CORS.
+
+```python
+class Settings(BaseSettings):
+    debug: bool = False
+    log_level: str = "INFO"
+    database_url: str
+    jwt_secret: str
+    allowed_origins: list[str] = ["https://app.example.com"]
+```
+
+:::warning[Do not ship a `.env` to production]
+In production, inject configuration through the platform's environment (Docker,
+Kubernetes, your PaaS) or a secret manager — not a `.env` file baked into the
+image. Pydantic Settings reads real environment variables the same way, so no
+code changes are needed. Docker specifics are in
+[Phase 19 — Docker & Deployment](./19-docker-deployment.mdx).
+:::
+
+---
+
+## Secrets
+
+Secrets — database passwords, `JWT_SECRET`, third-party API keys — are the
+highest-value config and need the strictest handling.
+
+- **Never** hardcode a secret in source code.
+- **Never** commit a secret to git (not even briefly — git history is forever).
+- Inject secrets from a secret manager: AWS Secrets Manager, GCP Secret Manager,
+  Azure Key Vault, HashiCorp Vault, or your platform's encrypted variables.
+- Rotate secrets and scope them to the least privilege needed.
+
+```python
+# BAD — hardcoded secret, will leak the moment this file is pushed
+jwt_secret = "super-secret-value-123"
+
+# GOOD — provided by the environment / secret manager, typed and validated
+class Settings(BaseSettings):
+    jwt_secret: str        # required; startup fails if it's absent
+```
+
+:::caution[Rotate anything that touched git]
+If a secret was ever committed, treat it as compromised and rotate it — deleting
+the file does not remove it from history. Security handling of tokens and keys
+is covered in [Phase 16 — Security](./16-security.mdx).
+:::
+
+---
+
+## Configuration Validation
+
+Because `Settings` is a Pydantic model, validation happens automatically when
+it's constructed — and with the `@lru_cache` singleton that's at startup. Add
+custom rules with validators.
+
+```python
+from pydantic import field_validator
+from pydantic_settings import BaseSettings
+
+
+class Settings(BaseSettings):
+    database_url: str
+    jwt_secret: str
+    port: int = 8000
+
+    @field_validator("jwt_secret")
+    @classmethod
+    def secret_must_be_strong(cls, v: str) -> str:
+        if len(v) < 32:
+            raise ValueError("JWT_SECRET must be at least 32 characters")
+        return v
+
+    @field_validator("port")
+    @classmethod
+    def port_in_range(cls, v: int) -> int:
+        if not (1 <= v <= 65535):
+            raise ValueError("PORT must be between 1 and 65535")
+        return v
+```
+
+Force validation to run during app startup so bad config crashes the boot rather
+than surviving until the first request:
+
+```python
+from contextlib import asynccontextmanager
+from fastapi import FastAPI
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    get_settings()          # raises immediately if config is invalid
+    yield
+
+app = FastAPI(lifespan=lifespan)
+```
+
+:::info[Theory: validate at the edge, once]
+Validating configuration at startup is the same principle as validating request
+bodies at the API edge with Pydantic: catch bad data at the boundary, once, so
+the rest of the code can trust it. A validated `Settings` object means no
+`if os.getenv(...)` checks scattered through your business logic.
+:::
+
+---
+
+## Common Mistakes
+
+- Hardcoding secrets or config values directly in source files.
+- Committing a real `.env` instead of a placeholder `.env.example`.
+- Treating `os.getenv("DEBUG")` as a boolean (any non-empty string is truthy).
+- Reading `os.environ` all over the codebase instead of one typed `Settings`.
+- Building `Settings()` on every request instead of caching with `@lru_cache`.
+- Shipping a `.env` file into a production image.
+- Not validating config, so a missing/invalid value fails at request time.
+
+## Interview Questions
+
+- Why keep configuration in the environment instead of in code?
+- What does `pydantic-settings` add over reading `os.environ` directly?
+- Why wrap `get_settings()` in `@lru_cache`?
+- How would you manage secrets in production, and why not use a `.env` there?
+- What does "fail fast" mean for configuration, and how do you implement it?
+- How do you inject settings into routes and services in FastAPI?
+
+## Things to Remember
+
+- Config lives in the environment; the same image runs in every environment.
+- Environment values are strings — let Pydantic Settings type and validate them.
+- One typed `Settings` object, cached with `@lru_cache`, injected as a dependency.
+- Secrets never go in code or git; use a secret manager and rotate them.
+- Validate configuration at startup so misconfiguration crashes the boot.
+
+## Mini Exercise
+
+Create a `Settings(BaseSettings)` with `database_url`, `jwt_secret` (validated to
+be at least 32 chars), `redis_url`, and `debug`. Load a local `.env`, wrap
+construction in `@lru_cache get_settings()`, expose it as a dependency, and add
+a lifespan hook that calls `get_settings()` at startup. Confirm the app refuses
+to boot when `JWT_SECRET` is missing or too short.
+
+## Done When
+
+- [ ] No secrets or environment-specific values are hardcoded anywhere.
+- [ ] `.env` is git-ignored and a `.env.example` documents the keys.
+- [ ] A typed `Settings` object reads env/`.env`, validated and cached.
+- [ ] Settings are injected as a dependency, not read via `os.environ` ad hoc.
+- [ ] Invalid or missing configuration fails fast at startup.
+
+Next: [Phase 18 — Logging & Observability](./18-logging-observability.mdx).

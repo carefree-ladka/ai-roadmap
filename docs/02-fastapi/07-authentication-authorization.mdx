@@ -1,156 +1,558 @@
 ---
-title: Authentication & Authorization
-description: Authentication vs authorization, OAuth2 password flow, JWT access/refresh tokens, password hashing, role-based access, and protecting routes.
+title: "Phase 7 — Authentication & Authorization"
+description: Authentication vs authorization, password hashing, JWT structure, access and refresh tokens, token expiration, OAuth2 and the password flow, API keys, session-based auth, roles, permissions, RBAC, resource-level authorization, and dependency-based role checks.
 ---
 
 import TOCInline from '@theme/TOCInline';
 
-# Authentication & Authorization
+# Phase 7 — Authentication & Authorization
 
 <TOCInline toc={toc} minHeadingLevel={2} maxHeadingLevel={2} />
 
 :::tip[In this guide]
-Who a user is (authentication) vs what they can do (authorization), implemented
-with OAuth2 + JWT, secure password hashing, and role checks.
+Who are you (authentication) and what are you allowed to do (authorization).
+You'll hash passwords safely, mint and verify JWTs, wire the OAuth2 password
+flow, and enforce roles and permissions with FastAPI dependencies — the exact
+patterns real production APIs ship with.
 :::
 
-:::warning[Security first]
-This page shows standard, safe patterns. Never store plaintext passwords, never
-sign tokens with a hardcoded secret in real deployments, and always serve auth
-over HTTPS.
+## What Is It?
+
+**Authentication** proves identity — it answers "who is this request from?"
+**Authorization** enforces access — it answers "is this identity allowed to do
+this?" FastAPI gives you the building blocks (security utilities, dependencies)
+and you compose them into a login flow, token verification, and role checks.
+
+## Why Does It Matter?
+
+This is one of the most heavily tested topics in interviews and one of the most
+dangerous to get wrong in production. A password stored in plain text, a JWT
+signed with a leaked secret, or a missing role check is a breach waiting to
+happen. Getting auth right protects users and the business at once.
+
+:::note[Highlight: interviews love this phase]
+Expect questions like "how do you store passwords?", "what's inside a JWT?",
+"access vs refresh tokens?", and "how do you protect an admin-only route?"
+Every section below maps to a common question — learn the *why*, not just the code.
 :::
+
+---
 
 ## Authentication vs Authorization
 
-- **Authentication (authn)**: verifying identity — "who are you?"
-- **Authorization (authz)**: checking permissions — "are you allowed to do this?"
+Two words that sound alike and are constantly confused. Keep them separate.
+
+| | Authentication (AuthN) | Authorization (AuthZ) |
+| --- | --- | --- |
+| Question | Who are you? | What can you do? |
+| Happens | First | After identity is known |
+| Example | Verify email + password | Check the user has the `admin` role |
+| Failure code | `401 Unauthorized` | `403 Forbidden` |
+
+:::info[Theory: 401 vs 403]
+`401 Unauthorized` means "I don't know who you are — authenticate." `403
+Forbidden` means "I know who you are, but you can't do this." Returning the
+wrong one leaks information or confuses clients, so pick deliberately: no/invalid
+token is `401`; valid token but insufficient role is `403`.
+:::
+
+---
 
 ## Password Hashing
 
-Store a **hash**, never the password. Use a slow, salted algorithm (bcrypt):
+Never store passwords. Store a **slow, salted hash** so that even a database leak
+doesn't hand attackers the plaintext. Use `bcrypt` or `argon2` through
+`passlib`.
+
+```bash
+pip install "passlib[bcrypt]"
+```
 
 ```python
 from passlib.context import CryptContext
 
-pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-def hash_password(raw: str) -> str:
-    return pwd.hash(raw)
+def hash_password(plain: str) -> str:
+    return pwd_context.hash(plain)
 
-def verify_password(raw: str, hashed: str) -> bool:
-    return pwd.verify(raw, hashed)
+def verify_password(plain: str, hashed: str) -> bool:
+    return pwd_context.verify(plain, hashed)
 ```
 
-## OAuth2 Password Flow + JWT
+At registration you hash and store; at login you verify:
 
-A **JWT** (JSON Web Token) is a signed token carrying claims (like the user id
-and expiry). The server verifies the signature instead of hitting the DB for
-every request.
+```python
+stored_hash = hash_password("hunter2")     # save this to the DB
+
+# later, on login:
+verify_password("hunter2", stored_hash)     # True
+verify_password("wrong", stored_hash)       # False
+```
+
+:::warning[Never do these]
+- Don't store plaintext passwords.
+- Don't use fast hashes (`md5`, `sha256`) — they're built for speed, which helps
+  attackers brute-force.
+- Don't roll your own salting; `passlib` salts each hash for you.
+- Don't log the plaintext password anywhere.
+:::
+
+:::info[Theory: why slow is good, and what argon2 adds]
+A login happens once per user; a brute-force attack tries billions of guesses.
+A deliberately slow, memory-hard hash barely affects the honest login but makes
+mass cracking wildly expensive. `argon2` is memory-hard (resists GPU attacks)
+and is the modern recommendation; `bcrypt` remains a solid, battle-tested
+choice. Install `passlib[argon2]` and use `schemes=["argon2"]` to switch.
+:::
+
+---
+
+## JSON Web Tokens (JWT)
+
+A **JWT** is a signed, self-contained token the client sends on each request.
+It has three base64url parts joined by dots:
+
+```text
+header.payload.signature
+```
+
+- **header** — algorithm and token type, e.g. `{"alg": "HS256", "typ": "JWT"}`.
+- **payload** — the *claims*: `sub` (subject/user id), `exp` (expiry), any custom
+  data like a role.
+- **signature** — proves the token wasn't tampered with, computed from header +
+  payload + a secret key.
+
+```mermaid
+flowchart LR
+    H[Header: alg + typ] --> T[Token string]
+    P[Payload: sub, exp, role] --> T
+    S[Signature: HMAC of header.payload with SECRET] --> T
+```
+
+:::warning[Signed, not encrypted]
+A JWT payload is only base64-encoded — anyone can decode and read it. The
+signature proves integrity, not secrecy. Never put passwords or sensitive data
+in a JWT payload, and never trust a token whose signature you haven't verified.
+:::
+
+Install a JWT library:
+
+```bash
+pip install "python-jose[cryptography]"
+```
 
 ```python
 from datetime import datetime, timedelta, timezone
-import jwt                                   # PyJWT
-from fastapi import Depends, FastAPI, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from jose import jwt, JWTError
 
-SECRET_KEY = "load-this-from-env-not-here"  # e.g. settings.secret_key
+SECRET_KEY = "change-me-in-config"      # load from settings, never hardcode
 ALGORITHM = "HS256"
+
+def create_token(data: dict, expires_delta: timedelta) -> str:
+    to_encode = data.copy()
+    expire = datetime.now(timezone.utc) + expires_delta
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+```
+
+---
+
+## Access Tokens
+
+An **access token** is a short-lived JWT the client attaches to every protected
+request. Keep its lifetime small (minutes) so a stolen token expires quickly.
+
+```python
+def create_access_token(user_id: int, role: str) -> str:
+    return create_token(
+        {"sub": str(user_id), "role": role, "type": "access"},
+        expires_delta=timedelta(minutes=15),
+    )
+```
+
+The client sends it in the `Authorization` header:
+
+```text
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+---
+
+## Refresh Tokens
+
+Short access tokens are safer but annoying if the user must re-login every 15
+minutes. A **refresh token** is a longer-lived token whose only job is to mint
+new access tokens.
+
+```python
+def create_refresh_token(user_id: int) -> str:
+    return create_token(
+        {"sub": str(user_id), "type": "refresh"},
+        expires_delta=timedelta(days=7),
+    )
+
+@app.post("/token/refresh")
+def refresh(refresh_token: str):
+    try:
+        payload = jwt.decode(refresh_token, SECRET_KEY, algorithms=[ALGORITHM])
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
+    if payload.get("type") != "refresh":
+        raise HTTPException(status_code=401, detail="Not a refresh token")
+    user_id = int(payload["sub"])
+    return {"access_token": create_access_token(user_id, role="user")}
+```
+
+:::info[Theory: the two-token pattern]
+Access tokens are sent everywhere, so they should be short-lived. Refresh tokens
+are sent rarely (only to the refresh endpoint), so they can live longer and be
+stored more carefully (httpOnly cookie or secure storage). Store refresh tokens
+server-side (or their hashes) so you can revoke them on logout or theft — a plain
+JWT can't otherwise be invalidated before it expires.
+:::
+
+---
+
+## Token Expiration
+
+Every token carries an `exp` claim. Decoding automatically rejects an expired
+token, which you translate into a `401`.
+
+```python
+from jose import ExpiredSignatureError
+
+def decode_token(token: str) -> dict:
+    try:
+        return jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+    except ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expired")
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+```
+
+:::caution[Clock skew]
+`exp` is compared against server time. If tokens issued by one service are
+validated by another, keep clocks in sync (NTP) or allow a small `leeway` when
+decoding, or valid tokens may be rejected as expired near the boundary.
+:::
+
+---
+
+## OAuth2
+
+**OAuth2** is the industry-standard authorization framework. FastAPI ships
+helpers that implement its flows and, crucially, integrate with the Swagger docs
+so you get a working "Authorize" button for free. For a first-party API (your own
+frontend logging into your own backend) the relevant flow is the **password
+flow**.
+
+---
+
+## OAuth2 Password Flow
+
+Two utilities do the heavy lifting:
+
+- `OAuth2PasswordRequestForm` — parses the login form (`username`, `password`).
+- `OAuth2PasswordBearer` — extracts the `Bearer` token from the `Authorization`
+  header on protected routes and tells Swagger where the token endpoint is.
+
+```python
+from typing import Annotated
+from fastapi import Depends, FastAPI, HTTPException
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 
 app = FastAPI()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
-def create_access_token(subject: str, minutes: int = 15) -> str:
-    expire = datetime.now(timezone.utc) + timedelta(minutes=minutes)
-    return jwt.encode({"sub": subject, "exp": expire}, SECRET_KEY, algorithm=ALGORITHM)
-```
-
-### Login endpoint
-
-```python
 @app.post("/token")
-def login(form: OAuth2PasswordRequestForm = Depends()):
-    user = get_user(form.username)
-    if not user or not verify_password(form.password, user.hashed_password):
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "bad credentials")
-    access = create_access_token(user.username, minutes=15)
-    refresh = create_access_token(user.username, minutes=60 * 24 * 7)
+def login(form: Annotated[OAuth2PasswordRequestForm, Depends()]):
+    user = get_user_by_username(form.username)
+    if user is None or not verify_password(form.password, user.hashed_password):
+        raise HTTPException(status_code=401, detail="Incorrect username or password")
+    access = create_access_token(user.id, user.role)
+    refresh = create_refresh_token(user.id)
     return {"access_token": access, "refresh_token": refresh, "token_type": "bearer"}
 ```
 
-### Current-user dependency
+```mermaid
+flowchart TD
+    Login[POST /token username + password] --> Validate[Look up user]
+    Validate --> Verify[bcrypt hash verification]
+    Verify -->|match| Gen[Generate signed JWT]
+    Verify -->|no match| Reject[401 Unauthorized]
+    Gen --> Client[Client stores token]
+    Client --> Header[Send Authorization: Bearer token]
+    Header --> Dep[FastAPI dependency get_current_user]
+    Dep --> Decode[Validate + decode JWT]
+    Decode --> User[Resolve current user]
+    User --> Route[Protected route runs]
+```
+
+Now build the dependency that turns a token back into a user. This is the
+central `get_current_user` dependency every protected route depends on:
 
 ```python
-def get_current_user(token: str = Depends(oauth2_scheme)):
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        username = payload["sub"]
-    except jwt.PyJWTError:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid token")
-    user = get_user(username)
+def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]):
+    payload = decode_token(token)                 # raises 401 if bad/expired
+    if payload.get("type") != "access":
+        raise HTTPException(status_code=401, detail="Wrong token type")
+    user_id = int(payload["sub"])
+    user = get_user_by_id(user_id)
     if user is None:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "user not found")
+        raise HTTPException(status_code=401, detail="User no longer exists")
     return user
 
 @app.get("/me")
-def me(user=Depends(get_current_user)):
-    return {"username": user.username}
+def read_me(current_user: Annotated[User, Depends(get_current_user)]):
+    return {"id": current_user.id, "role": current_user.role}
 ```
 
-## Access vs Refresh Tokens
+Because `get_current_user` is a normal FastAPI dependency, it's reusable,
+testable, and documented automatically. Dependencies are covered in depth in
+[Phase 3 — Dependency Injection](./03-dependency-injection.mdx).
 
-- **Access token**: short-lived (minutes). Sent on every request.
-- **Refresh token**: long-lived (days). Used only to obtain a new access token.
+---
 
-Short access tokens limit the damage if one leaks; refresh tokens avoid asking
-users to log in constantly.
+## API Keys
 
-## Role-Based Authorization
+For machine-to-machine access (a cron job, a partner service) a static **API
+key** is often simpler than OAuth2. Read it from a header and compare it safely.
 
 ```python
-from fastapi import Depends, HTTPException, status
+import secrets
+from typing import Annotated
+from fastapi import Header, HTTPException
 
-def require_role(role: str):
-    def checker(user=Depends(get_current_user)):
-        if role not in user.roles:
-            raise HTTPException(status.HTTP_403_FORBIDDEN, "insufficient role")
-        return user
+VALID_KEYS = {"svc-ingest": "sk_live_abc123"}    # load from config/DB
+
+def require_api_key(x_api_key: Annotated[str | None, Header()] = None):
+    if x_api_key is None:
+        raise HTTPException(status_code=401, detail="Missing API key")
+    for expected in VALID_KEYS.values():
+        if secrets.compare_digest(x_api_key, expected):
+            return x_api_key
+    raise HTTPException(status_code=401, detail="Invalid API key")
+```
+
+:::warning[Use constant-time comparison]
+Compare secrets with `secrets.compare_digest`, not `==`. A plain equality check
+can leak, through tiny timing differences, how many leading characters matched —
+a real (if subtle) attack vector.
+:::
+
+---
+
+## Session-Based Authentication
+
+Before JWTs, the classic approach was **server-side sessions**: on login the
+server stores session state and hands the client an opaque session id in a
+cookie. Each request sends the cookie; the server looks up the session.
+
+| | JWT (stateless) | Session (stateful) |
+| --- | --- | --- |
+| Server storage | None (token is self-contained) | Session store (Redis/DB) |
+| Scaling | Easy — any worker can verify | Needs shared session store |
+| Revocation | Hard (must track/blacklist) | Easy (delete the session) |
+| Best for | APIs, mobile, microservices | Traditional server-rendered web apps |
+
+:::info[Theory: pick based on revocation needs]
+JWTs scale beautifully because no server lookup is needed, but you can't easily
+kill a token mid-life. Sessions revoke instantly but need a shared store. Many
+production systems combine them: short JWT access tokens plus server-stored
+refresh tokens you can revoke.
+:::
+
+---
+
+## Roles
+
+A **role** is a named bundle of access, like `admin`, `editor`, or `user`.
+Store the role on the user and embed it in the token so you can check it without
+a database hit.
+
+```python
+class User(BaseModel):
+    id: int
+    username: str
+    role: str          # "admin" | "editor" | "user"
+```
+
+---
+
+## Permissions
+
+A **permission** is a single fine-grained capability, like `posts:delete` or
+`users:read`. Roles are often defined as sets of permissions.
+
+```python
+ROLE_PERMISSIONS = {
+    "admin":  {"users:read", "users:write", "posts:delete"},
+    "editor": {"posts:write", "posts:delete"},
+    "user":   {"posts:read"},
+}
+
+def has_permission(role: str, permission: str) -> bool:
+    return permission in ROLE_PERMISSIONS.get(role, set())
+```
+
+---
+
+## Role-Based Access Control (RBAC)
+
+**RBAC** ties it together: users have roles, roles grant permissions, routes
+require a role or permission. Express the requirement as a dependency factory so
+any route can opt in. This is the `require_role` dependency:
+
+```python
+from typing import Annotated
+from fastapi import Depends, HTTPException
+
+def require_role(*allowed_roles: str):
+    def checker(current_user: Annotated[User, Depends(get_current_user)]) -> User:
+        if current_user.role not in allowed_roles:
+            raise HTTPException(status_code=403, detail="Insufficient permissions")
+        return current_user
     return checker
 
 @app.delete("/users/{user_id}")
-def delete_user(user_id: int, admin=Depends(require_role("admin"))):
-    ...
+def delete_user(
+    user_id: int,
+    admin: Annotated[User, Depends(require_role("admin"))],
+):
+    # only reached if current_user.role == "admin"
+    return {"deleted": user_id}
 ```
+
+:::note[Highlight: a dependency factory]
+`require_role("admin")` *returns* a dependency function. This is the same
+factory pattern from dependency injection — you parameterize the check and let
+FastAPI resolve `get_current_user` first. The route body only runs for
+authorized users, so the happy path stays clean.
+:::
+
+You can build a permission-based version the same way:
+
+```python
+def require_permission(permission: str):
+    def checker(current_user: Annotated[User, Depends(get_current_user)]) -> User:
+        if not has_permission(current_user.role, permission):
+            raise HTTPException(status_code=403, detail="Forbidden")
+        return current_user
+    return checker
+```
+
+---
+
+## Resource-Level Authorization
+
+Role checks aren't enough when users own data. A user with the `user` role may
+edit *their own* post but not someone else's. This is **resource-level** (or
+object-level) authorization, and it must happen after you load the resource.
+
+```python
+@app.patch("/posts/{post_id}")
+def edit_post(
+    post_id: int,
+    patch: PostUpdate,
+    current_user: Annotated[User, Depends(get_current_user)],
+):
+    post = get_post(post_id)
+    if post is None:
+        raise HTTPException(status_code=404, detail="Post not found")
+    if post.owner_id != current_user.id and current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Not your post")
+    return apply_update(post, patch)
+```
+
+:::caution[Ownership checks can't live in a role dependency]
+A `require_role` dependency runs before your handler loads the post, so it can't
+know who owns it. Resource-level checks need the loaded object, so do them inside
+the handler (or a dependency that itself loads the resource). Forgetting this is
+the classic "insecure direct object reference" (IDOR) bug.
+:::
+
+---
+
+## Admin / User Permissions
+
+Putting it together, a typical API mixes global role gates and per-resource
+ownership checks:
+
+```python
+# Admin-only: manage any user
+@app.get("/admin/users", dependencies=[Depends(require_role("admin"))])
+def list_all_users():
+    return get_all_users()
+
+# Any logged-in user: read own profile
+@app.get("/me")
+def me(current_user: Annotated[User, Depends(get_current_user)]):
+    return current_user
+
+# Owner-or-admin: delete a post
+@app.delete("/posts/{post_id}")
+def delete_post(
+    post_id: int,
+    current_user: Annotated[User, Depends(get_current_user)],
+):
+    post = get_post(post_id)
+    if post is None:
+        raise HTTPException(status_code=404, detail="Not found")
+    if post.owner_id != current_user.id and current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Forbidden")
+    delete(post)
+    return {"deleted": post_id}
+```
+
+Broader hardening — HTTPS, secret management, CORS, rate limiting, and secure
+headers — lives in [Phase 16 — Security](./16-security.mdx).
+
+---
 
 ## Common Mistakes
 
-- Storing plaintext or fast-hashed (MD5/SHA1) passwords.
-- Hardcoding the JWT secret or committing it.
-- Long-lived access tokens with no refresh strategy.
-- Returning `200` with an error body instead of `401`/`403`.
-- Trusting a token without verifying its signature and expiry.
+- Storing plaintext or fast-hashed (`md5`/`sha256`) passwords.
+- Hardcoding `SECRET_KEY` in source instead of loading it from config.
+- Putting secrets or PII in a JWT payload (it's readable by anyone).
+- Confusing `401` (not authenticated) with `403` (not authorized).
+- Skipping resource-level checks, so any logged-in user can edit others' data (IDOR).
+- Long-lived access tokens with no refresh strategy and no revocation path.
+- Comparing API keys with `==` instead of `secrets.compare_digest`.
 
 ## Interview Questions
 
-- Authentication vs authorization?
-- What is a JWT and how is it verified?
-- Access token vs refresh token — why both?
-- Why hash passwords with bcrypt instead of SHA-256?
-- How do you implement role-based access?
+- What's the difference between authentication and authorization?
+- How do you store passwords, and why is bcrypt/argon2 better than SHA-256?
+- What are the three parts of a JWT, and which one provides security?
+- Is a JWT encrypted? What should you never put in it?
+- Access token vs refresh token — why have both?
+- How do you implement role-based access in FastAPI? Where do ownership checks go?
+- JWT vs session auth — when would you choose each?
+- When should you return `401` vs `403`?
 
 ## Things to Remember
 
-- Hash + salt passwords (bcrypt/argon2).
-- Short access tokens, longer refresh tokens.
-- Secrets from environment, HTTPS everywhere.
-- Enforce authz with dependencies.
+- Hash passwords with bcrypt/argon2 via passlib; never store plaintext.
+- A JWT is `header.payload.signature`; signed for integrity, not encrypted.
+- Short-lived access tokens + longer refresh tokens; store/revoke refresh tokens.
+- `OAuth2PasswordBearer` + `OAuth2PasswordRequestForm` drive the password flow.
+- Enforce roles with a `require_role` dependency; do ownership checks in the handler.
+- `401` = who are you; `403` = you can't do this.
 
 ## Mini Exercise
 
-Add `POST /token`, a `get_current_user` dependency, and a `GET /admin` route
-that requires the `admin` role. Verify a non-admin gets `403`.
+Build an auth mini-API: `POST /token` (validate a hashed password, return access
++ refresh tokens), a `get_current_user` dependency that decodes the JWT, a
+`GET /me` protected route, a `require_role("admin")` dependency guarding
+`DELETE /users/{id}`, and a `PATCH /posts/{id}` that allows edits only by the
+owner or an admin. Verify the "Authorize" button works in `/docs`.
 
 ## Done When
 
-- [ ] You can hash and verify passwords securely.
-- [ ] You can issue and verify JWTs.
-- [ ] You can protect routes and enforce roles with dependencies.
+- [ ] You hash and verify passwords with passlib and never store plaintext.
+- [ ] You can mint, verify, and expire JWT access and refresh tokens.
+- [ ] You wired the OAuth2 password flow with a `get_current_user` dependency.
+- [ ] You enforce roles with a dependency and do resource-level ownership checks.
+
+Next: [Phase 8 — Async Python + FastAPI](./08-async-fastapi.mdx).

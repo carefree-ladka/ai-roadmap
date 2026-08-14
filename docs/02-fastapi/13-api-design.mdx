@@ -1,0 +1,582 @@
+---
+title: "Phase 13 — API Design"
+description: Resource design, REST principles, resource naming, HTTP methods, status codes, offset and cursor pagination, filtering, sorting, searching, versioning, idempotency and idempotency keys, request validation, response consistency, error formats, and documentation.
+---
+
+import TOCInline from '@theme/TOCInline';
+
+# Phase 13 — API Design
+
+<TOCInline toc={toc} minHeadingLevel={2} maxHeadingLevel={2} />
+
+:::tip[In this guide]
+How to design an API teammates and frontends actually enjoy using: model
+resources correctly, name them consistently, choose the right methods and status
+codes, paginate at scale, and keep requests, responses, and errors predictable
+and versioned.
+:::
+
+## What Is It?
+
+API design is the set of conventions that make your HTTP interface predictable:
+what the URLs look like, which methods and status codes you use, how you page
+and filter collections, and how requests and responses are shaped. Good design
+is mostly about consistency — the same rules applied everywhere.
+
+## Why Does It Matter?
+
+An API is a contract. Once clients depend on it, changes are expensive, so the
+shape you pick early tends to stay. Proper REST design makes endpoints
+discoverable and self-consistent, reduces support questions, and lets you evolve
+safely with versioning instead of breaking every consumer.
+
+---
+
+## Resource Design
+
+Think in **resources** (nouns), not actions (verbs). A resource is a thing your
+system manages — a user, an order, a document. Each resource has a stable
+identifier and a representation (usually JSON). Operations are expressed by
+applying HTTP methods to resource URLs.
+
+```text
+GET    /users
+GET    /users/{id}
+POST   /users
+PATCH  /users/{id}
+DELETE /users/{id}
+```
+
+That single table is the heart of REST: one collection URL, one item URL, and
+methods that map to read, create, update, and delete.
+
+:::info[Theory: resources vs RPC]
+RPC-style APIs expose functions (`/createUser`, `/getUserById`). REST exposes
+resources and reuses the HTTP method as the verb. The REST style means a client
+who understands `/users` can guess `/orders`, `/documents`, and every other
+collection — the grammar is uniform. Fewer things to learn, fewer surprises.
+:::
+
+---
+
+## REST Principles
+
+REST is a style, not a strict spec, but a few principles carry most of the value:
+
+- **Resource-oriented**: URLs identify things, methods describe actions.
+- **Stateless**: every request carries what it needs (auth token, params); the
+  server keeps no per-client session state between calls.
+- **Uniform interface**: the same methods and status codes mean the same thing
+  everywhere.
+- **Representations**: clients exchange representations (JSON) of resources, not
+  the resources themselves.
+- **Cacheable**: responses declare whether they can be cached.
+
+:::note[Highlight: statelessness enables scaling]
+Because no request depends on server-side session memory, any worker can handle
+any request. That's what lets you run many identical instances behind a load
+balancer. See [Phase 20 — Performance & Scalability](./20-performance-scalability.mdx).
+:::
+
+---
+
+## Resource Naming
+
+Consistent naming is the cheapest quality win in an API.
+
+- Use **plural nouns** for collections: `/users`, `/orders`, `/documents`.
+- **No verbs** in paths: not `/getUsers` or `/createUser` — the method is the verb.
+- Use **lowercase** and hyphens for multi-word paths: `/blog-posts`.
+- Nest to show relationships, but keep it shallow: `/users/{id}/orders`.
+- Identify items by id under the collection: `/users/{id}`.
+
+```text
+Good                         Avoid
+GET  /users                  GET  /getAllUsers
+POST /users                  POST /users/create
+GET  /users/42/orders        GET  /orderByUser?userId=42
+```
+
+:::caution[Don't nest too deep]
+`/users/42/orders/7/items/3/reviews` is painful to build and read. Once you're
+two levels deep, prefer a top-level resource with a filter:
+`/reviews?item_id=3`. Deep nesting couples resources that could stand alone.
+:::
+
+---
+
+## HTTP Methods
+
+Methods carry the intent. Match them to the operation and respect their
+semantics.
+
+| Method | Intent | Safe? | Idempotent? |
+| --- | --- | --- | --- |
+| `GET` | Read a resource or collection | Yes | Yes |
+| `POST` | Create a new resource | No | No |
+| `PUT` | Replace a resource fully | No | Yes |
+| `PATCH` | Update part of a resource | No | Not inherently |
+| `DELETE` | Remove a resource | No | Yes |
+
+- **Safe** means no side effects (reads only).
+- **Idempotent** means repeating the call has the same effect as calling once.
+
+```python
+@app.put("/users/{user_id}")            # full replacement
+def replace_user(user_id: int, user: UserReplace):
+    ...
+
+@app.patch("/users/{user_id}")          # partial update
+def update_user(user_id: int, patch: UserPatch):
+    ...
+```
+
+---
+
+## Status Codes
+
+Return the code that matches what actually happened. Clients branch on these.
+
+| Code | Meaning | Typical use |
+| --- | --- | --- |
+| `200 OK` | Success with body | GET, PATCH, PUT returning data |
+| `201 Created` | Resource created | POST that creates |
+| `204 No Content` | Success, empty body | DELETE, or PUT with no return |
+| `400 Bad Request` | Malformed request | Bad JSON, invalid params |
+| `401 Unauthorized` | Not authenticated | Missing/invalid credentials |
+| `403 Forbidden` | Authenticated but not allowed | Permission denied |
+| `404 Not Found` | Resource does not exist | Unknown id |
+| `409 Conflict` | State conflict | Duplicate, version clash |
+| `422 Unprocessable Entity` | Validation failed | FastAPI/Pydantic default |
+| `429 Too Many Requests` | Rate limited | Throttling |
+| `500 Internal Server Error` | Unexpected server fault | Uncaught error |
+
+:::warning[401 vs 403]
+`401` means "I don't know who you are" — authentication is missing or invalid.
+`403` means "I know who you are, but you can't do this." Mixing them up confuses
+clients and leaks information. Details in
+[Phase 7 — Authentication & Authorization](./07-authentication-authorization.mdx).
+:::
+
+---
+
+## Pagination
+
+Never return an unbounded collection. Always paginate. There are two common
+strategies — offset and cursor — and they solve different problems.
+
+### Offset pagination
+
+The client asks for a page number and page size:
+
+```text
+GET /users?page=2&limit=20
+```
+
+```python
+from fastapi import Query
+from typing import Annotated
+
+@app.get("/users")
+def list_users(
+    page: Annotated[int, Query(ge=1)] = 1,
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+):
+    offset = (page - 1) * limit
+    rows = db.query(User).offset(offset).limit(limit).all()
+    total = db.query(User).count()
+    return {"items": rows, "page": page, "limit": limit, "total": total}
+```
+
+### Cursor pagination
+
+The client passes an opaque cursor that points just past the last item it saw:
+
+```text
+GET /users?cursor=eyJpZCI6MTAwMH0=
+```
+
+```python
+import base64, json
+from fastapi import Query
+from typing import Annotated
+
+def decode_cursor(cursor: str | None) -> int:
+    if not cursor:
+        return 0
+    return json.loads(base64.urlsafe_b64decode(cursor))["id"]
+
+@app.get("/users")
+def list_users_cursor(
+    cursor: Annotated[str | None, Query()] = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+):
+    after_id = decode_cursor(cursor)
+    rows = (
+        db.query(User)
+        .filter(User.id > after_id)
+        .order_by(User.id)
+        .limit(limit + 1)              # fetch one extra to detect "has more"
+        .all()
+    )
+    has_more = len(rows) > limit
+    rows = rows[:limit]
+    next_cursor = None
+    if has_more:
+        token = json.dumps({"id": rows[-1].id}).encode()
+        next_cursor = base64.urlsafe_b64encode(token).decode()
+    return {"items": rows, "next_cursor": next_cursor}
+```
+
+:::info[Theory: when to use each]
+**Offset** (`page`/`limit`) is simple and lets clients jump to any page — great
+for admin tables and small datasets. But it **drifts**: if rows are inserted or
+deleted while a user pages, items shift and can be skipped or repeated. It also
+gets **slow on deep pages** because the database must count and skip every row
+before the offset.
+
+**Cursor** pagination is **stable** — the cursor anchors to a real row, so
+inserts and deletes don't shift results — and **scalable**, because
+`WHERE id > cursor ... LIMIT n` uses an index and stays fast no matter how deep
+you go. The tradeoff: no random page jumps, only next/previous. Use offset for
+small, mostly-static data; use cursor for large, high-churn, or infinite-scroll
+feeds.
+:::
+
+---
+
+## Filtering
+
+Expose filters as query parameters. Keep names predictable and validate them.
+
+```python
+from fastapi import Query
+from typing import Annotated
+
+@app.get("/orders")
+def list_orders(
+    status: Annotated[str | None, Query()] = None,
+    min_total: Annotated[float | None, Query(ge=0)] = None,
+    created_after: Annotated[str | None, Query()] = None,
+):
+    query = db.query(Order)
+    if status:
+        query = query.filter(Order.status == status)
+    if min_total is not None:
+        query = query.filter(Order.total >= min_total)
+    if created_after:
+        query = query.filter(Order.created_at >= created_after)
+    return query.limit(50).all()
+```
+
+:::note[Highlight: filters are additive]
+Treat each filter param as an optional `AND` clause. Absent params mean "no
+constraint." This keeps the endpoint composable — clients combine only the
+filters they need without you exploding into many endpoints.
+:::
+
+---
+
+## Sorting
+
+Accept a `sort` parameter, and use a leading `-` for descending order. Whitelist
+sortable fields so clients can't sort by arbitrary columns.
+
+```python
+from fastapi import HTTPException, Query
+from typing import Annotated
+
+SORTABLE = {"created_at", "total", "id"}
+
+@app.get("/orders/sorted")
+def sorted_orders(sort: Annotated[str, Query()] = "-created_at"):
+    descending = sort.startswith("-")
+    field = sort.lstrip("-")
+    if field not in SORTABLE:
+        raise HTTPException(status_code=400, detail=f"Cannot sort by {field}")
+    column = getattr(Order, field)
+    column = column.desc() if descending else column.asc()
+    return db.query(Order).order_by(column).limit(50).all()
+```
+
+---
+
+## Searching
+
+Full-text or fuzzy search belongs behind a `q` (query) parameter, separate from
+exact-match filters.
+
+```python
+from fastapi import Query
+from typing import Annotated
+
+@app.get("/documents/search")
+def search_documents(q: Annotated[str, Query(min_length=2)]):
+    return (
+        db.query(Document)
+        .filter(Document.title.ilike(f"%{q}%"))
+        .limit(25)
+        .all()
+    )
+```
+
+:::caution[Search is not filtering]
+Keep `q` (free-text search) distinct from structured filters like
+`status=active`. Search is ranked and fuzzy; filters are exact and predictable.
+Mixing them makes the endpoint hard to reason about and to cache.
+:::
+
+---
+
+## Versioning
+
+APIs change. Versioning lets you evolve without breaking existing clients. Two
+common approaches:
+
+**URL versioning** — the version is in the path:
+
+```text
+GET /v1/users
+GET /v2/users
+```
+
+```python
+from fastapi import APIRouter
+
+v1 = APIRouter(prefix="/v1")
+v2 = APIRouter(prefix="/v2")
+app.include_router(v1)
+app.include_router(v2)
+```
+
+**Header versioning** — the version is negotiated via a header:
+
+```text
+GET /users
+Accept: application/vnd.myapp.v2+json
+```
+
+| Approach | Pros | Cons |
+| --- | --- | --- |
+| URL (`/v1`) | Obvious, easy to route, cache-friendly, testable in a browser | Version leaks into every URL |
+| Header | URLs stay clean and stable | Harder to discover, test, and cache |
+
+:::note[Highlight: pick one and be consistent]
+Most public APIs choose **URL versioning** for its visibility and cache
+friendliness. Whatever you pick, apply it uniformly and document the deprecation
+policy so clients know how long a version lives.
+:::
+
+---
+
+## Idempotency
+
+An operation is **idempotent** when repeating it produces the same result as
+performing it once. `GET`, `PUT`, and `DELETE` are naturally idempotent; `POST`
+is not — two identical POSTs create two resources.
+
+This matters for **retries**. Networks fail; a client that didn't get a response
+doesn't know whether the create succeeded. If it retries a raw `POST`, you get a
+duplicate. **Idempotency keys** fix this: the client sends a unique key with the
+request, and the server ensures the operation runs at most once per key.
+
+```python
+from fastapi import Header, HTTPException
+from typing import Annotated
+
+# a real system stores keys in Redis/DB with a TTL, not a dict
+_seen: dict[str, dict] = {}
+
+@app.post("/payments", status_code=201)
+def create_payment(
+    payment: PaymentCreate,
+    idempotency_key: Annotated[str, Header()],
+):
+    if idempotency_key in _seen:
+        return _seen[idempotency_key]        # replay the original result
+    result = process_payment(payment)        # charge exactly once
+    _seen[idempotency_key] = result
+    return result
+```
+
+:::info[Theory: why idempotency keys make POST safe]
+The client generates a key (a UUID) once and reuses it on every retry of the
+same logical request. The server records the key with the result. A second
+request carrying a known key returns the stored result instead of performing the
+action again — so a timed-out payment retried three times still charges once.
+Payment and order APIs treat this as mandatory. Store keys with a TTL in Redis;
+see [Phase 14 — Caching](./14-caching.mdx).
+:::
+
+---
+
+## Request Validation
+
+Validate at the edge with Pydantic models so bad input never reaches your logic.
+FastAPI returns `422` with a precise error body automatically.
+
+```python
+from pydantic import BaseModel, EmailStr, Field
+
+class UserCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    email: EmailStr
+    age: int = Field(ge=0, le=120)
+
+@app.post("/users", status_code=201)
+def create_user(user: UserCreate):
+    return {"id": 1, **user.model_dump()}
+```
+
+Deeper validation patterns (custom validators, nested models, constraints) are
+in [Phase 2 — Pydantic & Data Validation](./02-pydantic-validation.mdx).
+
+---
+
+## Response Consistency
+
+Every endpoint of a given kind should return the same shape. Decide on
+envelopes, field naming, and date formats once, and apply them everywhere.
+
+```python
+from pydantic import BaseModel
+
+class UserOut(BaseModel):
+    id: int
+    name: str
+    email: str
+
+class Page(BaseModel):
+    items: list[UserOut]
+    page: int
+    limit: int
+    total: int
+```
+
+- Collections always return the same pagination envelope.
+- Timestamps are always ISO 8601 UTC (`2024-01-01T00:00:00Z`).
+- Field names use one convention (`snake_case` throughout, for example).
+
+:::note[Highlight: separate input and output models]
+Accept `UserCreate`, return `UserOut`. The input can include a password; the
+output never does. Consistent, distinct models prevent leaks and let each side
+evolve independently — the same pattern introduced in
+[Phase 1 — FastAPI Fundamentals](./01-fastapi-fundamentals.mdx).
+:::
+
+---
+
+## Error Response Format
+
+Errors deserve the same consistency as successes. Pick one structure and use it
+for every error so clients can parse failures generically.
+
+```python
+from fastapi import Request
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
+
+class AppError(Exception):
+    def __init__(self, code: str, message: str, status: int = 400):
+        self.code, self.message, self.status = code, message, status
+
+@app.exception_handler(AppError)
+def handle_app_error(request: Request, exc: AppError):
+    return JSONResponse(
+        status_code=exc.status,
+        content={"error": {"code": exc.code, "message": exc.message}},
+    )
+```
+
+A predictable error body might look like:
+
+```text
+{
+  "error": {
+    "code": "user_not_found",
+    "message": "No user exists with id 42"
+  }
+}
+```
+
+Full exception-handling architecture (global handlers, mapping domain errors) is
+covered in [Phase 9 — Error Handling](./09-error-handling.mdx).
+
+---
+
+## API Documentation
+
+FastAPI generates OpenAPI docs from your types for free — but good docs need
+effort from you, not just the framework.
+
+- Add `summary` and `description` to path operations.
+- Use `response_model` so schemas are accurate.
+- Provide example payloads via `Field(examples=[...])` or model config.
+- Group endpoints with `tags`.
+- Document error responses with the `responses={...}` argument.
+
+```python
+@app.get(
+    "/users/{user_id}",
+    response_model=UserOut,
+    summary="Fetch a single user",
+    tags=["users"],
+    responses={404: {"description": "User not found"}},
+)
+def get_user(user_id: int):
+    ...
+```
+
+:::note[Highlight: docs are part of the contract]
+Interactive docs at `/docs` and `/redoc` are the first thing a frontend
+developer opens. Accurate models, examples, and error responses turn them into a
+usable contract instead of a rough sketch.
+:::
+
+---
+
+## Common Mistakes
+
+- Putting verbs in URLs (`/getUsers`) instead of using HTTP methods.
+- Returning `200` for everything, including creates and errors.
+- Unbounded list endpoints with no pagination.
+- Using offset pagination on huge, high-churn tables (drift and slow deep pages).
+- Confusing `401` (not authenticated) with `403` (not allowed).
+- Inconsistent field names, date formats, or error shapes across endpoints.
+- Making breaking changes without introducing a new version.
+- Non-idempotent `POST` for operations that clients will retry (payments).
+
+## Interview Questions
+
+- What makes an API RESTful, and how do resources differ from RPC?
+- Which HTTP methods are safe and which are idempotent?
+- Compare offset and cursor pagination — when do you use each?
+- What is an idempotency key and which endpoints need one?
+- URL versioning vs header versioning — tradeoffs?
+- Why separate request and response models?
+
+## Things to Remember
+
+- Model nouns as resources; let HTTP methods be the verbs.
+- Plural nouns, no verbs, shallow nesting, consistent casing.
+- Always paginate: offset for simple/static, cursor for large/high-churn.
+- Match status codes to outcomes; keep `401`/`403` distinct.
+- Version deliberately and keep request/response/error shapes consistent.
+- Use idempotency keys to make retried `POST`s safe.
+
+## Mini Exercise
+
+Design and implement a `/articles` API: the five standard routes, a list
+endpoint supporting both `?page=&limit=` and `?cursor=` pagination, a `status`
+filter, a `sort` parameter, and a `q` search. Return a consistent pagination
+envelope and a consistent error body. Add an idempotency key to `POST /articles`
+and verify a repeated request with the same key doesn't create a duplicate.
+
+## Done When
+
+- [ ] Your URLs are resource-oriented with correct methods and status codes.
+- [ ] You can implement and explain both offset and cursor pagination.
+- [ ] Filtering, sorting, and searching are consistent and validated.
+- [ ] You have a versioning strategy and idempotent creates where needed.
+
+Next: [Phase 14 — Caching](./14-caching.mdx).

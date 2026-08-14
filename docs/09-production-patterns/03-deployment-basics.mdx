@@ -77,7 +77,7 @@ Never bake secrets into the image; inject them at runtime.
 ## Health & Readiness in Deployment
 
 Orchestrators use these to route traffic and restart bad instances (from
-[production design](../02-fastapi/10-api-design-production.mdx)):
+[Docker & deployment](../02-fastapi/19-docker-deployment.mdx)):
 
 - **Liveness (`/health`)**: restart the container if this fails.
 - **Readiness (`/ready`)**: only send traffic when dependencies (Chroma, Ollama) are reachable.

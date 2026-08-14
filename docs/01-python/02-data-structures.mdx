@@ -1,0 +1,580 @@
+---
+title: "Phase 2 — Python Data Structures"
+description: Lists, tuples, sets, dictionaries, list and dict comprehensions, slicing, iterators, generators, and the collections module — with performance characteristics.
+---
+
+import TOCInline from '@theme/TOCInline';
+
+# Phase 2 — Python Data Structures
+
+<TOCInline toc={toc} minHeadingLevel={2} maxHeadingLevel={2} />
+
+:::tip[In this guide]
+The built-in containers you'll reach for every day, the comprehensions that
+make Python feel expressive, and the iterator/generator protocol that powers
+everything from `for` loops to streaming huge datasets without blowing up
+memory. Choosing the right structure is often the difference between O(n) and
+O(1).
+:::
+
+## What Is It?
+
+Python's core collections — `list`, `tuple`, `set`, `dict` — plus the tools
+that operate on them: comprehensions, slicing, iterators, generators, and the
+specialized containers in `collections`.
+
+## Why Does It Matter?
+
+The right data structure changes both **correctness** and **speed**. Interviews
+lean hard on "list vs tuple", "how do you dedupe?", and "generator vs list".
+Real services live or die on whether membership checks are O(1) or O(n).
+
+### The four core containers at a glance
+
+| Type | Ordered | Mutable | Duplicates | Hashable | Typical use |
+| --- | --- | --- | --- | --- | --- |
+| `list` | Yes | Yes | Yes | No | Ordered, growable sequence |
+| `tuple` | Yes | No | Yes | Yes* | Fixed record, dict key |
+| `set` | No | Yes | No | No | Membership, dedupe |
+| `dict` | Yes (3.7+) | Yes | Unique keys | No | Key → value mapping |
+
+\*A tuple is hashable only if all its elements are hashable.
+
+---
+
+## Lists
+
+An ordered, mutable, growable sequence. The workhorse of Python.
+
+```python
+nums = [3, 1, 2]
+nums.append(4)          # [3, 1, 2, 4]      add to end
+nums.insert(0, 0)       # [0, 3, 1, 2, 4]   insert at index (O(n))
+nums.extend([5, 6])     # [0, 3, 1, 2, 4, 5, 6]
+nums.pop()              # removes & returns last (6)
+nums.pop(0)             # removes & returns first (0), shifts everything (O(n))
+nums.remove(1)          # removes first matching VALUE, not index
+```
+
+### Sorting
+
+```python
+nums = [3, 1, 2]
+nums.sort()                       # in place, returns None -> [1, 2, 3]
+nums.sort(reverse=True)           # [3, 2, 1]
+new = sorted(nums)                # returns a NEW sorted list, leaves nums alone
+
+words = ["banana", "apple", "cherry"]
+words.sort(key=len)               # sort by a computed key
+people.sort(key=lambda p: p.age)  # sort objects by attribute
+```
+
+:::warning[`sort()` returns `None`]
+`nums = nums.sort()` sets `nums` to `None` because `.sort()` mutates in place
+and returns nothing. Use `sorted(nums)` when you want a value back, or call
+`.sort()` on its own line.
+:::
+
+:::note[Highlight: list is a dynamic array]
+A Python `list` is backed by a resizable array. Indexing and appending are
+O(1) (append is *amortized* O(1)), but inserting or deleting at the front is
+O(n) because everything shifts. Need fast front-inserts? Use
+`collections.deque`.
+:::
+
+---
+
+## Tuples
+
+An ordered, **immutable** sequence. Once created, it can't change.
+
+```python
+point = (3, 4)
+x, y = point            # unpacking
+single = (42,)          # note the trailing comma — (42) is just an int!
+empty = ()
+```
+
+### Why tuples matter
+
+```python
+# 1. Fixed records where position has meaning
+rgb = (255, 128, 0)
+
+# 2. Immutable, so they can be DICTIONARY KEYS or SET MEMBERS
+grid = {(0, 0): "start", (1, 2): "goal"}
+
+# 3. Multiple return values are really tuples
+def minmax(xs): return min(xs), max(xs)
+low, high = minmax([3, 1, 2])
+```
+
+:::info[Theory: list vs tuple is about intent and hashability]
+Beyond "mutable vs immutable", the practical differences are:
+
+- Tuples are **hashable** (if their contents are), so they work as dict keys
+  and set members. Lists never can.
+- Tuples signal "this is a fixed record" to readers.
+- Tuples are slightly more memory-efficient and marginally faster to build.
+:::
+
+---
+
+## Sets
+
+An unordered collection of **unique**, hashable elements. Backed by a hash
+table, so membership tests are O(1) on average.
+
+```python
+tags = {"ai", "python", "ai"}    # {"ai", "python"} — duplicate dropped
+tags.add("rag")
+tags.discard("java")             # no error if missing (remove() would raise)
+"ai" in tags                     # True — O(1) average
+```
+
+### Set algebra
+
+```python
+a = {1, 2, 3}
+b = {2, 3, 4}
+a | b     # union         {1, 2, 3, 4}
+a & b     # intersection  {2, 3}
+a - b     # difference    {1}
+a ^ b     # symmetric diff{1, 4}
+a <= b    # subset?       False
+```
+
+### The classic use: dedupe and fast lookups
+
+```python
+# Remove duplicates (order NOT preserved)
+unique = list(set([1, 2, 2, 3, 3, 3]))
+
+# Preserve order while deduping (3.7+ dict keeps insertion order)
+unique_ordered = list(dict.fromkeys([1, 2, 2, 3, 3, 3]))   # [1, 2, 3]
+
+# Fast membership: turn a list into a set first if you'll check often
+allowed = set(load_allowed_ids())      # build once
+if user_id in allowed:                 # O(1) each check
+    ...
+```
+
+:::caution[Sets are unordered and can't hold unhashable items]
+You cannot index a set (`s[0]` is a `TypeError`), and you cannot put a `list`
+or `dict` inside one. Use a `frozenset` when you need an immutable, hashable
+set (e.g. as a dict key).
+:::
+
+---
+
+## Dictionaries
+
+A mapping of **unique keys** to values, backed by a hash table. Since Python
+3.7, dicts preserve insertion order.
+
+```python
+user = {"name": "Ada", "age": 36}
+user["email"] = "ada@example.com"     # add/update
+user.get("phone")                     # None if missing (no error)
+user.get("phone", "N/A")              # default if missing
+user.setdefault("roles", []).append("admin")   # get-or-create then use
+del user["age"]                       # remove a key
+"name" in user                        # True — checks KEYS
+```
+
+### Iterating
+
+```python
+for key in user:                 # keys
+    ...
+for value in user.values():
+    ...
+for key, value in user.items():  # both — the common one
+    print(key, value)
+```
+
+### Merging and updating
+
+```python
+defaults = {"theme": "dark", "lang": "en"}
+overrides = {"lang": "fr"}
+config = {**defaults, **overrides}     # {'theme':'dark', 'lang':'fr'}
+config = defaults | overrides          # 3.9+ merge operator (same result)
+defaults.update(overrides)             # in-place merge
+```
+
+:::warning[`d[key]` raises, `d.get(key)` doesn't]
+Accessing a missing key with square brackets raises `KeyError`. Use
+`.get(key, default)` when a key may be absent, or `collections.defaultdict`
+when you're accumulating values.
+:::
+
+:::info[Theory: what makes a valid key]
+Dict keys must be **hashable** — their hash must never change over their
+lifetime. Immutable types (`str`, `int`, `tuple` of immutables, `frozenset`)
+qualify; `list`, `dict`, and `set` do not. This is the same rule that governs
+set membership.
+:::
+
+---
+
+## List comprehensions
+
+A concise way to build a list from an iterable. Read it as
+"*expression* for *item* in *iterable* if *condition*".
+
+```python
+squares = [x * x for x in range(5)]              # [0, 1, 4, 9, 16]
+evens = [x for x in range(10) if x % 2 == 0]     # filter
+labels = [x if x > 0 else 0 for x in values]     # conditional expression
+pairs = [(i, j) for i in range(2) for j in range(2)]  # nested loops
+matrix = [[0] * 3 for _ in range(3)]             # 3x3 grid (see trap below)
+```
+
+### Comprehension vs loop
+
+```python
+# Loop
+result = []
+for x in items:
+    if x.active:
+        result.append(x.name)
+
+# Comprehension (same thing, one line, often faster)
+result = [x.name for x in items if x.active]
+```
+
+:::caution[Trap: don't build a grid with `[[0]*3]*3`]
+
+```python
+bad = [[0] * 3] * 3      # 3 references to the SAME inner list!
+bad[0][0] = 1            # -> [[1,0,0], [1,0,0], [1,0,0]]  all rows changed
+
+good = [[0] * 3 for _ in range(3)]   # 3 independent lists
+```
+
+:::
+
+:::note[Highlight: keep comprehensions readable]
+If a comprehension needs two `if`s and two `for`s and a ternary, it's probably
+clearer as a regular loop. Comprehensions win for *simple* map/filter; they
+lose when logic gets dense.
+:::
+
+---
+
+## Dictionary comprehensions
+
+Same syntax, producing a dict. Also works for sets.
+
+```python
+squares = {x: x * x for x in range(5)}           # {0:0, 1:1, 2:4, ...}
+prices = {"a": 1.0, "b": 2.0}
+doubled = {k: v * 2 for k, v in prices.items()}  # {'a':2.0, 'b':4.0}
+inverted = {v: k for k, v in prices.items()}     # swap keys/values
+
+# Set comprehension (curly braces, no colon)
+unique_lengths = {len(word) for word in words}
+```
+
+### A practical example: index a list of records by id
+
+```python
+users = [{"id": 1, "name": "Ada"}, {"id": 2, "name": "Alan"}]
+by_id = {u["id"]: u for u in users}
+by_id[1]["name"]        # "Ada" — O(1) lookup instead of scanning the list
+```
+
+---
+
+## Slicing
+
+`sequence[start:stop:step]` returns a new sub-sequence. Works on lists, tuples,
+strings, and ranges.
+
+```python
+letters = ["a", "b", "c", "d", "e"]
+letters[1:3]     # ['b', 'c']     stop is EXCLUSIVE
+letters[:2]      # ['a', 'b']     from the start
+letters[2:]      # ['c', 'd', 'e']to the end
+letters[::2]     # ['a', 'c', 'e']every 2nd
+letters[::-1]    # ['e', 'd', 'c', 'b', 'a']  reversed
+letters[-2:]     # ['d', 'e']     last two
+```
+
+### Slice assignment (lists only)
+
+```python
+nums = [1, 2, 3, 4, 5]
+nums[1:3] = [20, 30]        # replace a slice -> [1, 20, 30, 4, 5]
+nums[:] = [9]               # replace ALL contents in place
+copy_of = nums[:]           # shallow copy via full slice
+```
+
+:::info[Theory: slices are safe and forgiving]
+Slicing never raises `IndexError`, even when indices go out of range
+(`[1, 2][5:99]` is just `[]`). A slice always returns a **new** object of the
+same type, so it's a common way to copy or reverse. Compare with indexing
+(`x[5]`), which *does* raise if out of range.
+:::
+
+---
+
+## Iterators
+
+An **iterable** is anything you can loop over. An **iterator** is the object
+that produces items one at a time and remembers its position.
+
+:::info[Theory: the iterator protocol]
+`for x in obj` desugars to roughly:
+
+1. `it = iter(obj)` — calls `obj.__iter__()` to get an iterator.
+2. Repeatedly `next(it)` — calls `it.__next__()` for each value.
+3. When there are no more items, `__next__` raises `StopIteration`, which the
+   `for` loop catches to stop.
+:::
+
+```python
+nums = [1, 2, 3]
+it = iter(nums)         # get an iterator
+next(it)                # 1
+next(it)                # 2
+next(it)                # 3
+next(it)                # raises StopIteration
+```
+
+### Building a custom iterator
+
+```python
+class Countdown:
+    def __init__(self, start: int):
+        self.current = start
+
+    def __iter__(self):
+        return self                 # I am my own iterator
+
+    def __next__(self):
+        if self.current <= 0:
+            raise StopIteration
+        self.current -= 1
+        return self.current + 1
+
+for n in Countdown(3):
+    print(n)            # 3, 2, 1
+```
+
+:::warning[Iterators are single-use and lazy]
+Once exhausted, an iterator is empty — you can't rewind it. `list(it)` a second
+time yields `[]`. If you need the data twice, keep the underlying iterable (the
+list), not the iterator.
+:::
+
+---
+
+## Generators
+
+A generator is the easiest way to make an iterator: write a function that uses
+`yield` instead of `return`. Each `yield` produces a value and **pauses**,
+resuming where it left off on the next `next()`.
+
+```python
+def countdown(start: int):
+    while start > 0:
+        yield start          # pause here, hand back a value
+        start -= 1
+
+for n in countdown(3):
+    print(n)                 # 3, 2, 1
+
+gen = countdown(3)
+next(gen)                    # 3  — runs until the first yield
+```
+
+### Why generators: memory and laziness
+
+```python
+# List: builds ALL 10 million numbers in memory at once
+squares_list = [x * x for x in range(10_000_000)]
+
+# Generator: computes one at a time, near-zero memory
+squares_gen = (x * x for x in range(10_000_000))   # generator expression
+first_five = [next(squares_gen) for _ in range(5)]
+```
+
+### Streaming a large file line by line
+
+```python
+def read_large_file(path):
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            yield line.rstrip()      # never loads the whole file
+
+for line in read_large_file("huge.log"):
+    process(line)                    # constant memory, any file size
+```
+
+### Chaining generators into a pipeline
+
+```python
+def numbers():
+    yield from range(100)            # 'yield from' delegates to another iterable
+
+def evens(source):
+    for n in source:
+        if n % 2 == 0:
+            yield n
+
+def squared(source):
+    for n in source:
+        yield n * n
+
+pipeline = squared(evens(numbers())) # nothing runs yet — fully lazy
+first = next(pipeline)               # 0
+```
+
+:::note[Highlight: generator vs list — the interview answer]
+A **list comprehension** `[...]` builds and holds every element in memory. A
+**generator expression** `(...)` produces items lazily, one at a time, using
+almost no memory and allowing infinite streams. Use a list when you need random
+access, `len()`, or to iterate more than once; use a generator for large or
+streaming data you'll consume once.
+:::
+
+---
+
+## collections
+
+The `collections` module adds specialized containers that solve common problems
+more cleanly than the built-ins.
+
+### Counter — tally things
+
+```python
+from collections import Counter
+
+votes = ["a", "b", "a", "c", "a", "b"]
+counts = Counter(votes)          # Counter({'a': 3, 'b': 2, 'c': 1})
+counts["a"]                      # 3
+counts.most_common(2)            # [('a', 3), ('b', 2)]
+Counter("mississippi")["s"]      # 4
+```
+
+### defaultdict — auto-create missing values
+
+```python
+from collections import defaultdict
+
+# Group words by first letter without checking "if key in d"
+groups = defaultdict(list)
+for word in ["ant", "bee", "art", "bat"]:
+    groups[word[0]].append(word)
+# {'a': ['ant', 'art'], 'b': ['bee', 'bat']}
+
+tally = defaultdict(int)
+for ch in "hello":
+    tally[ch] += 1               # missing keys default to 0
+```
+
+### deque — fast appends/pops on both ends
+
+```python
+from collections import deque
+
+queue = deque([1, 2, 3])
+queue.append(4)          # add right
+queue.appendleft(0)      # add left — O(1), unlike list.insert(0, ...)
+queue.popleft()          # remove left — O(1)
+recent = deque(maxlen=3) # a bounded ring buffer; oldest drops off
+```
+
+### namedtuple — a lightweight, immutable record
+
+```python
+from collections import namedtuple
+
+Point = namedtuple("Point", ["x", "y"])
+p = Point(3, 4)
+p.x, p.y                 # 3, 4  — access by name, not just index
+p[0]                     # 3     — still tuple-like
+```
+
+:::info[Theory: when to reach for `collections`]
+- Counting or frequency → `Counter`.
+- Grouping / accumulating into a default → `defaultdict`.
+- Queue / stack / sliding window / bounded buffer → `deque`.
+- A small immutable record with named fields → `namedtuple` (or a
+  `@dataclass`, covered in Phase 3).
+:::
+
+---
+
+## Complexity (Big-O) Cheat Sheet
+
+| Operation | list | dict / set | deque |
+| --- | --- | --- | --- |
+| Index / key access | O(1) | O(1) avg | O(1) ends only |
+| Membership `in` | O(n) | O(1) avg | O(n) |
+| Append (right) | O(1) amortized | — | O(1) |
+| Insert / pop at front | O(n) | — | O(1) |
+| Search by value | O(n) | O(1) avg (keys) | O(n) |
+
+:::note[Highlight]
+If you find yourself writing `if x in my_list` inside a loop, convert
+`my_list` to a `set` first. You'll turn an O(n²) algorithm into O(n).
+:::
+
+## Shallow vs Deep Copy
+
+```python
+import copy
+
+original = [[1, 2], [3, 4]]
+shallow = original[:]             # or list(original) / copy.copy()
+deep = copy.deepcopy(original)
+
+original[0][0] = 99
+shallow[0][0]                     # 99  — inner list is SHARED
+deep[0][0]                        # 1   — fully independent
+```
+
+A shallow copy duplicates the outer container but shares nested objects; a deep
+copy recursively duplicates everything.
+
+## Common Mistakes
+
+- Using a `list` for repeated membership checks (O(n) each time).
+- `[[0]*3]*3` creating shared inner lists.
+- Expecting a shallow copy to isolate nested data.
+- Reusing an exhausted iterator/generator and getting nothing.
+- Assuming `set` preserves order (it does not).
+
+## Interview Questions
+
+- `list` vs `tuple` — differences and when to use each?
+- How do you remove duplicates while preserving order?
+- Generator vs list comprehension — memory and use cases?
+- What makes an object usable as a dict key? (hashability)
+- Explain the iterator protocol (`__iter__`, `__next__`, `StopIteration`).
+- Shallow vs deep copy?
+
+## Things to Remember
+
+- `set`/`dict` give O(1) membership; `list` gives O(n).
+- Tuples are immutable and hashable → usable as keys.
+- Generators are lazy and single-use; great for large/streaming data.
+- `collections` (`Counter`, `defaultdict`, `deque`) removes boilerplate.
+
+## Mini Exercise
+
+Given a list of words, return a dict mapping each unique word to its count —
+first with a plain `dict`, then rewrite it with `defaultdict`, then with
+`Counter`. Compare the three.
+
+## Done When
+
+- [ ] You can pick the right container for a task and justify it with Big-O.
+- [ ] You write list and dict comprehensions fluently, including with filters.
+- [ ] You can explain and build an iterator and a generator.
+- [ ] You reach for `Counter`/`defaultdict`/`deque` when they fit.
+
+Next: [Phase 3 — Object-Oriented Python](./03-oop.mdx).
