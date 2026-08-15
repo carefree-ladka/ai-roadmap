@@ -1,0 +1,1223 @@
+---
+title: "Phase 5 — DSA with Python"
+description: Data structures and algorithms in Python for interviews — arrays, stacks, queues, deques, heaps, hash maps/sets, Counter, defaultdict, linked lists, trees, tries, graphs, union-find, plus binary search, two pointers, sliding window, prefix sums, recursion, backtracking, dynamic programming, and Python-specific tricks.
+---
+
+import TOCInline from '@theme/TOCInline';
+
+# Phase 5 — DSA with Python
+
+<TOCInline toc={toc} minHeadingLevel={2} maxHeadingLevel={2} />
+
+:::tip[In this guide]
+Data structures and algorithms, mapped to the exact Python built-ins you'll
+reach for in an interview. Every abstract structure — stack, queue, heap, graph —
+has a concrete Python home. This phase is your cheat sheet plus the patterns
+(two pointers, sliding window, binary search, BFS/DFS, backtracking, DP) that
+solve most problems, with the Python-specific tricks that save time under
+pressure.
+:::
+
+## What Is It?
+
+DSA is the study of how to store data (data structures) and how to operate on it
+efficiently (algorithms). In Python you rarely implement these from scratch — the
+standard library gives you `list`, `dict`, `set`, `collections`, `heapq`, and
+`bisect`, which cover most interview needs.
+
+## Why Does It Matter?
+
+Coding interviews are DSA interviews. Knowing which Python built-in models each
+structure — and its Big-O — lets you write correct, fast solutions without
+reinventing the wheel. This phase turns "I know Python" into "I can solve the
+problem in Python."
+
+---
+
+## The DSA → Python Cheat Sheet
+
+The core mapping. Bookmark this table — it answers "what do I actually type?"
+
+| DSA | Python | Common operations |
+| --- | --- | --- |
+| **Array** | `list` | `append`, `pop`, indexing |
+| **Dynamic array** | `list` | grows automatically, O(1) amortized append |
+| **Stack (LIFO)** | `list` | `append()`, `pop()` |
+| **Queue (FIFO)** | `collections.deque` | `append()`, `popleft()` |
+| **Deque** | `collections.deque` | `append`, `appendleft`, `pop`, `popleft` |
+| **Min Heap** | `heapq` | `heappush`, `heappop` (smallest first) |
+| **Max Heap** | `heapq` | push/pop **negated** values |
+| **Priority Queue** | `heapq` | push `(priority, item)` tuples |
+| **Map / HashMap** | `dict` | `map[key]`, `get`, `items` |
+| **Set / HashSet** | `set` | `add`, `remove`, `in` |
+| **Frequency Map** | `collections.Counter` | counting, `most_common` |
+| **Default Map** | `collections.defaultdict` | grouped / default values |
+| **Ordered Map** | `dict` (3.7+) / `OrderedDict` | insertion order, LRU |
+| **Linked List** | custom `ListNode` class | pointer manipulation |
+| **Binary Tree** | custom `TreeNode` class | recursion, traversals |
+| **Graph** | `dict` of lists / `defaultdict(list)` | adjacency list, BFS/DFS |
+| **Trie (prefix tree)** | nested `dict` / class | prefix search |
+| **Disjoint Set** | list / dict (union-find) | `find`, `union` |
+| **Sorted structure** | `list` + `bisect` | binary search, ordered insert |
+
+:::note[Highlight: lean on the standard library]
+Interviewers expect idiomatic Python. Reach for `collections.deque` for a queue
+(not `list.pop(0)`, which is O(n)), `heapq` for a heap, `Counter` for frequencies,
+and `bisect` for sorted search. Reimplementing these by hand wastes time and
+invites bugs.
+:::
+
+---
+
+## Big-O Cheat Sheet
+
+Know these cold — interviewers ask "what's the complexity?" for every solution.
+
+| Operation | `list` | `dict` / `set` | `deque` | heap (`heapq`) |
+| --- | --- | --- | --- | --- |
+| Access by index | O(1) | — | O(1) ends only | — |
+| Access by key | — | O(1) avg | — | — |
+| Search (`x in`) | O(n) | O(1) avg | O(n) | O(n) |
+| Insert at end | O(1) amortized | — | O(1) | O(log n) push |
+| Insert at front | O(n) | — | O(1) | — |
+| Delete at end | O(1) | — | O(1) | O(log n) pop-min |
+| Delete at front | O(n) | — | O(1) | — |
+| Find min/max | O(n) | O(n) | O(n) | O(1) peek min |
+| Sort | O(n log n) | — | — | O(n) heapify |
+
+:::info[Theory: amortized vs worst case]
+`list.append` is **amortized** O(1): most appends are instant, but occasionally
+the list doubles its backing array (an O(n) copy). Averaged over many appends,
+the cost is constant. Hash operations are O(1) **average** but O(n) worst case
+under pathological collisions — in interviews, treat `dict`/`set` as O(1).
+:::
+
+---
+
+## Arrays (`list`)
+
+Python's `list` is a dynamic array: contiguous, index-addressable, and
+auto-growing. It's your default sequence.
+
+```python
+arr = [3, 1, 4, 1, 5]
+arr[0]              # 3        O(1) index
+arr[-1]             # 5        negative index from the end
+arr.append(9)       # O(1) amortized — add to end
+arr.pop()           # O(1)     remove & return last
+arr.insert(0, 7)    # O(n)     insert at front shifts everything
+arr.pop(0)          # O(n)     remove from front shifts everything
+len(arr)            # O(1)
+```
+
+### Handy list idioms
+
+```python
+grid = [[0] * cols for _ in range(rows)]   # 2D grid (independent rows!)
+nums = [0] * n                              # fixed-size array
+total = sum(nums)                           # O(n)
+biggest = max(nums)                         # O(n)
+reversed_list = arr[::-1]                   # new reversed list
+arr.reverse()                               # in place
+```
+
+:::warning[Never build a grid with `[[0]*cols]*rows`]
+`[[0] * cols] * rows` makes `rows` references to the **same** inner list, so
+`grid[0][0] = 1` changes every row. Always use a comprehension:
+`[[0] * cols for _ in range(rows)]`. This is the single most common 2D-array bug
+in interviews.
+:::
+
+---
+
+## Strings
+
+Strings are **immutable** sequences. Any "edit" creates a new string, so build
+big strings with a list + `join`.
+
+```python
+s = "hello"
+s[0]                 # 'h'
+s[1:4]               # 'ell'   slicing
+s[::-1]              # 'olleh' reverse
+list(s)              # ['h','e','l','l','o']  to mutable
+"".join(chars)       # list back to string — O(n), the right way to build
+
+s.split(",")         # tokenize
+"-".join(parts)      # combine
+s.replace("l", "L")
+ord("a"), chr(97)    # 97, 'a'  — char <-> code point
+```
+
+### Character counting and normalization
+
+```python
+from collections import Counter
+
+Counter("anagram")              # Counter({'a': 3, 'n': 1, ...})
+Counter("listen") == Counter("silent")   # True — anagram check in one line
+"a".isalpha(), "1".isdigit()    # character class checks
+```
+
+:::warning[Immutable strings make `+=` O(n²)]
+Concatenating with `+=` in a loop copies the whole string each time — O(n²)
+overall. Collect pieces in a `list` and call `"".join(pieces)` once, which is
+O(n). This turns a timeout into a pass on large inputs.
+:::
+
+:::note[Highlight: `ord`/`chr` for character math]
+Map letters to array indices with `ord(ch) - ord('a')` (0–25). This powers
+frequency arrays for lowercase strings, a faster alternative to a dict when the
+alphabet is fixed and small.
+:::
+
+---
+
+## Stack (LIFO) — `list`
+
+A stack is Last-In-First-Out. A plain `list` is a perfect stack: `append` to
+push, `pop` to pop — both O(1) at the end.
+
+```python
+stack = []
+stack.append(1)     # push
+stack.append(2)
+stack.append(3)
+stack.pop()          # 3  — pop (last in, first out)
+stack[-1]            # 2  — peek without removing
+not stack            # True if empty
+```
+
+### Classic use: matching parentheses
+
+```python
+def is_balanced(s: str) -> bool:
+    pairs = {")": "(", "]": "[", "}": "{"}
+    stack = []
+    for ch in s:
+        if ch in "([{":
+            stack.append(ch)
+        elif ch in pairs:
+            if not stack or stack.pop() != pairs[ch]:
+                return False
+    return not stack
+```
+
+:::info[Theory: when a stack is the answer]
+Reach for a stack when the problem has **nested** or **most-recent-first**
+structure: balanced brackets, undo history, expression evaluation, backtracking,
+and "next greater element" (a monotonic stack). If you find yourself needing the
+*last* thing you saw, it's a stack.
+:::
+
+---
+
+## Queue (FIFO) — `collections.deque`
+
+A queue is First-In-First-Out. Use `deque`, **not** `list`, because
+`list.pop(0)` is O(n) while `deque.popleft()` is O(1).
+
+```python
+from collections import deque
+
+queue = deque()
+queue.append(1)      # enqueue at the back
+queue.append(2)
+queue.popleft()      # 1 — dequeue from the front, O(1)
+queue[0]             # peek front
+len(queue)
+```
+
+:::warning[Never use `list.pop(0)` for a queue]
+`list.pop(0)` and `list.insert(0, x)` are O(n) — every element shifts. A queue
+built on a list turns an O(n) algorithm into O(n²). `collections.deque` gives
+O(1) at both ends. This is a frequent interview performance trap.
+:::
+
+---
+
+## Deque (double-ended queue) — `collections.deque`
+
+A `deque` supports O(1) operations at **both** ends, making it a queue, a stack,
+and a sliding-window buffer all at once.
+
+```python
+from collections import deque
+
+dq = deque([1, 2, 3])
+dq.append(4)         # add right     -> [1,2,3,4]
+dq.appendleft(0)     # add left      -> [0,1,2,3,4]
+dq.pop()             # remove right  -> 4
+dq.popleft()         # remove left   -> 0
+dq.rotate(1)         # rotate right by 1
+
+window = deque(maxlen=3)   # bounded — appending past 3 drops the oldest
+```
+
+### Sliding window maximum (monotonic deque)
+
+```python
+from collections import deque
+
+def max_sliding_window(nums: list[int], k: int) -> list[int]:
+    dq = deque()          # stores indices, values decreasing
+    out = []
+    for i, n in enumerate(nums):
+        while dq and nums[dq[-1]] < n:   # pop smaller values
+            dq.pop()
+        dq.append(i)
+        if dq[0] == i - k:               # drop index out of window
+            dq.popleft()
+        if i >= k - 1:
+            out.append(nums[dq[0]])
+    return out
+```
+
+---
+
+## Heaps — `heapq`
+
+A heap gives O(1) access to the smallest element and O(log n) push/pop. Python's
+`heapq` operates on a plain list as a **min heap**.
+
+```python
+import heapq
+
+heap = []
+heapq.heappush(heap, 5)
+heapq.heappush(heap, 1)
+heapq.heappush(heap, 3)
+heapq.heappop(heap)     # 1  — always the smallest
+heap[0]                 # peek smallest without removing
+
+nums = [5, 1, 3, 2]
+heapq.heapify(nums)     # O(n) — turn a list into a heap in place
+```
+
+### Max heap — negate the values
+
+```python
+import heapq
+
+max_heap = []
+for n in [5, 1, 3]:
+    heapq.heappush(max_heap, -n)   # push negatives
+largest = -heapq.heappop(max_heap) # negate back -> 5
+```
+
+### Priority queue — push tuples
+
+```python
+import heapq
+
+pq = []
+heapq.heappush(pq, (2, "task B"))   # (priority, item)
+heapq.heappush(pq, (1, "task A"))
+heapq.heappop(pq)                    # (1, 'task A') — lowest priority first
+```
+
+### Top-K without a full sort
+
+```python
+import heapq
+
+nums = [5, 1, 3, 9, 2, 8]
+heapq.nlargest(3, nums)              # [9, 8, 5]
+heapq.nsmallest(2, nums)             # [1, 2]
+# nlargest/nsmallest are O(n log k) — cheaper than sorting when k << n
+```
+
+:::note[Highlight: max heap via negation is the trick to remember]
+`heapq` is min-only. For a max heap, push `-value` and negate on the way out.
+For priority queues, push `(priority, item)` tuples — Python compares tuples
+element by element. If items aren't comparable, add a tiebreaker counter:
+`(priority, count, item)` to avoid comparing the items themselves.
+:::
+
+:::info[Theory: when a heap beats sorting]
+If you only need the k smallest/largest, or a *running* min/max as data streams
+in (median of a stream, merge k sorted lists, Dijkstra), a heap is O(n log k) or
+O(log n) per update — far better than re-sorting O(n log n) each time. Use a heap
+when "the next smallest/largest" is asked repeatedly.
+:::
+
+---
+
+## Hash Maps — `dict`
+
+A `dict` maps keys to values with O(1) average access. It's the backbone of most
+optimal solutions (trading space for speed).
+
+```python
+d = {"a": 1, "b": 2}
+d["c"] = 3               # insert / update
+d["a"]                   # 1     — KeyError if missing
+d.get("z", 0)            # 0     — safe default, no error
+"a" in d                 # True  — O(1) key check
+del d["b"]
+for k, v in d.items():
+    ...
+```
+
+### The "seen" pattern — two sum
+
+```python
+def two_sum(nums: list[int], target: int) -> list[int]:
+    seen = {}                       # value -> index
+    for i, n in enumerate(nums):
+        if target - n in seen:      # O(1) lookup
+            return [seen[target - n], i]
+        seen[n] = i
+    return []
+```
+
+:::note[Highlight: a dict turns O(n²) into O(n)]
+The most common interview upgrade: replace a nested loop that searches with an
+`in`/lookup against a `dict` or `set` you build as you go. "Have I seen the
+complement?" becomes O(1), collapsing quadratic brute force into linear time.
+:::
+
+---
+
+## Hash Sets — `set`
+
+A `set` stores unique, hashable elements with O(1) membership. Use it for
+dedup and fast "have I seen this?" checks.
+
+```python
+s = {1, 2, 3}
+s.add(4)
+s.discard(9)         # no error if missing (remove() raises)
+2 in s               # True — O(1)
+
+# dedupe while checking for duplicates
+def has_duplicate(nums: list[int]) -> bool:
+    seen = set()
+    for n in nums:
+        if n in seen:
+            return True
+        seen.add(n)
+    return False
+```
+
+### Set algebra for problems
+
+```python
+a, b = {1, 2, 3}, {2, 3, 4}
+a & b     # {2, 3}   intersection (common elements)
+a | b     # {1,2,3,4} union
+a - b     # {1}      difference
+```
+
+:::warning[Sets can't hold lists or dicts]
+Set members and dict keys must be **hashable** (immutable). You can store `int`,
+`str`, `tuple`, or `frozenset`, but not `list`, `dict`, or `set`. To use a
+coordinate as a key, use a tuple `(row, col)`, never a list.
+:::
+
+---
+
+## Frequency Maps — `collections.Counter`
+
+`Counter` is a `dict` subclass built for counting. It removes the "initialize to
+zero" boilerplate and adds `most_common`.
+
+```python
+from collections import Counter
+
+c = Counter("mississippi")
+c["s"]                    # 4
+c.most_common(2)          # [('i', 4), ('s', 4)]  — top-k by frequency
+c["z"]                    # 0  — missing keys default to 0, no KeyError
+
+Counter([1, 1, 2, 3, 3, 3])          # Counter({3: 3, 1: 2, 2: 1})
+Counter("aab") == Counter("aba")      # True — anagram check
+```
+
+### Counter arithmetic
+
+```python
+from collections import Counter
+
+a = Counter("aab")
+b = Counter("abb")
+a + b       # Counter({'a': 3, 'b': 3})  — add counts
+a - b       # Counter({'a': 1})          — subtract (keeps positive only)
+a & b       # Counter({'a': 1, 'b': 1})  — min of each (intersection)
+```
+
+:::note[Highlight: `Counter` is the anagram/frequency shortcut]
+Any problem about "how many times", "most frequent", or "are these the same
+multiset" is a `Counter` problem. `Counter(s1) == Counter(s2)` is the cleanest
+anagram check, and `most_common(k)` gives top-k frequencies directly.
+:::
+
+---
+
+## Default Maps — `collections.defaultdict`
+
+`defaultdict` auto-creates a default value for missing keys, so you can append or
+increment without checking existence first.
+
+```python
+from collections import defaultdict
+
+# group by a key
+groups = defaultdict(list)
+for word in ["ant", "bee", "art"]:
+    groups[word[0]].append(word)     # no "if key in d" needed
+# {'a': ['ant', 'art'], 'b': ['bee']}
+
+# count without Counter
+freq = defaultdict(int)
+for ch in "hello":
+    freq[ch] += 1                    # missing keys start at 0
+
+# adjacency list for a graph
+graph = defaultdict(list)
+graph[0].append(1)                   # graph[0] auto-created as []
+```
+
+:::info[Theory: `defaultdict` vs `dict.setdefault` vs `Counter`]
+- `defaultdict(list)` / `(int)` / `(set)` — cleanest for grouping/accumulating.
+- `dict.setdefault(k, [])` — one-off default without importing anything.
+- `Counter` — purpose-built for counting, adds `most_common` and arithmetic.
+
+Prefer `defaultdict(list)` for grouping and adjacency lists; `Counter` for pure
+counting.
+:::
+
+---
+
+## Ordered Maps and LRU — `dict` / `OrderedDict`
+
+Since Python 3.7, a regular `dict` preserves **insertion order**. `OrderedDict`
+adds `move_to_end` and order-sensitive equality, which makes an LRU cache easy.
+
+```python
+from collections import OrderedDict
+
+class LRUCache:
+    def __init__(self, capacity: int):
+        self.cache = OrderedDict()
+        self.cap = capacity
+
+    def get(self, key: int) -> int:
+        if key not in self.cache:
+            return -1
+        self.cache.move_to_end(key)          # mark as most-recently used
+        return self.cache[key]
+
+    def put(self, key: int, value: int) -> None:
+        if key in self.cache:
+            self.cache.move_to_end(key)
+        self.cache[key] = value
+        if len(self.cache) > self.cap:
+            self.cache.popitem(last=False)   # evict least-recently used
+```
+
+:::note[Highlight: `functools.lru_cache` for free memoization]
+If you just need to cache a function's results (not a custom LRU with eviction
+rules), the `@functools.lru_cache` decorator does it in one line — see the
+memoization section below.
+:::
+
+---
+
+## Linked Lists
+
+Python has no built-in linked list — you define a node class. Interviews love
+pointer manipulation: reversal, cycle detection, merging.
+
+```python
+class ListNode:
+    def __init__(self, val=0, next=None):
+        self.val = val
+        self.next = next
+
+def reverse(head: ListNode | None) -> ListNode | None:
+    prev = None
+    curr = head
+    while curr:
+        nxt = curr.next     # save next
+        curr.next = prev    # reverse the pointer
+        prev = curr         # advance prev
+        curr = nxt          # advance curr
+    return prev             # new head
+```
+
+### Fast and slow pointers (cycle detection)
+
+```python
+def has_cycle(head: ListNode | None) -> bool:
+    slow = fast = head
+    while fast and fast.next:
+        slow = slow.next          # 1 step
+        fast = fast.next.next     # 2 steps
+        if slow is fast:          # they meet -> cycle
+            return True
+    return False
+```
+
+:::note[Highlight: the dummy-head trick]
+When a linked-list operation might change the head (deletion, merging), start
+with a `dummy = ListNode(0, head)` and return `dummy.next`. It removes the
+special-casing for the first node and prevents a class of off-by-one bugs.
+:::
+
+---
+
+## Trees
+
+A binary tree node holds a value and left/right children. Most tree problems are
+solved with recursion or a stack/queue for traversal.
+
+```python
+class TreeNode:
+    def __init__(self, val=0, left=None, right=None):
+        self.val = val
+        self.left = left
+        self.right = right
+```
+
+### Depth-first traversals (recursion)
+
+```python
+def inorder(node, out):
+    if not node:
+        return
+    inorder(node.left, out)     # left
+    out.append(node.val)        # node   (preorder: node first; postorder: last)
+    inorder(node.right, out)    # right
+
+def max_depth(node) -> int:
+    if not node:
+        return 0
+    return 1 + max(max_depth(node.left), max_depth(node.right))
+```
+
+### Breadth-first (level-order) with a queue
+
+```python
+from collections import deque
+
+def level_order(root) -> list[list[int]]:
+    if not root:
+        return []
+    out, q = [], deque([root])
+    while q:
+        level = []
+        for _ in range(len(q)):        # process exactly one level
+            node = q.popleft()
+            level.append(node.val)
+            if node.left:  q.append(node.left)
+            if node.right: q.append(node.right)
+        out.append(level)
+    return out
+```
+
+:::info[Theory: BST gives you ordered data]
+In a **binary search tree**, an in-order traversal visits values in sorted
+order, and search/insert/delete are O(h) where h is the height — O(log n) if
+balanced, O(n) if degenerate. If a problem mentions a BST, exploit the ordering:
+you can prune half the tree at each step.
+:::
+
+---
+
+## Tries (Prefix Trees)
+
+A trie stores strings by shared prefixes — ideal for autocomplete, prefix search,
+and word dictionaries. A nested `dict` is the simplest implementation.
+
+```python
+class Trie:
+    def __init__(self):
+        self.root = {}
+
+    def insert(self, word: str) -> None:
+        node = self.root
+        for ch in word:
+            node = node.setdefault(ch, {})   # create child if absent
+        node["$"] = True                     # mark end of a word
+
+    def search(self, word: str) -> bool:
+        node = self.root
+        for ch in word:
+            if ch not in node:
+                return False
+            node = node[ch]
+        return "$" in node
+
+    def starts_with(self, prefix: str) -> bool:
+        node = self.root
+        for ch in prefix:
+            if ch not in node:
+                return False
+            node = node[ch]
+        return True
+```
+
+:::note[Highlight: trie vs hash set]
+A `set` answers "is this exact word present?" in O(word length). A trie also
+answers "does any word start with this prefix?" efficiently, and shares memory
+across common prefixes. Use a trie when the problem involves **prefixes** or
+autocomplete; a `set` when you only need exact membership.
+:::
+
+---
+
+## Graphs
+
+Represent a graph as an adjacency list: a `dict` (or `defaultdict(list)`) mapping
+each node to its neighbors. Then traverse with BFS or DFS.
+
+```python
+from collections import defaultdict, deque
+
+graph = defaultdict(list)
+edges = [(0, 1), (0, 2), (1, 3)]
+for u, v in edges:
+    graph[u].append(v)
+    graph[v].append(u)      # omit this line for a directed graph
+```
+
+### BFS — shortest path in an unweighted graph
+
+```python
+from collections import deque
+
+def bfs(graph, start):
+    visited = {start}
+    q = deque([start])
+    order = []
+    while q:
+        node = q.popleft()
+        order.append(node)
+        for nbr in graph[node]:
+            if nbr not in visited:
+                visited.add(nbr)     # mark on enqueue, not dequeue
+                q.append(nbr)
+    return order
+```
+
+### DFS — recursive and iterative
+
+```python
+def dfs(graph, node, visited=None):
+    if visited is None:
+        visited = set()
+    visited.add(node)
+    for nbr in graph[node]:
+        if nbr not in visited:
+            dfs(graph, nbr, visited)
+    return visited
+
+def dfs_iterative(graph, start):
+    visited, stack = set(), [start]
+    while stack:
+        node = stack.pop()           # a stack -> DFS; a deque popleft -> BFS
+        if node not in visited:
+            visited.add(node)
+            stack.extend(graph[node])
+    return visited
+```
+
+:::warning[Always track visited nodes]
+Without a `visited` set, graph traversal loops forever on cycles. Mark a node
+visited when you **enqueue** it in BFS (not when you dequeue), or you'll add the
+same node multiple times. For grids, the visited marker is often the cell itself.
+:::
+
+:::info[Theory: BFS vs DFS]
+**BFS** explores level by level using a queue — use it for **shortest path** in
+unweighted graphs and level-order problems. **DFS** goes deep using a stack or
+recursion — use it for connectivity, cycle detection, topological sort, and
+exhaustive path exploration. For weighted shortest paths, upgrade BFS to
+Dijkstra with a heap.
+:::
+
+---
+
+## Disjoint Set (Union-Find)
+
+Union-Find tracks connected components with near-O(1) `find` and `union` (using
+path compression and union by rank). It answers "are these two connected?" and
+counts groups.
+
+```python
+class UnionFind:
+    def __init__(self, n: int):
+        self.parent = list(range(n))     # each node is its own root
+        self.rank = [0] * n
+
+    def find(self, x: int) -> int:
+        while self.parent[x] != x:
+            self.parent[x] = self.parent[self.parent[x]]  # path compression
+            x = self.parent[x]
+        return x
+
+    def union(self, a: int, b: int) -> bool:
+        ra, rb = self.find(a), self.find(b)
+        if ra == rb:
+            return False                 # already connected
+        if self.rank[ra] < self.rank[rb]:
+            ra, rb = rb, ra
+        self.parent[rb] = ra             # attach smaller tree under larger
+        if self.rank[ra] == self.rank[rb]:
+            self.rank[ra] += 1
+        return True
+```
+
+:::note[Highlight: when to use union-find]
+Reach for union-find on **grouping/connectivity** problems: number of connected
+components, detecting a cycle in an undirected graph, Kruskal's MST, and
+"accounts merge" style questions. It shines when edges arrive incrementally and
+you keep asking "are these in the same group?"
+:::
+
+---
+
+## Sorting and Custom Keys
+
+`sorted()` returns a new list; `list.sort()` sorts in place. Both are O(n log n)
+and stable. The `key` function is where the power is.
+
+```python
+nums = [3, 1, 2]
+sorted(nums)                       # [1, 2, 3]  (new list)
+nums.sort(reverse=True)            # [3, 2, 1]  (in place)
+
+words = ["bb", "a", "ccc"]
+sorted(words, key=len)             # ['a', 'bb', 'ccc']  — by length
+
+people = [("Ada", 36), ("Al", 20)]
+sorted(people, key=lambda p: p[1]) # by age
+
+# sort by multiple keys: age asc, then name asc
+sorted(people, key=lambda p: (p[1], p[0]))
+
+# tricky: primary desc, secondary asc — negate the numeric key
+sorted(people, key=lambda p: (-p[1], p[0]))
+```
+
+### Custom comparator with `cmp_to_key`
+
+```python
+from functools import cmp_to_key
+
+# order numbers to form the largest concatenation: [3,30,34] -> "34330"
+def compare(a: str, b: str) -> int:
+    if a + b > b + a:
+        return -1        # a should come first
+    if a + b < b + a:
+        return 1
+    return 0
+
+nums = list(map(str, [3, 30, 34, 5, 9]))
+result = "".join(sorted(nums, key=cmp_to_key(compare)))   # "9534330"
+```
+
+:::note[Highlight: `key` beats a comparator]
+Prefer a `key` function (fast, called once per element) over `cmp_to_key` (slow,
+called O(n log n) times). Use tuples for multi-level sorts and negate numeric
+keys to flip direction. Only fall back to `cmp_to_key` when the order can't be
+expressed as a key (like the "largest number" concatenation above).
+:::
+
+---
+
+## Binary Search and `bisect`
+
+Binary search finds a target (or an insertion point) in a sorted sequence in
+O(log n). Write it by hand, or use the `bisect` module.
+
+```python
+def binary_search(nums: list[int], target: int) -> int:
+    lo, hi = 0, len(nums) - 1
+    while lo <= hi:
+        mid = (lo + hi) // 2         # no overflow risk in Python
+        if nums[mid] == target:
+            return mid
+        if nums[mid] < target:
+            lo = mid + 1
+        else:
+            hi = mid - 1
+    return -1                        # not found
+```
+
+### The `bisect` module
+
+```python
+import bisect
+
+arr = [1, 3, 3, 5, 7]
+bisect.bisect_left(arr, 3)    # 1  — leftmost insertion point for 3
+bisect.bisect_right(arr, 3)   # 3  — rightmost insertion point
+bisect.insort(arr, 4)         # insert 4 keeping arr sorted -> [1,3,3,4,5,7]
+
+# count occurrences of x in a sorted list
+count = bisect.bisect_right(arr, 3) - bisect.bisect_left(arr, 3)   # 2
+```
+
+:::warning[Binary search on the answer]
+Binary search isn't only for arrays. When a problem asks for the "minimum
+capacity" or "smallest max" that satisfies a condition, you can binary-search the
+**answer space** if the feasibility check is monotonic (if x works, so does
+every larger x). Recognizing this pattern unlocks many "hard" problems.
+:::
+
+:::info[Theory: mid without overflow]
+`mid = (lo + hi) // 2` is safe in Python because integers have arbitrary
+precision — no overflow. In languages like Java/C++ you'd write
+`lo + (hi - lo) // 2` to avoid overflow, a detail interviewers may probe if you
+mention other languages.
+:::
+
+---
+
+## Two Pointers
+
+Use two indices moving through a sequence to avoid a nested loop — common on
+sorted arrays and strings. O(n) time, O(1) space.
+
+```python
+# two sum on a SORTED array
+def two_sum_sorted(nums: list[int], target: int) -> list[int]:
+    lo, hi = 0, len(nums) - 1
+    while lo < hi:
+        s = nums[lo] + nums[hi]
+        if s == target:
+            return [lo, hi]
+        if s < target:
+            lo += 1          # need a bigger sum -> move left pointer up
+        else:
+            hi -= 1          # need a smaller sum -> move right pointer down
+    return []
+
+# in-place: is it a palindrome?
+def is_palindrome(s: str) -> bool:
+    lo, hi = 0, len(s) - 1
+    while lo < hi:
+        if s[lo] != s[hi]:
+            return False
+        lo, hi = lo + 1, hi - 1
+    return True
+```
+
+:::note[Highlight: opposite ends vs same direction]
+Two-pointer comes in two flavors: **opposite ends** converging inward (sorted two
+sum, palindrome, container with most water), and **same direction** where a slow
+and fast pointer move at different speeds (remove duplicates in place, cycle
+detection, sliding window). Identify which the problem needs.
+:::
+
+---
+
+## Sliding Window
+
+A window over a contiguous subarray/substring that grows and shrinks — turns many
+O(n²) substring problems into O(n).
+
+```python
+# longest substring without repeating characters
+def longest_unique(s: str) -> int:
+    seen = {}                       # char -> last index
+    start = best = 0
+    for end, ch in enumerate(s):
+        if ch in seen and seen[ch] >= start:
+            start = seen[ch] + 1    # shrink window past the duplicate
+        seen[ch] = end
+        best = max(best, end - start + 1)
+    return best
+
+# fixed-size window: max sum of k consecutive elements
+def max_sum_k(nums: list[int], k: int) -> int:
+    window = sum(nums[:k])
+    best = window
+    for i in range(k, len(nums)):
+        window += nums[i] - nums[i - k]   # add new, drop old — O(1) per step
+        best = max(best, window)
+    return best
+```
+
+:::info[Theory: expand then contract]
+The sliding-window template: expand the window by moving `end` forward; when a
+constraint breaks (a duplicate, a sum too big), contract by moving `start`
+forward until it's valid again. Each index is added and removed at most once, so
+the whole scan is O(n) even though it looks nested.
+:::
+
+---
+
+## Prefix Sums
+
+Precompute cumulative sums so any range sum is O(1) instead of O(n). Great for
+"sum of subarray" and "count subarrays with sum k".
+
+```python
+def range_sum_setup(nums: list[int]) -> list[int]:
+    prefix = [0]
+    for n in nums:
+        prefix.append(prefix[-1] + n)   # prefix[i] = sum of first i elements
+    return prefix
+
+# sum of nums[i..j] inclusive = prefix[j+1] - prefix[i]
+
+# count subarrays summing to k — prefix sum + hashmap
+from collections import defaultdict
+
+def subarray_sum(nums: list[int], k: int) -> int:
+    count = 0
+    running = 0
+    seen = defaultdict(int)
+    seen[0] = 1                         # empty prefix
+    for n in nums:
+        running += n
+        count += seen[running - k]      # how many prefixes make sum == k
+        seen[running] += 1
+    return count
+```
+
+:::note[Highlight: prefix sum + hashmap combo]
+Range-sum queries alone need just the prefix array. But "count/find subarrays
+with sum k" pairs prefix sums with a hashmap of seen sums — an O(n) solution to
+what looks like an O(n²) problem. This combo appears constantly in interviews.
+:::
+
+---
+
+## Recursion and Backtracking
+
+Backtracking explores all candidates by making a choice, recursing, then undoing
+the choice. It's the pattern for permutations, subsets, combinations, and
+constraint problems (N-Queens, sudoku).
+
+```python
+# all subsets (the power set)
+def subsets(nums: list[int]) -> list[list[int]]:
+    result = []
+
+    def backtrack(start: int, path: list[int]):
+        result.append(path[:])          # record a copy of the current subset
+        for i in range(start, len(nums)):
+            path.append(nums[i])        # choose
+            backtrack(i + 1, path)      # explore
+            path.pop()                  # un-choose (backtrack)
+
+    backtrack(0, [])
+    return result
+
+# all permutations
+def permute(nums: list[int]) -> list[list[int]]:
+    result = []
+
+    def backtrack(path, remaining):
+        if not remaining:
+            result.append(path[:])
+            return
+        for i in range(len(remaining)):
+            path.append(remaining[i])
+            backtrack(path, remaining[:i] + remaining[i + 1:])
+            path.pop()
+
+    backtrack([], nums)
+    return result
+```
+
+:::warning[Append a copy, not the reference]
+`result.append(path)` stores a reference to the list you keep mutating — every
+entry ends up identical (usually empty). Append `path[:]` (or `list(path)`) to
+snapshot the current state. This is the number-one backtracking bug.
+:::
+
+:::caution[Watch the recursion limit]
+Python's default recursion limit is about 1000. Deep recursion (a long linked
+list, a skewed tree) raises `RecursionError`. Either convert to an iterative
+solution with an explicit stack, or raise the limit with
+`import sys; sys.setrecursionlimit(10000)` when appropriate.
+:::
+
+---
+
+## Dynamic Programming
+
+DP solves problems with **overlapping subproblems** and **optimal substructure**
+by storing sub-answers. Two styles: top-down (recursion + memoization) and
+bottom-up (fill a table).
+
+```python
+# bottom-up: climbing stairs (ways to reach step n taking 1 or 2 steps)
+def climb_stairs(n: int) -> int:
+    if n <= 2:
+        return n
+    a, b = 1, 2
+    for _ in range(3, n + 1):
+        a, b = b, a + b          # only keep the last two — O(1) space
+    return b
+
+# 2D DP: coin change (fewest coins to make amount)
+def coin_change(coins: list[int], amount: int) -> int:
+    INF = float("inf")
+    dp = [0] + [INF] * amount    # dp[x] = fewest coins to make x
+    for x in range(1, amount + 1):
+        for c in coins:
+            if c <= x:
+                dp[x] = min(dp[x], dp[x - c] + 1)
+    return dp[amount] if dp[amount] != INF else -1
+```
+
+:::info[Theory: is it a DP problem?]
+Suspect DP when the problem asks for a **count of ways**, a **min/max value**, or
+**"can you reach"**, and a choice at each step leads to smaller versions of the
+same problem. Define the state (what `dp[i]` means), the transition (how states
+combine), and the base case. Start top-down with memoization if the recurrence is
+clearer that way, then optimize to bottom-up if needed.
+:::
+
+---
+
+## Memoization with `functools`
+
+For top-down DP, `@functools.lru_cache` (or `@cache` in 3.9+) memoizes a
+recursive function automatically — no manual table.
+
+```python
+from functools import cache
+
+@cache                               # remembers results by arguments
+def fib(n: int) -> int:
+    if n < 2:
+        return n
+    return fib(n - 1) + fib(n - 2)   # O(n) instead of exponential
+
+# unique paths in a grid, top-down
+@cache
+def paths(r: int, c: int) -> int:
+    if r == 0 or c == 0:
+        return 1
+    return paths(r - 1, c) + paths(r, c - 1)
+```
+
+:::warning[`lru_cache` needs hashable, immutable arguments]
+Memoized functions cache by argument value, so all arguments must be **hashable**
+— pass tuples, not lists, and `frozenset`, not `set`. If your state includes a
+mutable collection, convert it to a tuple before recursing, or the cache fails.
+:::
+
+---
+
+## Python Tips and Tricks for Interviews
+
+Small idioms that save time and impress interviewers.
+
+```python
+# infinity for min/max initialization
+best = float("inf")
+worst = float("-inf")
+
+# multiple assignment / swap without a temp
+a, b = b, a
+
+# enumerate for index + value; zip to pair sequences
+for i, x in enumerate(arr): ...
+for x, y in zip(a, b): ...
+
+# unpacking
+first, *rest = [1, 2, 3, 4]          # first=1, rest=[2,3,4]
+
+# dict/set/list comprehensions
+squares = {x: x * x for x in range(5)}
+evens = [x for x in nums if x % 2 == 0]
+
+# character <-> index for lowercase strings
+idx = ord(ch) - ord("a")             # 0..25
+freq = [0] * 26
+
+# divmod for quotient + remainder together
+q, r = divmod(17, 5)                 # (3, 2)
+
+# any / all for boolean scans
+all(x > 0 for x in nums)
+any(x == target for x in nums)
+
+# sort a dict by value
+top = sorted(counts.items(), key=lambda kv: kv[1], reverse=True)
+
+# 2D grid neighbors (4-directional)
+for dr, dc in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+    nr, nc = r + dr, c + dc
+
+# math helpers
+import math
+math.gcd(12, 18)      # 6
+math.isqrt(17)        # 4  — integer square root, no float error
+math.inf              # same as float("inf")
+```
+
+:::note[Highlight: the interview toolkit in one place]
+`float('inf')` for initializing min/max, `enumerate`/`zip` to avoid index
+bookkeeping, comprehensions for concise transforms, `ord`/`chr` for character
+math, `divmod` for digit problems, and `collections` + `heapq` + `bisect` for the
+heavy lifting. Knowing these cold lets you spend interview time on the algorithm,
+not the syntax.
+:::
+
+:::caution[Recursion limit and integer division]
+Two Python gotchas under time pressure: recursion depth is capped near 1000
+(`sys.setrecursionlimit` or go iterative), and `/` is float division while `//`
+is floor division — use `//` for index math and integer problems, and remember
+`-7 // 2 == -4` (floors toward negative infinity), not `-3`.
+:::
+
+---
+
+## Common Mistakes
+
+- Using `list.pop(0)` / `list.insert(0, x)` for a queue (O(n)) instead of `deque`.
+- Building a 2D grid with `[[0]*c]*r`, creating shared rows.
+- Concatenating strings with `+=` in a loop (O(n²)) instead of `"".join`.
+- Forgetting `heapq` is min-only — needing negation for a max heap.
+- Appending `path` instead of `path[:]` in backtracking.
+- Not marking nodes visited (or marking too late) in graph traversal.
+- Passing a `list`/`set` where a hashable key is required (dict key, `lru_cache`).
+- Hitting the recursion limit on deep inputs.
+
+## Interview Questions
+
+- Which Python type models a queue, and why not a `list`?
+- How do you make a max heap with `heapq`?
+- How does a `dict`/`set` turn an O(n²) search into O(n)?
+- `Counter` vs `defaultdict(int)` for counting — when each?
+- BFS vs DFS — data structure used and typical use cases?
+- Explain the sliding-window and two-pointer patterns.
+- What makes a problem a dynamic-programming problem?
+- Why must `lru_cache` arguments be hashable?
+
+## Things to Remember
+
+- Map each structure to its Python home: `list`, `deque`, `heapq`, `dict`, `set`, `Counter`, `defaultdict`.
+- `deque` for queues; `heapq` (min-only, negate for max) for priority.
+- A `dict`/`set` lookup is the go-to O(1) upgrade over nested loops.
+- Sliding window, two pointers, prefix sums, and binary search turn O(n²) into O(n) or O(log n).
+- BFS = queue = shortest path; DFS = stack/recursion = explore deep.
+- Backtracking: choose, recurse, un-choose — and snapshot with `path[:]`.
+- DP: define state, transition, base case; memoize with `@cache`.
+
+## Mini Exercise
+
+Solve these using the right structure and state its Big-O: (1) "two sum" with a
+`dict`, (2) "valid parentheses" with a stack, (3) "top k frequent elements" with
+`Counter` + `heapq.nlargest`, (4) "number of islands" with BFS/DFS on a grid,
+and (5) "longest substring without repeating characters" with a sliding window.
+For each, write the time and space complexity in a comment.
+
+## Done When
+
+- [ ] You can name the Python built-in for every row of the cheat-sheet table.
+- [ ] You use `deque`, `heapq`, `Counter`, and `defaultdict` idiomatically.
+- [ ] You can implement BFS, DFS, binary search, two pointers, and sliding window.
+- [ ] You can write a backtracking solution and a DP solution with `@cache`.
+- [ ] You state the time/space complexity of your solutions accurately.
+
+Next: [02 · FastAPI](../02-fastapi/index.mdx) — apply Python to building real services.
