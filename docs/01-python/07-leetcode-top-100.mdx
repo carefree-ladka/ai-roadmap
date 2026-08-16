@@ -1,0 +1,3178 @@
+---
+title: "Top 100 Liked (LeetCode)"
+description: "All 100 problems from LeetCode's Top 100 Liked list, grouped by tag, each with brute-force and optimal Python plus TC/SC."
+---
+
+# Top 100 Liked — Python (Brute Force vs Optimal)
+
+TC = Time Complexity, SC = Space Complexity (extra space; input/output arrays not counted unless noted).
+
+## Table of Contents
+
+- [Backtracking](#backtracking)
+  - [1. Letter Combinations of a Phone Number](#1-letter-combinations-of-a-phone-number)
+  - [2. Generate Parentheses](#2-generate-parentheses)
+  - [3. Combination Sum](#3-combination-sum)
+  - [4. Permutations](#4-permutations)
+  - [5. N-Queens](#5-n-queens)
+  - [6. Subsets](#6-subsets)
+  - [7. Word Search](#7-word-search)
+  - [8. Palindrome Partitioning](#8-palindrome-partitioning)
+- [Binary Search](#binary-search)
+  - [9. Median of Two Sorted Arrays](#9-median-of-two-sorted-arrays)
+  - [10. Search in Rotated Sorted Array](#10-search-in-rotated-sorted-array)
+  - [11. Find First and Last Position of Element in Sorted Array](#11-find-first-and-last-position-of-element-in-sorted-array)
+  - [12. Search Insert Position](#12-search-insert-position)
+  - [13. Search a 2D Matrix](#13-search-a-2d-matrix)
+  - [14. Binary Tree Maximum Path Sum](#14-binary-tree-maximum-path-sum)
+  - [15. Find Minimum in Rotated Sorted Array](#15-find-minimum-in-rotated-sorted-array)
+- [Binary Tree](#binary-tree)
+  - [16. Binary Tree Inorder Traversal](#16-binary-tree-inorder-traversal)
+  - [17. Validate Binary Search Tree](#17-validate-binary-search-tree)
+  - [18. Symmetric Tree](#18-symmetric-tree)
+  - [19. Binary Tree Level Order Traversal](#19-binary-tree-level-order-traversal)
+  - [20. Maximum Depth of Binary Tree](#20-maximum-depth-of-binary-tree)
+  - [21. Construct Binary Tree from Preorder and Inorder Traversal](#21-construct-binary-tree-from-preorder-and-inorder-traversal)
+  - [22. Convert Sorted Array to Binary Search Tree](#22-convert-sorted-array-to-binary-search-tree)
+  - [23. Flatten Binary Tree to Linked List](#23-flatten-binary-tree-to-linked-list)
+  - [24. Binary Tree Right Side View](#24-binary-tree-right-side-view)
+  - [25. Invert Binary Tree](#25-invert-binary-tree)
+  - [26. Kth Smallest Element in a BST](#26-kth-smallest-element-in-a-bst)
+  - [27. Lowest Common Ancestor of a Binary Tree](#27-lowest-common-ancestor-of-a-binary-tree)
+  - [28. Path Sum III](#28-path-sum-iii)
+  - [29. Diameter of Binary Tree](#29-diameter-of-binary-tree)
+- [Dynamic Programming](#dynamic-programming)
+  - [30. Longest Palindromic Substring](#30-longest-palindromic-substring)
+  - [31. Longest Valid Parentheses](#31-longest-valid-parentheses)
+  - [32. Unique Paths](#32-unique-paths)
+  - [33. Minimum Path Sum](#33-minimum-path-sum)
+  - [34. Climbing Stairs](#34-climbing-stairs)
+  - [35. Edit Distance](#35-edit-distance)
+  - [36. Pascal's Triangle](#36-pascals-triangle)
+  - [37. Word Break](#37-word-break)
+  - [38. Maximum Product Subarray](#38-maximum-product-subarray)
+  - [39. House Robber](#39-house-robber)
+  - [40. Perfect Squares](#40-perfect-squares)
+  - [41. Longest Increasing Subsequence](#41-longest-increasing-subsequence)
+  - [42. Coin Change](#42-coin-change)
+  - [43. Partition Equal Subset Sum](#43-partition-equal-subset-sum)
+  - [44. Longest Common Subsequence](#44-longest-common-subsequence)
+- [Graph](#graph)
+  - [45. Number of Islands](#45-number-of-islands)
+  - [46. Course Schedule](#46-course-schedule)
+  - [47. Rotting Oranges](#47-rotting-oranges)
+- [Greedy](#greedy)
+  - [48. Jump Game II](#48-jump-game-ii)
+  - [49. Jump Game](#49-jump-game)
+  - [50. Best Time to Buy and Sell Stock](#50-best-time-to-buy-and-sell-stock)
+  - [51. Partition Labels](#51-partition-labels)
+- [Hashing](#hashing)
+  - [52. Two Sum](#52-two-sum)
+  - [53. Group Anagrams](#53-group-anagrams)
+  - [54. Longest Consecutive Sequence](#54-longest-consecutive-sequence)
+  - [55. Subarray Sum Equals K](#55-subarray-sum-equals-k)
+- [Heap](#heap)
+  - [56. Kth Largest Element in an Array](#56-kth-largest-element-in-an-array)
+  - [57. Find Median from Data Stream](#57-find-median-from-data-stream)
+  - [58. Top K Frequent Elements](#58-top-k-frequent-elements)
+- [Linked Lists](#linked-lists)
+  - [59. Add Two Numbers](#59-add-two-numbers)
+  - [60. Remove Nth Node From End of List](#60-remove-nth-node-from-end-of-list)
+  - [61. Merge Two Sorted Lists](#61-merge-two-sorted-lists)
+  - [62. Merge k Sorted Lists](#62-merge-k-sorted-lists)
+  - [63. Swap Nodes in Pairs](#63-swap-nodes-in-pairs)
+  - [64. Reverse Nodes in k-Group](#64-reverse-nodes-in-k-group)
+  - [65. Copy List with Random Pointer](#65-copy-list-with-random-pointer)
+  - [66. Linked List Cycle](#66-linked-list-cycle)
+  - [67. Linked List Cycle II](#67-linked-list-cycle-ii)
+  - [68. LRU Cache](#68-lru-cache)
+  - [69. Sort List](#69-sort-list)
+  - [70. Intersection of Two Linked Lists](#70-intersection-of-two-linked-lists)
+  - [71. Reverse Linked List](#71-reverse-linked-list)
+  - [72. Palindrome Linked List](#72-palindrome-linked-list)
+- [Matrix](#matrix)
+  - [73. Rotate Image](#73-rotate-image)
+  - [74. Spiral Matrix](#74-spiral-matrix)
+  - [75. Set Matrix Zeroes](#75-set-matrix-zeroes)
+  - [76. Search a 2D Matrix II](#76-search-a-2d-matrix-ii)
+- [Sliding Window](#sliding-window)
+  - [77. Longest Substring Without Repeating Characters](#77-longest-substring-without-repeating-characters)
+  - [78. Minimum Window Substring](#78-minimum-window-substring)
+  - [79. Sliding Window Maximum](#79-sliding-window-maximum)
+  - [80. Find All Anagrams in a String](#80-find-all-anagrams-in-a-string)
+- [Stack](#stack)
+  - [81. Valid Parentheses](#81-valid-parentheses)
+  - [82. Largest Rectangle in Histogram](#82-largest-rectangle-in-histogram)
+  - [83. Min Stack](#83-min-stack)
+  - [84. Decode String](#84-decode-string)
+  - [85. Daily Temperatures](#85-daily-temperatures)
+- [Two Pointers](#two-pointers)
+  - [86. Container With Most Water](#86-container-with-most-water)
+  - [87. 3Sum](#87-3sum)
+  - [88. Trapping Rain Water](#88-trapping-rain-water)
+  - [89. Move Zeroes](#89-move-zeroes)
+- [Trie](#trie)
+  - [90. Implement Trie (Prefix Tree)](#90-implement-trie-prefix-tree)
+- [Misc](#misc)
+  - [91. Next Permutation](#91-next-permutation)
+  - [92. First Missing Positive](#92-first-missing-positive)
+  - [93. Maximum Subarray](#93-maximum-subarray)
+  - [94. Merge Intervals](#94-merge-intervals)
+  - [95. Sort Colors](#95-sort-colors)
+  - [96. Single Number](#96-single-number)
+  - [97. Majority Element](#97-majority-element)
+  - [98. Rotate Array](#98-rotate-array)
+  - [99. Product of Array Except Self](#99-product-of-array-except-self)
+  - [100. Find the Duplicate Number](#100-find-the-duplicate-number)
+
+---
+
+## Backtracking
+
+### 1. Letter Combinations of a Phone Number
+```python
+# Brute: build combos by repeated string concatenation across all digits
+def letter_combos_brute(digits):
+    if not digits:
+        return []
+    m = {"2":"abc","3":"def","4":"ghi","5":"jkl","6":"mno","7":"pqrs","8":"tuv","9":"wxyz"}
+    combos = [""]
+    for d in digits:
+        combos = [c + ch for c in combos for ch in m[d]]
+    return combos
+```
+**TC:** O(4ⁿ · n) — same asymptotic as optimal, just built iteratively **SC:** O(4ⁿ) for output
+```python
+# Optimal: DFS backtracking, build one combo at a time
+def letter_combos(digits):
+    if not digits:
+        return []
+    m = {"2":"abc","3":"def","4":"ghi","5":"jkl","6":"mno","7":"pqrs","8":"tuv","9":"wxyz"}
+    res, path = [], []
+    def backtrack(i):
+        if i == len(digits):
+            res.append("".join(path))
+            return
+        for ch in m[digits[i]]:
+            path.append(ch)
+            backtrack(i + 1)
+            path.pop()
+    backtrack(0)
+    return res
+```
+**TC:** O(4ⁿ · n) **SC:** O(n) recursion stack (excluding output)
+
+### 2. Generate Parentheses
+```python
+# Brute: generate all 2^(2n) strings of length 2n, filter valid ones
+def generate_parens_brute(n):
+    def is_valid(s):
+        bal = 0
+        for ch in s:
+            bal += 1 if ch == '(' else -1
+            if bal < 0:
+                return False
+        return bal == 0
+    res = []
+    def gen(path):
+        if len(path) == 2 * n:
+            if is_valid(path):
+                res.append(path)
+            return
+        gen(path + '(')
+        gen(path + ')')
+    gen("")
+    return res
+```
+**TC:** O(2^(2n) · n) **SC:** O(2^(2n) · n)
+```python
+# Optimal: backtracking, only add ')' when valid — prunes invalid branches early
+def generate_parens(n):
+    res = []
+    def backtrack(path, open_c, close_c):
+        if len(path) == 2 * n:
+            res.append("".join(path))
+            return
+        if open_c < n:
+            path.append('('); backtrack(path, open_c+1, close_c); path.pop()
+        if close_c < open_c:
+            path.append(')'); backtrack(path, open_c, close_c+1); path.pop()
+    backtrack([], 0, 0)
+    return res
+```
+**TC:** O(4ⁿ / √n) — Catalan number bound **SC:** O(n) recursion stack (excluding output)
+
+### 3. Combination Sum
+Unique combinations (reuse allowed) summing to `target`.
+```python
+# Brute: generate all multisets up to a length bound, check sums
+from itertools import combinations_with_replacement
+def combination_sum_brute(candidates, target):
+    res = set()
+    max_len = target // min(candidates) if candidates else 0
+    for length in range(1, max_len + 1):
+        for combo in combinations_with_replacement(candidates, length):
+            if sum(combo) == target:
+                res.add(combo)
+    return [list(c) for c in res]
+```
+**TC:** exponential, roughly O(C(target, len)) per length **SC:** O(result size)
+```python
+# Optimal: backtracking with pruning (sorted candidates, skip when sum exceeds target)
+def combination_sum(candidates, target):
+    candidates.sort()
+    res, path = [], []
+    def backtrack(start, remaining):
+        if remaining == 0:
+            res.append(path[:])
+            return
+        for i in range(start, len(candidates)):
+            if candidates[i] > remaining:
+                break
+            path.append(candidates[i])
+            backtrack(i, remaining - candidates[i])
+            path.pop()
+    backtrack(0, target)
+    return res
+```
+**TC:** O(2^target) worst case, pruned in practice **SC:** O(target) recursion stack
+
+### 4. Permutations
+```python
+# Brute: use itertools.permutations directly (library does the heavy lifting)
+from itertools import permutations
+def permute_brute(nums):
+    return [list(p) for p in permutations(nums)]
+```
+**TC:** O(n! · n) **SC:** O(n! · n)
+```python
+# Optimal: backtracking, swap-in-place to avoid extra "used" tracking
+def permute(nums):
+    res = []
+    def backtrack(start):
+        if start == len(nums):
+            res.append(nums[:])
+            return
+        for i in range(start, len(nums)):
+            nums[start], nums[i] = nums[i], nums[start]
+            backtrack(start + 1)
+            nums[start], nums[i] = nums[i], nums[start]
+    backtrack(0)
+    return res
+```
+**TC:** O(n! · n) **SC:** O(n) recursion stack (excluding output)
+
+### 5. N-Queens
+```python
+# Brute: try every placement of n queens across the board, validate at the end
+from itertools import permutations
+def solve_n_queens_brute(n):
+    res = []
+    for perm in permutations(range(n)):     # perm[col] = row for each column
+        if len(set(perm[i]+i for i in range(n))) == n and len(set(perm[i]-i for i in range(n))) == n:
+            board = ["." * perm[i] + "Q" + "." * (n-perm[i]-1) for i in range(n)]
+            res.append(board)
+    return res
+```
+**TC:** O(n! · n) — checks all permutations **SC:** O(n)
+```python
+# Optimal: backtracking with column/diagonal pruning sets
+def solve_n_queens(n):
+    res = []
+    cols, diag1, diag2 = set(), set(), set()
+    board = [["."] * n for _ in range(n)]
+    def backtrack(r):
+        if r == n:
+            res.append(["".join(row) for row in board])
+            return
+        for c in range(n):
+            if c in cols or (r-c) in diag1 or (r+c) in diag2:
+                continue
+            cols.add(c); diag1.add(r-c); diag2.add(r+c)
+            board[r][c] = "Q"
+            backtrack(r + 1)
+            board[r][c] = "."
+            cols.remove(c); diag1.remove(r-c); diag2.remove(r+c)
+    backtrack(0)
+    return res
+```
+**TC:** O(n!) with heavy pruning, much faster in practice than raw n! **SC:** O(n)
+
+### 6. Subsets
+```python
+# Brute: iterate all 2ⁿ bitmasks, build subset for each
+def subsets_brute(nums):
+    n = len(nums)
+    res = []
+    for mask in range(1 << n):
+        subset = [nums[i] for i in range(n) if mask & (1 << i)]
+        res.append(subset)
+    return res
+```
+**TC:** O(2ⁿ · n) **SC:** O(2ⁿ · n)
+```python
+# Optimal: backtracking, build incrementally
+def subsets(nums):
+    res, path = [], []
+    def backtrack(start):
+        res.append(path[:])
+        for i in range(start, len(nums)):
+            path.append(nums[i])
+            backtrack(i + 1)
+            path.pop()
+    backtrack(0)
+    return res
+```
+**TC:** O(2ⁿ · n) **SC:** O(n) recursion stack (excluding output)
+
+### 7. Word Search
+*(Same as Blind 75 #49 — brute uses a visited set per call, optimal marks in place.)*
+```python
+def word_search_brute(board, word):
+    rows, cols = len(board), len(board[0])
+    def dfs(r, c, i, visited):
+        if i == len(word):
+            return True
+        if r<0 or c<0 or r>=rows or c>=cols or (r,c) in visited or board[r][c] != word[i]:
+            return False
+        visited = visited | {(r, c)}
+        return any(dfs(r+dr, c+dc, i+1, visited) for dr, dc in [(-1,0),(1,0),(0,-1),(0,1)])
+    return any(dfs(r, c, 0, set()) for r in range(rows) for c in range(cols))
+```
+**TC:** O(rows·cols·4^L) plus O(L) set-copy overhead **SC:** O(L²)
+```python
+def word_search(board, word):
+    rows, cols = len(board), len(board[0])
+    def dfs(r, c, i):
+        if i == len(word):
+            return True
+        if r<0 or c<0 or r>=rows or c>=cols or board[r][c] != word[i]:
+            return False
+        temp, board[r][c] = board[r][c], '#'
+        found = any(dfs(r+dr, c+dc, i+1) for dr, dc in [(-1,0),(1,0),(0,-1),(0,1)])
+        board[r][c] = temp
+        return found
+    return any(dfs(r, c, 0) for r in range(rows) for c in range(cols))
+```
+**TC:** O(rows·cols·4^L) **SC:** O(L) recursion stack
+
+### 8. Palindrome Partitioning
+All ways to partition `s` so every substring is a palindrome.
+```python
+# Brute: try all partitions (all subsets of "cut points"), filter valid ones
+def partition_brute(s):
+    n = len(s)
+    res = []
+    for mask in range(1 << (n - 1)):
+        cuts = [0] + [i+1 for i in range(n-1) if mask & (1 << i)] + [n]
+        parts = [s[cuts[i]:cuts[i+1]] for i in range(len(cuts)-1)]
+        if all(p == p[::-1] for p in parts):
+            res.append(parts)
+    return res
+```
+**TC:** O(2ⁿ · n) **SC:** O(2ⁿ · n)
+```python
+# Optimal: backtracking, only recurse into palindromic prefixes
+def partition(s):
+    res, path = [], []
+    def is_pal(sub):
+        return sub == sub[::-1]
+    def backtrack(start):
+        if start == len(s):
+            res.append(path[:])
+            return
+        for end in range(start + 1, len(s) + 1):
+            if is_pal(s[start:end]):
+                path.append(s[start:end])
+                backtrack(end)
+                path.pop()
+    backtrack(0)
+    return res
+```
+**TC:** O(2ⁿ · n) worst case, pruned in practice **SC:** O(n) recursion stack
+
+---
+
+## Binary Search
+
+### 9. Median of Two Sorted Arrays
+```python
+# Brute: merge both arrays, sort, pick the middle
+def find_median_brute(nums1, nums2):
+    merged = sorted(nums1 + nums2)
+    n = len(merged)
+    mid = n // 2
+    return merged[mid] if n % 2 else (merged[mid-1] + merged[mid]) / 2
+```
+**TC:** O((n+m) log(n+m)) **SC:** O(n+m)
+```python
+# Optimal: binary search on the smaller array to find the correct partition
+def find_median(nums1, nums2):
+    if len(nums1) > len(nums2):
+        nums1, nums2 = nums2, nums1
+    n, m = len(nums1), len(nums2)
+    lo, hi = 0, n
+    while lo <= hi:
+        i = (lo + hi) // 2
+        j = (n + m + 1) // 2 - i
+        left1 = nums1[i-1] if i > 0 else float("-inf")
+        right1 = nums1[i] if i < n else float("inf")
+        left2 = nums2[j-1] if j > 0 else float("-inf")
+        right2 = nums2[j] if j < m else float("inf")
+        if left1 <= right2 and left2 <= right1:
+            if (n + m) % 2:
+                return max(left1, left2)
+            return (max(left1, left2) + min(right1, right2)) / 2
+        elif left1 > right2:
+            hi = i - 1
+        else:
+            lo = i + 1
+```
+**TC:** O(log(min(n, m))) **SC:** O(1)
+
+### 10. Search in Rotated Sorted Array
+*(Same as Blind 75 #8.)*
+```python
+def search_brute(nums, target):
+    for i, x in enumerate(nums):
+        if x == target:
+            return i
+    return -1
+```
+**TC:** O(n) **SC:** O(1)
+```python
+def search(nums, target):
+    lo, hi = 0, len(nums) - 1
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        if nums[mid] == target:
+            return mid
+        if nums[lo] <= nums[mid]:
+            if nums[lo] <= target < nums[mid]:
+                hi = mid - 1
+            else:
+                lo = mid + 1
+        else:
+            if nums[mid] < target <= nums[hi]:
+                lo = mid + 1
+            else:
+                hi = mid - 1
+    return -1
+```
+**TC:** O(log n) **SC:** O(1)
+
+### 11. Find First and Last Position of Element in Sorted Array
+```python
+# Brute: linear scan for first and last match
+def search_range_brute(nums, target):
+    first = last = -1
+    for i, x in enumerate(nums):
+        if x == target:
+            if first == -1:
+                first = i
+            last = i
+    return [first, last]
+```
+**TC:** O(n) **SC:** O(1)
+```python
+# Optimal: two binary searches (leftmost and rightmost bound)
+import bisect
+def search_range(nums, target):
+    lo = bisect.bisect_left(nums, target)
+    if lo == len(nums) or nums[lo] != target:
+        return [-1, -1]
+    hi = bisect.bisect_right(nums, target) - 1
+    return [lo, hi]
+```
+**TC:** O(log n) **SC:** O(1)
+
+### 12. Search Insert Position
+```python
+# Brute: linear scan for insertion point
+def search_insert_brute(nums, target):
+    for i, x in enumerate(nums):
+        if x >= target:
+            return i
+    return len(nums)
+```
+**TC:** O(n) **SC:** O(1)
+```python
+# Optimal: binary search
+import bisect
+def search_insert(nums, target):
+    return bisect.bisect_left(nums, target)
+```
+**TC:** O(log n) **SC:** O(1)
+
+### 13. Search a 2D Matrix
+Rows sorted, each row's first element > previous row's last.
+```python
+# Brute: scan every cell
+def search_matrix_brute(matrix, target):
+    for row in matrix:
+        for val in row:
+            if val == target:
+                return True
+    return False
+```
+**TC:** O(rows·cols) **SC:** O(1)
+```python
+# Optimal: treat the matrix as a flattened sorted array, binary search
+def search_matrix(matrix, target):
+    if not matrix or not matrix[0]:
+        return False
+    rows, cols = len(matrix), len(matrix[0])
+    lo, hi = 0, rows * cols - 1
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        val = matrix[mid // cols][mid % cols]
+        if val == target:
+            return True
+        elif val < target:
+            lo = mid + 1
+        else:
+            hi = mid - 1
+    return False
+```
+**TC:** O(log(rows·cols)) **SC:** O(1)
+
+### 14. Binary Tree Maximum Path Sum
+*(Same as Blind 75 #63.)*
+```python
+def max_path_sum_brute(root):
+    def gain(node):
+        if not node:
+            return 0
+        return max(0, node.val + max(gain(node.left), gain(node.right)))
+    def best_through(node):
+        if not node:
+            return float("-inf")
+        return node.val + max(0, gain(node.left)) + max(0, gain(node.right))
+    def all_nodes(node):
+        if not node:
+            return []
+        return [node] + all_nodes(node.left) + all_nodes(node.right)
+    return max(best_through(n) for n in all_nodes(root))
+```
+**TC:** O(n²) **SC:** O(h) + O(n)
+```python
+def max_path_sum(root):
+    best = float("-inf")
+    def gain(node):
+        nonlocal best
+        if not node:
+            return 0
+        l = max(gain(node.left), 0)
+        r = max(gain(node.right), 0)
+        best = max(best, node.val + l + r)
+        return node.val + max(l, r)
+    gain(root)
+    return best
+```
+**TC:** O(n) **SC:** O(h)
+
+### 15. Find Minimum in Rotated Sorted Array
+*(Same as Blind 75 #7.)*
+```python
+def find_min_brute(nums):
+    return min(nums)
+```
+**TC:** O(n) **SC:** O(1)
+```python
+def find_min(nums):
+    lo, hi = 0, len(nums) - 1
+    while lo < hi:
+        mid = (lo + hi) // 2
+        if nums[mid] > nums[hi]:
+            lo = mid + 1
+        else:
+            hi = mid
+    return nums[lo]
+```
+**TC:** O(log n) **SC:** O(1)
+
+---
+
+## Binary Tree
+
+### 16. Binary Tree Inorder Traversal
+```python
+# Brute: recursive, appends to a captured list (fine, but uses call stack heavily for skewed trees)
+def inorder_brute(root):
+    res = []
+    def helper(node):
+        if node:
+            helper(node.left)
+            res.append(node.val)
+            helper(node.right)
+    helper(root)
+    return res
+```
+**TC:** O(n) **SC:** O(h) recursion stack (+ O(n) output)
+```python
+# Optimal: iterative with explicit stack — avoids recursion depth issues on skewed trees
+def inorder(root):
+    res, stack = [], []
+    node = root
+    while stack or node:
+        while node:
+            stack.append(node)
+            node = node.left
+        node = stack.pop()
+        res.append(node.val)
+        node = node.right
+    return res
+```
+**TC:** O(n) **SC:** O(h) stack
+
+### 17. Validate Binary Search Tree
+*(Same as Blind 75 #68.)*
+```python
+def is_valid_bst_brute(root):
+    vals = []
+    def inorder(node):
+        if node:
+            inorder(node.left); vals.append(node.val); inorder(node.right)
+    inorder(root)
+    return all(vals[i] < vals[i+1] for i in range(len(vals)-1))
+```
+**TC:** O(n) **SC:** O(n)
+```python
+def is_valid_bst(root, lo=float("-inf"), hi=float("inf")):
+    if not root:
+        return True
+    if not (lo < root.val < hi):
+        return False
+    return is_valid_bst(root.left, lo, root.val) and is_valid_bst(root.right, root.val, hi)
+```
+**TC:** O(n) **SC:** O(h)
+
+### 18. Symmetric Tree
+```python
+# Brute: serialize left and mirrored-right subtrees, compare strings
+def is_symmetric_brute(root):
+    def serialize(node, mirror=False):
+        if not node:
+            return "N"
+        first, second = (node.right, node.left) if mirror else (node.left, node.right)
+        return f"{node.val},{serialize(first, mirror)},{serialize(second, mirror)}"
+    if not root:
+        return True
+    return serialize(root.left) == serialize(root.right, mirror=True)
+```
+**TC:** O(n) **SC:** O(n) — serialized strings
+```python
+# Optimal: recursive mirror comparison, no strings
+def is_symmetric(root):
+    def is_mirror(a, b):
+        if not a and not b:
+            return True
+        if not a or not b or a.val != b.val:
+            return False
+        return is_mirror(a.left, b.right) and is_mirror(a.right, b.left)
+    return not root or is_mirror(root.left, root.right)
+```
+**TC:** O(n) **SC:** O(h)
+
+### 19. Binary Tree Level Order Traversal
+*(Same as Blind 75 #64 — BFS is already optimal for this task.)*
+```python
+def level_order_brute(root):
+    result = []
+    def dfs(node, depth):
+        if not node:
+            return
+        if depth == len(result):
+            result.append([])
+        result[depth].append(node.val)
+        dfs(node.left, depth+1); dfs(node.right, depth+1)
+    dfs(root, 0)
+    return result
+```
+**TC:** O(n) **SC:** O(n) + O(h)
+```python
+from collections import deque
+def level_order(root):
+    if not root:
+        return []
+    result, q = [], deque([root])
+    while q:
+        level = []
+        for _ in range(len(q)):
+            node = q.popleft()
+            level.append(node.val)
+            if node.left: q.append(node.left)
+            if node.right: q.append(node.right)
+        result.append(level)
+    return result
+```
+**TC:** O(n) **SC:** O(n) — queue can hold a full level
+
+### 20. Maximum Depth of Binary Tree
+*(Same as Blind 75 #60.)*
+```python
+from collections import deque
+def max_depth_brute(root):
+    if not root:
+        return 0
+    depth, q = 0, deque([root])
+    while q:
+        depth += 1
+        for _ in range(len(q)):
+            node = q.popleft()
+            if node.left: q.append(node.left)
+            if node.right: q.append(node.right)
+    return depth
+```
+**TC:** O(n) **SC:** O(n)
+```python
+def max_depth(root):
+    if not root:
+        return 0
+    return 1 + max(max_depth(root.left), max_depth(root.right))
+```
+**TC:** O(n) **SC:** O(h)
+
+### 21. Construct Binary Tree from Preorder and Inorder Traversal
+*(Same as Blind 75 #67.)*
+```python
+def build_tree_brute(preorder, inorder):
+    if not preorder or not inorder:
+        return None
+    root_val = preorder[0]
+    root = TreeNode(root_val)
+    mid = inorder.index(root_val)
+    root.left = build_tree_brute(preorder[1:mid+1], inorder[:mid])
+    root.right = build_tree_brute(preorder[mid+1:], inorder[mid+1:])
+    return root
+```
+**TC:** O(n²) **SC:** O(n²) — slicing
+```python
+def build_tree(preorder, inorder):
+    idx_map = {val: i for i, val in enumerate(inorder)}
+    pre_idx = 0
+    def build(in_left, in_right):
+        nonlocal pre_idx
+        if in_left > in_right:
+            return None
+        root_val = preorder[pre_idx]; pre_idx += 1
+        root = TreeNode(root_val)
+        mid = idx_map[root_val]
+        root.left = build(in_left, mid-1)
+        root.right = build(mid+1, in_right)
+        return root
+    return build(0, len(inorder)-1)
+```
+**TC:** O(n) **SC:** O(n)
+
+### 22. Convert Sorted Array to Binary Search Tree
+```python
+# Brute: repeatedly find the array's middle via len()//2 recomputed with slicing each call (extra copies)
+def sorted_array_to_bst_brute(nums):
+    if not nums:
+        return None
+    mid = len(nums) // 2
+    root = TreeNode(nums[mid])
+    root.left = sorted_array_to_bst_brute(nums[:mid])
+    root.right = sorted_array_to_bst_brute(nums[mid+1:])
+    return root
+```
+**TC:** O(n log n) — slicing copies at each level **SC:** O(n log n) total slices
+```python
+# Optimal: use index bounds instead of slicing (no array copies)
+def sorted_array_to_bst(nums):
+    def build(lo, hi):
+        if lo > hi:
+            return None
+        mid = (lo + hi) // 2
+        root = TreeNode(nums[mid])
+        root.left = build(lo, mid - 1)
+        root.right = build(mid + 1, hi)
+        return root
+    return build(0, len(nums) - 1)
+```
+**TC:** O(n) **SC:** O(log n) recursion stack (balanced tree height)
+
+### 23. Flatten Binary Tree to Linked List
+In-place, preorder order, using `right` pointers only.
+```python
+# Brute: preorder traversal into a list, then rebuild right-pointer chain
+def flatten_brute(root):
+    nodes = []
+    def preorder(node):
+        if node:
+            nodes.append(node)
+            preorder(node.left)
+            preorder(node.right)
+    preorder(root)
+    for i in range(len(nodes) - 1):
+        nodes[i].left = None
+        nodes[i].right = nodes[i+1]
+```
+**TC:** O(n) **SC:** O(n) — node list
+```python
+# Optimal: Morris-style in-place — for each node, splice left subtree between node and node.right
+def flatten(root):
+    node = root
+    while node:
+        if node.left:
+            rightmost = node.left
+            while rightmost.right:
+                rightmost = rightmost.right
+            rightmost.right = node.right
+            node.right = node.left
+            node.left = None
+        node = node.right
+```
+**TC:** O(n) **SC:** O(1)
+
+### 24. Binary Tree Right Side View
+```python
+# Brute: full level order traversal, take last element of every level
+from collections import deque
+def right_side_view_brute(root):
+    if not root:
+        return []
+    result, q = [], deque([root])
+    while q:
+        level = []
+        for _ in range(len(q)):
+            node = q.popleft()
+            level.append(node.val)
+            if node.left: q.append(node.left)
+            if node.right: q.append(node.right)
+        result.append(level[-1])
+    return result
+```
+**TC:** O(n) **SC:** O(n) — stores full levels
+```python
+# Optimal: BFS, only keep the last node's value per level (no full level list)
+from collections import deque
+def right_side_view(root):
+    if not root:
+        return []
+    result, q = [], deque([root])
+    while q:
+        size = len(q)
+        for i in range(size):
+            node = q.popleft()
+            if i == size - 1:
+                result.append(node.val)
+            if node.left: q.append(node.left)
+            if node.right: q.append(node.right)
+    return result
+```
+**TC:** O(n) **SC:** O(n) — queue can hold a full level (output no longer stores full levels)
+
+### 25. Invert Binary Tree
+*(Same as Blind 75 #62.)*
+```python
+from collections import deque
+def invert_tree_brute(root):
+    if not root:
+        return None
+    q = deque([root])
+    while q:
+        node = q.popleft()
+        node.left, node.right = node.right, node.left
+        if node.left: q.append(node.left)
+        if node.right: q.append(node.right)
+    return root
+```
+**TC:** O(n) **SC:** O(n)
+```python
+def invert_tree(root):
+    if not root:
+        return None
+    root.left, root.right = invert_tree(root.right), invert_tree(root.left)
+    return root
+```
+**TC:** O(n) **SC:** O(h)
+
+### 26. Kth Smallest Element in a BST
+*(Same as Blind 75 #69.)*
+```python
+def kth_smallest_brute(root, k):
+    vals = []
+    def inorder(node):
+        if node:
+            inorder(node.left); vals.append(node.val); inorder(node.right)
+    inorder(root)
+    return vals[k-1]
+```
+**TC:** O(n) **SC:** O(n)
+```python
+def kth_smallest(root, k):
+    stack = []
+    node = root
+    while stack or node:
+        while node:
+            stack.append(node); node = node.left
+        node = stack.pop()
+        k -= 1
+        if k == 0:
+            return node.val
+        node = node.right
+```
+**TC:** O(h + k) **SC:** O(h)
+
+### 27. Lowest Common Ancestor of a Binary Tree
+(General binary tree — not a BST, so ordering can't be used.)
+```python
+# Brute: find full root-to-node paths for both, compare
+def lca_brute(root, p, q):
+    def find_path(node, target, path):
+        if not node:
+            return False
+        path.append(node)
+        if node == target:
+            return True
+        if find_path(node.left, target, path) or find_path(node.right, target, path):
+            return True
+        path.pop()
+        return False
+    path_p, path_q = [], []
+    find_path(root, p, path_p)
+    find_path(root, q, path_q)
+    lca = None
+    for a, b in zip(path_p, path_q):
+        if a == b:
+            lca = a
+        else:
+            break
+    return lca
+```
+**TC:** O(n) **SC:** O(n) — two paths stored
+```python
+# Optimal: single post-order traversal, bubble up findings
+def lca(root, p, q):
+    if not root or root == p or root == q:
+        return root
+    left = lca(root.left, p, q)
+    right = lca(root.right, p, q)
+    if left and right:
+        return root
+    return left or right
+```
+**TC:** O(n) **SC:** O(h)
+
+### 28. Path Sum III
+Count paths (not necessarily root-to-leaf) summing to `targetSum`.
+```python
+# Brute: for every node, DFS downward checking all paths starting there
+def path_sum_brute(root, targetSum):
+    if not root:
+        return 0
+    def count_from(node, remaining):
+        if not node:
+            return 0
+        remaining -= node.val
+        total = 1 if remaining == 0 else 0
+        total += count_from(node.left, remaining)
+        total += count_from(node.right, remaining)
+        return total
+    return count_from(root, targetSum) + path_sum_brute(root.left, targetSum) + path_sum_brute(root.right, targetSum)
+```
+**TC:** O(n²) worst case (skewed tree) **SC:** O(h) recursion stack
+```python
+# Optimal: prefix sum hashmap during a single DFS
+from collections import defaultdict
+def path_sum(root, targetSum):
+    prefix_counts = defaultdict(int)
+    prefix_counts[0] = 1
+    def dfs(node, cur_sum):
+        if not node:
+            return 0
+        cur_sum += node.val
+        count = prefix_counts[cur_sum - targetSum]
+        prefix_counts[cur_sum] += 1
+        count += dfs(node.left, cur_sum) + dfs(node.right, cur_sum)
+        prefix_counts[cur_sum] -= 1        # backtrack
+        return count
+    return dfs(root, 0)
+```
+**TC:** O(n) **SC:** O(h) — hashmap depth bounded by tree height along any root path
+
+### 29. Diameter of Binary Tree
+Longest path between any two nodes (in edges).
+```python
+# Brute: for every node, recompute height of left/right subtrees independently
+def diameter_brute(root):
+    def height(node):
+        if not node:
+            return 0
+        return 1 + max(height(node.left), height(node.right))
+    def diameter_at(node):
+        if not node:
+            return 0
+        through = height(node.left) + height(node.right)
+        return max(through, diameter_at(node.left), diameter_at(node.right))
+    return diameter_at(root)
+```
+**TC:** O(n²) — height recomputed at every node **SC:** O(h)
+```python
+# Optimal: single post-order pass, compute height and update diameter together
+def diameter(root):
+    best = 0
+    def height(node):
+        nonlocal best
+        if not node:
+            return 0
+        l = height(node.left)
+        r = height(node.right)
+        best = max(best, l + r)
+        return 1 + max(l, r)
+    height(root)
+    return best
+```
+**TC:** O(n) **SC:** O(h)
+
+---
+
+## Dynamic Programming
+
+### 30. Longest Palindromic Substring
+*(Same as Blind 75 #57.)*
+```python
+def longest_palindrome_brute(s):
+    best = ""
+    for i in range(len(s)):
+        for j in range(i, len(s)):
+            sub = s[i:j+1]
+            if sub == sub[::-1] and len(sub) > len(best):
+                best = sub
+    return best
+```
+**TC:** O(n³) **SC:** O(n)
+```python
+def longest_palindrome(s):
+    if not s:
+        return ""
+    start, end = 0, 0
+    def expand(l, r):
+        while l >= 0 and r < len(s) and s[l] == s[r]:
+            l -= 1; r += 1
+        return l+1, r-1
+    for i in range(len(s)):
+        l1, r1 = expand(i, i)
+        if r1 - l1 > end - start: start, end = l1, r1
+        l2, r2 = expand(i, i+1)
+        if r2 - l2 > end - start: start, end = l2, r2
+    return s[start:end+1]
+```
+**TC:** O(n²) **SC:** O(1)
+
+### 31. Longest Valid Parentheses
+Length of the longest valid parentheses substring.
+```python
+# Brute: check every substring for validity
+def longest_valid_parens_brute(s):
+    def is_valid(sub):
+        bal = 0
+        for ch in sub:
+            bal += 1 if ch == '(' else -1
+            if bal < 0:
+                return False
+        return bal == 0
+    best = 0
+    for i in range(len(s)):
+        for j in range(i, len(s)):
+            if is_valid(s[i:j+1]):
+                best = max(best, j - i + 1)
+    return best
+```
+**TC:** O(n³) **SC:** O(n)
+```python
+# Optimal: stack of indices, track base for length calc
+def longest_valid_parens(s):
+    stack = [-1]
+    best = 0
+    for i, ch in enumerate(s):
+        if ch == '(':
+            stack.append(i)
+        else:
+            stack.pop()
+            if not stack:
+                stack.append(i)
+            else:
+                best = max(best, i - stack[-1])
+    return best
+```
+**TC:** O(n) **SC:** O(n) — stack
+
+### 32. Unique Paths
+*(Same as Blind 75 #25.)*
+```python
+def unique_paths_brute(m, n):
+    if m == 1 or n == 1:
+        return 1
+    return unique_paths_brute(m-1, n) + unique_paths_brute(m, n-1)
+```
+**TC:** O(2^(m+n)) **SC:** O(m+n)
+```python
+def unique_paths(m, n):
+    dp = [[1] * n for _ in range(m)]
+    for r in range(1, m):
+        for c in range(1, n):
+            dp[r][c] = dp[r-1][c] + dp[r][c-1]
+    return dp[m-1][n-1]
+```
+**TC:** O(m·n) **SC:** O(m·n) (reducible to O(n))
+
+### 33. Minimum Path Sum
+Min sum path from top-left to bottom-right (only right/down moves).
+```python
+# Brute: recursion without memo
+def min_path_sum_brute(grid, r=0, c=0):
+    rows, cols = len(grid), len(grid[0])
+    if r == rows - 1 and c == cols - 1:
+        return grid[r][c]
+    if r == rows - 1:
+        return grid[r][c] + min_path_sum_brute(grid, r, c+1)
+    if c == cols - 1:
+        return grid[r][c] + min_path_sum_brute(grid, r+1, c)
+    return grid[r][c] + min(min_path_sum_brute(grid, r+1, c), min_path_sum_brute(grid, r, c+1))
+```
+**TC:** O(2^(rows+cols)) **SC:** O(rows+cols) recursion stack
+```python
+# Optimal: bottom-up DP
+def min_path_sum(grid):
+    rows, cols = len(grid), len(grid[0])
+    dp = [[0]*cols for _ in range(rows)]
+    for r in range(rows):
+        for c in range(cols):
+            if r == 0 and c == 0:
+                dp[r][c] = grid[r][c]
+            elif r == 0:
+                dp[r][c] = dp[r][c-1] + grid[r][c]
+            elif c == 0:
+                dp[r][c] = dp[r-1][c] + grid[r][c]
+            else:
+                dp[r][c] = min(dp[r-1][c], dp[r][c-1]) + grid[r][c]
+    return dp[-1][-1]
+```
+**TC:** O(rows·cols) **SC:** O(rows·cols) (reducible to O(cols))
+
+### 34. Climbing Stairs
+*(Same as Blind 75 #16.)*
+```python
+def climb_stairs_brute(n):
+    if n <= 2:
+        return n
+    return climb_stairs_brute(n-1) + climb_stairs_brute(n-2)
+```
+**TC:** O(2ⁿ) **SC:** O(n)
+```python
+def climb_stairs(n):
+    if n <= 2:
+        return n
+    a, b = 1, 2
+    for _ in range(3, n+1):
+        a, b = b, a+b
+    return b
+```
+**TC:** O(n) **SC:** O(1)
+
+### 35. Edit Distance
+Min operations (insert/delete/replace) to convert `word1` to `word2`.
+```python
+# Brute: recursion without memo
+def min_distance_brute(word1, word2, i=0, j=0):
+    if i == len(word1):
+        return len(word2) - j
+    if j == len(word2):
+        return len(word1) - i
+    if word1[i] == word2[j]:
+        return min_distance_brute(word1, word2, i+1, j+1)
+    return 1 + min(
+        min_distance_brute(word1, word2, i+1, j),      # delete
+        min_distance_brute(word1, word2, i, j+1),      # insert
+        min_distance_brute(word1, word2, i+1, j+1),    # replace
+    )
+```
+**TC:** O(3^(n+m)) **SC:** O(n+m) recursion stack
+```python
+# Optimal: bottom-up DP
+def min_distance(word1, word2):
+    n, m = len(word1), len(word2)
+    dp = [[0]*(m+1) for _ in range(n+1)]
+    for i in range(n+1): dp[i][0] = i
+    for j in range(m+1): dp[0][j] = j
+    for i in range(1, n+1):
+        for j in range(1, m+1):
+            if word1[i-1] == word2[j-1]:
+                dp[i][j] = dp[i-1][j-1]
+            else:
+                dp[i][j] = 1 + min(dp[i-1][j], dp[i][j-1], dp[i-1][j-1])
+    return dp[n][m]
+```
+**TC:** O(n·m) **SC:** O(n·m) (reducible to O(min(n,m)))
+
+### 36. Pascal's Triangle
+```python
+# Brute: compute each entry via the binomial coefficient formula (factorials)
+from math import comb
+def generate_brute(numRows):
+    return [[comb(r, c) for c in range(r + 1)] for r in range(numRows)]
+```
+**TC:** O(numRows² ) with costly factorial-based comb() calls **SC:** O(numRows²) for output
+```python
+# Optimal: build row-by-row from the previous row (Pascal's recurrence)
+def generate(numRows):
+    triangle = []
+    for r in range(numRows):
+        row = [1] * (r + 1)
+        for c in range(1, r):
+            row[c] = triangle[r-1][c-1] + triangle[r-1][c]
+        triangle.append(row)
+    return triangle
+```
+**TC:** O(numRows²) **SC:** O(numRows²) for output
+
+### 37. Word Break
+*(Same as Blind 75 #20.)*
+```python
+def word_break_brute(s, wordDict, start=0):
+    if start == len(s):
+        return True
+    for end in range(start+1, len(s)+1):
+        if s[start:end] in wordDict and word_break_brute(s, wordDict, end):
+            return True
+    return False
+```
+**TC:** O(2ⁿ) **SC:** O(n)
+```python
+def word_break(s, wordDict):
+    words = set(wordDict)
+    n = len(s)
+    dp = [False]*(n+1)
+    dp[0] = True
+    for i in range(1, n+1):
+        for j in range(i):
+            if dp[j] and s[j:i] in words:
+                dp[i] = True
+                break
+    return dp[n]
+```
+**TC:** O(n²) **SC:** O(n)
+
+### 38. Maximum Product Subarray
+*(Same as Blind 75 #6.)*
+```python
+def max_product_brute(nums):
+    best = nums[0]
+    for i in range(len(nums)):
+        p = 1
+        for j in range(i, len(nums)):
+            p *= nums[j]
+            best = max(best, p)
+    return best
+```
+**TC:** O(n²) **SC:** O(1)
+```python
+def max_product(nums):
+    best = cur_max = cur_min = nums[0]
+    for x in nums[1:]:
+        candidates = (x, cur_max*x, cur_min*x)
+        cur_max, cur_min = max(candidates), min(candidates)
+        best = max(best, cur_max)
+    return best
+```
+**TC:** O(n) **SC:** O(1)
+
+### 39. House Robber
+*(Same as Blind 75 #22.)*
+```python
+def rob_brute(nums, i=0):
+    if i >= len(nums):
+        return 0
+    return max(rob_brute(nums, i+1), nums[i] + rob_brute(nums, i+2))
+```
+**TC:** O(2ⁿ) **SC:** O(n)
+```python
+def rob(nums):
+    prev, cur = 0, 0
+    for x in nums:
+        prev, cur = cur, max(cur, prev + x)
+    return cur
+```
+**TC:** O(n) **SC:** O(1)
+
+### 40. Perfect Squares
+Fewest perfect squares that sum to `n`.
+```python
+# Brute: recursion without memo, try every square ≤ remaining
+def num_squares_brute(n):
+    if n == 0:
+        return 0
+    best = float("inf")
+    i = 1
+    while i * i <= n:
+        best = min(best, 1 + num_squares_brute(n - i*i))
+        i += 1
+    return best
+```
+**TC:** exponential **SC:** O(n) recursion stack
+```python
+# Optimal: bottom-up DP
+def num_squares(n):
+    dp = [0] + [float("inf")] * n
+    for i in range(1, n + 1):
+        j = 1
+        while j * j <= i:
+            dp[i] = min(dp[i], dp[i - j*j] + 1)
+            j += 1
+    return dp[n]
+```
+**TC:** O(n√n) **SC:** O(n)
+
+### 41. Longest Increasing Subsequence
+*(Same as Blind 75 #18.)*
+```python
+def length_of_lis_brute(nums):
+    n = len(nums)
+    dp = [1]*n
+    for i in range(n):
+        for j in range(i):
+            if nums[j] < nums[i]:
+                dp[i] = max(dp[i], dp[j]+1)
+    return max(dp) if dp else 0
+```
+**TC:** O(n²) **SC:** O(n)
+```python
+import bisect
+def length_of_lis(nums):
+    tails = []
+    for x in nums:
+        i = bisect.bisect_left(tails, x)
+        if i == len(tails):
+            tails.append(x)
+        else:
+            tails[i] = x
+    return len(tails)
+```
+**TC:** O(n log n) **SC:** O(n)
+
+### 42. Coin Change
+*(Same as Blind 75 #17.)*
+```python
+def coin_change_brute(coins, amount):
+    if amount == 0:
+        return 0
+    if amount < 0:
+        return float("inf")
+    return min((coin_change_brute(coins, amount-c)+1 for c in coins), default=float("inf"))
+```
+**TC:** O(coins^amount) **SC:** O(amount)
+```python
+def coin_change(coins, amount):
+    dp = [0] + [float("inf")] * amount
+    for a in range(1, amount+1):
+        for c in coins:
+            if c <= a:
+                dp[a] = min(dp[a], dp[a-c]+1)
+    return dp[amount] if dp[amount] != float("inf") else -1
+```
+**TC:** O(amount · len(coins)) **SC:** O(amount)
+
+### 43. Partition Equal Subset Sum
+Can the array be split into two subsets with equal sum?
+```python
+# Brute: try every subset
+from itertools import combinations
+def can_partition_brute(nums):
+    total = sum(nums)
+    if total % 2:
+        return False
+    target = total // 2
+    n = len(nums)
+    for r in range(n + 1):
+        for combo in combinations(nums, r):
+            if sum(combo) == target:
+                return True
+    return False
+```
+**TC:** O(2ⁿ) **SC:** O(n)
+```python
+# Optimal: subset-sum DP (bitset/boolean array)
+def can_partition(nums):
+    total = sum(nums)
+    if total % 2:
+        return False
+    target = total // 2
+    dp = [False] * (target + 1)
+    dp[0] = True
+    for x in nums:
+        for t in range(target, x - 1, -1):
+            dp[t] = dp[t] or dp[t - x]
+    return dp[target]
+```
+**TC:** O(n · target) **SC:** O(target)
+
+### 44. Longest Common Subsequence
+*(Same as Blind 75 #19.)*
+```python
+def lcs_brute(a, b, i=0, j=0):
+    if i == len(a) or j == len(b):
+        return 0
+    if a[i] == b[j]:
+        return 1 + lcs_brute(a, b, i+1, j+1)
+    return max(lcs_brute(a, b, i+1, j), lcs_brute(a, b, i, j+1))
+```
+**TC:** O(2^(n+m)) **SC:** O(n+m)
+```python
+def lcs(a, b):
+    n, m = len(a), len(b)
+    dp = [[0]*(m+1) for _ in range(n+1)]
+    for i in range(1, n+1):
+        for j in range(1, m+1):
+            dp[i][j] = dp[i-1][j-1]+1 if a[i-1]==b[j-1] else max(dp[i-1][j], dp[i][j-1])
+    return dp[n][m]
+```
+**TC:** O(n·m) **SC:** O(n·m)
+
+---
+
+## Graph
+
+### 45. Number of Islands
+*(Same as Blind 75 #30.)*
+```python
+def num_islands_brute(grid):
+    rows, cols = len(grid), len(grid[0])
+    seen = set()
+    count = 0
+    for r in range(rows):
+        for c in range(cols):
+            if grid[r][c] == '1' and (r,c) not in seen:
+                count += 1
+                stack = [(r,c)]
+                while stack:
+                    cr, cc = stack.pop()
+                    if (cr,cc) in seen: continue
+                    seen.add((cr,cc))
+                    for dr, dc in [(-1,0),(1,0),(0,-1),(0,1)]:
+                        nr, nc = cr+dr, cc+dc
+                        if 0<=nr<rows and 0<=nc<cols and grid[nr][nc]=='1':
+                            stack.append((nr,nc))
+    return count
+```
+**TC:** O(rows·cols) **SC:** O(rows·cols) — visited set
+```python
+from collections import deque
+def num_islands(grid):
+    rows, cols = len(grid), len(grid[0])
+    count = 0
+    for r in range(rows):
+        for c in range(cols):
+            if grid[r][c] == '1':
+                count += 1
+                q = deque([(r,c)])
+                grid[r][c] = '0'
+                while q:
+                    cr, cc = q.popleft()
+                    for dr, dc in [(-1,0),(1,0),(0,-1),(0,1)]:
+                        nr, nc = cr+dr, cc+dc
+                        if 0<=nr<rows and 0<=nc<cols and grid[nr][nc]=='1':
+                            grid[nr][nc]='0'
+                            q.append((nr,nc))
+    return count
+```
+**TC:** O(rows·cols) **SC:** O(min(rows,cols)) — queue; O(1) extra with in-place marking
+
+### 46. Course Schedule
+*(Same as Blind 75 #28.)*
+```python
+def can_finish_brute(numCourses, prerequisites):
+    prereq = {i: [] for i in range(numCourses)}
+    for a, b in prerequisites:
+        prereq[a].append(b)
+    completed = set()
+    changed = True
+    while changed and len(completed) < numCourses:
+        changed = False
+        for c in range(numCourses):
+            if c not in completed and all(p in completed for p in prereq[c]):
+                completed.add(c); changed = True
+    return len(completed) == numCourses
+```
+**TC:** O(V·(V+E)) **SC:** O(V+E)
+```python
+def can_finish(numCourses, prerequisites):
+    graph = {i: [] for i in range(numCourses)}
+    for a, b in prerequisites:
+        graph[a].append(b)
+    state = [0] * numCourses
+    def has_cycle(c):
+        if state[c] == 1: return True
+        if state[c] == 2: return False
+        state[c] = 1
+        if any(has_cycle(nei) for nei in graph[c]):
+            return True
+        state[c] = 2
+        return False
+    return not any(has_cycle(c) for c in range(numCourses))
+```
+**TC:** O(V+E) **SC:** O(V+E)
+
+### 47. Rotting Oranges
+Minutes until all oranges rot (multi-source BFS), or -1 if impossible.
+```python
+# Brute: repeatedly scan the whole grid each minute, rot adjacent fresh oranges
+def oranges_rotting_brute(grid):
+    rows, cols = len(grid), len(grid[0])
+    minutes = 0
+    while True:
+        to_rot = []
+        for r in range(rows):
+            for c in range(cols):
+                if grid[r][c] == 2:
+                    for dr, dc in [(-1,0),(1,0),(0,-1),(0,1)]:
+                        nr, nc = r+dr, c+dc
+                        if 0<=nr<rows and 0<=nc<cols and grid[nr][nc] == 1:
+                            to_rot.append((nr, nc))
+        if not to_rot:
+            break
+        for r, c in to_rot:
+            grid[r][c] = 2
+        minutes += 1
+    if any(1 in row for row in grid):
+        return -1
+    return minutes
+```
+**TC:** O(rows·cols) per minute × up to O(rows·cols) minutes = O((rows·cols)²) **SC:** O(rows·cols)
+```python
+# Optimal: multi-source BFS starting from all rotten oranges simultaneously
+from collections import deque
+def oranges_rotting(grid):
+    rows, cols = len(grid), len(grid[0])
+    q = deque()
+    fresh = 0
+    for r in range(rows):
+        for c in range(cols):
+            if grid[r][c] == 2: q.append((r, c, 0))
+            elif grid[r][c] == 1: fresh += 1
+    minutes = 0
+    while q:
+        r, c, t = q.popleft()
+        minutes = max(minutes, t)
+        for dr, dc in [(-1,0),(1,0),(0,-1),(0,1)]:
+            nr, nc = r+dr, c+dc
+            if 0<=nr<rows and 0<=nc<cols and grid[nr][nc] == 1:
+                grid[nr][nc] = 2
+                fresh -= 1
+                q.append((nr, nc, t+1))
+    return minutes if fresh == 0 else -1
+```
+**TC:** O(rows·cols) **SC:** O(rows·cols) — queue
+
+---
+
+## Greedy
+
+### 48. Jump Game II
+Minimum jumps to reach the last index.
+```python
+# Brute: BFS/recursion over every possible jump length
+def jump_brute(nums, i=0):
+    if i >= len(nums) - 1:
+        return 0
+    best = float("inf")
+    for step in range(1, nums[i] + 1):
+        if i + step < len(nums):
+            best = min(best, 1 + jump_brute(nums, i + step))
+    return best
+```
+**TC:** O(2ⁿ) **SC:** O(n) recursion stack
+```python
+# Optimal: greedy BFS-layer expansion, track current/farthest reach
+def jump(nums):
+    jumps = cur_end = farthest = 0
+    for i in range(len(nums) - 1):
+        farthest = max(farthest, i + nums[i])
+        if i == cur_end:
+            jumps += 1
+            cur_end = farthest
+    return jumps
+```
+**TC:** O(n) **SC:** O(1)
+
+### 49. Jump Game
+*(Same as Blind 75 #26.)*
+```python
+def can_jump_brute(nums, i=0):
+    if i >= len(nums) - 1:
+        return True
+    for step in range(1, nums[i]+1):
+        if can_jump_brute(nums, i+step):
+            return True
+    return False
+```
+**TC:** O(2ⁿ) **SC:** O(n)
+```python
+def can_jump(nums):
+    farthest = 0
+    for i, x in enumerate(nums):
+        if i > farthest:
+            return False
+        farthest = max(farthest, i + x)
+    return True
+```
+**TC:** O(n) **SC:** O(1)
+
+### 50. Best Time to Buy and Sell Stock
+*(Same as Blind 75 #2.)*
+```python
+def max_profit_brute(prices):
+    best = 0
+    for i in range(len(prices)):
+        for j in range(i+1, len(prices)):
+            best = max(best, prices[j]-prices[i])
+    return best
+```
+**TC:** O(n²) **SC:** O(1)
+```python
+def max_profit(prices):
+    min_p, best = float("inf"), 0
+    for p in prices:
+        min_p = min(min_p, p)
+        best = max(best, p - min_p)
+    return best
+```
+**TC:** O(n) **SC:** O(1)
+
+### 51. Partition Labels
+Partition a string into as many parts as possible so each letter appears in only one part.
+```python
+# Brute: for each starting point, expand the partition until all char occurrences are enclosed, re-scanning the string repeatedly
+def partition_labels_brute(s):
+    res = []
+    i = 0
+    n = len(s)
+    while i < n:
+        j = i
+        end = i
+        while j <= end:
+            last_occurrence = s.rfind(s[j], 0, n)     # O(n) scan each time
+            end = max(end, last_occurrence)
+            j += 1
+        res.append(end - i + 1)
+        i = end + 1
+    return res
+```
+**TC:** O(n²) — `rfind` rescans the string repeatedly **SC:** O(1) extra
+```python
+# Optimal: precompute last-occurrence index for every character in one pass
+def partition_labels(s):
+    last = {ch: i for i, ch in enumerate(s)}
+    res = []
+    start = end = 0
+    for i, ch in enumerate(s):
+        end = max(end, last[ch])
+        if i == end:
+            res.append(end - start + 1)
+            start = i + 1
+    return res
+```
+**TC:** O(n) **SC:** O(1) — bounded alphabet map
+
+---
+
+## Hashing
+
+### 52. Two Sum
+*(Same as Blind 75 #1.)*
+```python
+def two_sum_brute(nums, target):
+    for i in range(len(nums)):
+        for j in range(i+1, len(nums)):
+            if nums[i]+nums[j] == target:
+                return [i, j]
+```
+**TC:** O(n²) **SC:** O(1)
+```python
+def two_sum(nums, target):
+    seen = {}
+    for i, x in enumerate(nums):
+        if target - x in seen:
+            return [seen[target-x], i]
+        seen[x] = i
+```
+**TC:** O(n) **SC:** O(n)
+
+### 53. Group Anagrams
+*(Same as Blind 75 #54.)*
+```python
+def group_anagrams_brute(words):
+    groups = []
+    for w in words:
+        placed = False
+        for g in groups:
+            if sorted(g[0]) == sorted(w):
+                g.append(w); placed = True; break
+        if not placed:
+            groups.append([w])
+    return groups
+```
+**TC:** O(n²·k log k) **SC:** O(n·k)
+```python
+from collections import defaultdict
+def group_anagrams(words):
+    groups = defaultdict(list)
+    for w in words:
+        groups["".join(sorted(w))].append(w)
+    return list(groups.values())
+```
+**TC:** O(n·k log k) **SC:** O(n·k)
+
+### 54. Longest Consecutive Sequence
+*(Same as Blind 75 #31.)*
+```python
+def longest_consecutive_brute(nums):
+    if not nums:
+        return 0
+    nums = sorted(set(nums))
+    best = cur = 1
+    for i in range(1, len(nums)):
+        cur = cur+1 if nums[i] == nums[i-1]+1 else 1
+        best = max(best, cur)
+    return best
+```
+**TC:** O(n log n) **SC:** O(n)
+```python
+def longest_consecutive(nums):
+    num_set = set(nums)
+    best = 0
+    for x in num_set:
+        if x - 1 not in num_set:
+            length = 1
+            while x + length in num_set:
+                length += 1
+            best = max(best, length)
+    return best
+```
+**TC:** O(n) **SC:** O(n)
+
+### 55. Subarray Sum Equals K
+Count subarrays summing exactly to `k`.
+```python
+# Brute: check every subarray's sum
+def subarray_sum_brute(nums, k):
+    count = 0
+    for i in range(len(nums)):
+        s = 0
+        for j in range(i, len(nums)):
+            s += nums[j]
+            if s == k:
+                count += 1
+    return count
+```
+**TC:** O(n²) **SC:** O(1)
+```python
+# Optimal: prefix sum + hashmap of prefix-sum frequencies
+from collections import defaultdict
+def subarray_sum(nums, k):
+    count = 0
+    prefix_sum = 0
+    seen = defaultdict(int)
+    seen[0] = 1
+    for x in nums:
+        prefix_sum += x
+        count += seen[prefix_sum - k]
+        seen[prefix_sum] += 1
+    return count
+```
+**TC:** O(n) **SC:** O(n)
+
+---
+
+## Heap
+
+### 56. Kth Largest Element in an Array
+*(Same as Blind 75 #7.)*
+```python
+def kth_largest_brute(nums, k):
+    return sorted(nums)[-k]
+```
+**TC:** O(n log n) **SC:** O(n)
+```python
+import heapq
+def kth_largest(nums, k):
+    heap = nums[:k]
+    heapq.heapify(heap)
+    for x in nums[k:]:
+        if x > heap[0]:
+            heapq.heapreplace(heap, x)
+    return heap[0]
+```
+**TC:** O(n log k) **SC:** O(k)
+
+### 57. Find Median from Data Stream
+*(Same as Blind 75 #74.)*
+```python
+import bisect
+class MedianFinderBrute:
+    def __init__(self):
+        self.data = []
+    def add_num(self, num):
+        bisect.insort(self.data, num)
+    def find_median(self):
+        n = len(self.data); mid = n // 2
+        return self.data[mid] if n % 2 else (self.data[mid-1]+self.data[mid]) / 2
+```
+**TC:** add O(n) **SC:** O(n)
+```python
+import heapq
+class MedianFinder:
+    def __init__(self):
+        self.small, self.large = [], []
+    def add_num(self, num):
+        heapq.heappush(self.small, -num)
+        heapq.heappush(self.large, -heapq.heappop(self.small))
+        if len(self.large) > len(self.small):
+            heapq.heappush(self.small, -heapq.heappop(self.large))
+    def find_median(self):
+        if len(self.small) > len(self.large):
+            return -self.small[0]
+        return (-self.small[0] + self.large[0]) / 2
+```
+**TC:** add O(log n) **SC:** O(n)
+
+### 58. Top K Frequent Elements
+*(Same as Blind 75 #75.)*
+```python
+from collections import Counter
+def top_k_frequent_brute(nums, k):
+    freq = Counter(nums)
+    return [v for v, _ in sorted(freq.items(), key=lambda x: -x[1])[:k]]
+```
+**TC:** O(n log n) **SC:** O(n)
+```python
+import heapq
+from collections import Counter
+def top_k_frequent(nums, k):
+    freq = Counter(nums)
+    return heapq.nlargest(k, freq.keys(), key=lambda x: freq[x])
+```
+**TC:** O(n log k) **SC:** O(n)
+
+---
+
+## Linked Lists
+
+### 59. Add Two Numbers
+Digits stored in reverse order as linked lists; return sum as a linked list.
+```python
+# Brute: convert both lists to integers, add, convert back
+def add_two_numbers_brute(l1, l2):
+    def to_int(node):
+        s, mult = 0, 1
+        while node:
+            s += node.val * mult
+            mult *= 10
+            node = node.next
+        return s
+    total = to_int(l1) + to_int(l2)
+    dummy = cur = ListNode(0)
+    if total == 0:
+        return ListNode(0)
+    while total:
+        cur.next = ListNode(total % 10)
+        cur = cur.next
+        total //= 10
+    return dummy.next
+```
+**TC:** O(n+m) **SC:** O(n+m) — big-int conversion, unbounded digit growth
+```python
+# Optimal: simulate digit-by-digit addition with carry, one pass
+def add_two_numbers(l1, l2):
+    dummy = cur = ListNode(0)
+    carry = 0
+    while l1 or l2 or carry:
+        v1 = l1.val if l1 else 0
+        v2 = l2.val if l2 else 0
+        total = v1 + v2 + carry
+        carry, digit = divmod(total, 10)
+        cur.next = ListNode(digit)
+        cur = cur.next
+        l1 = l1.next if l1 else None
+        l2 = l2.next if l2 else None
+    return dummy.next
+```
+**TC:** O(max(n, m)) **SC:** O(max(n, m)) for output (O(1) extra beyond output)
+
+### 60. Remove Nth Node From End of List
+*(Same as Blind 75 #44.)*
+```python
+def remove_nth_brute(head, n):
+    length, node = 0, head
+    while node:
+        length += 1; node = node.next
+    dummy = ListNode(0); dummy.next = head
+    cur = dummy
+    for _ in range(length - n):
+        cur = cur.next
+    cur.next = cur.next.next
+    return dummy.next
+```
+**TC:** O(n) two passes **SC:** O(1)
+```python
+def remove_nth(head, n):
+    dummy = ListNode(0); dummy.next = head
+    fast = slow = dummy
+    for _ in range(n):
+        fast = fast.next
+    while fast.next:
+        fast = fast.next; slow = slow.next
+    slow.next = slow.next.next
+    return dummy.next
+```
+**TC:** O(n) one pass **SC:** O(1)
+
+### 61. Merge Two Sorted Lists
+*(Same as Blind 75 #42.)*
+```python
+def merge_two_lists_brute(l1, l2):
+    vals = []
+    for node in (l1, l2):
+        while node:
+            vals.append(node.val); node = node.next
+    vals.sort()
+    dummy = cur = ListNode(0)
+    for v in vals:
+        cur.next = ListNode(v); cur = cur.next
+    return dummy.next
+```
+**TC:** O((n+m) log(n+m)) **SC:** O(n+m)
+```python
+def merge_two_lists(l1, l2):
+    dummy = cur = ListNode(0)
+    while l1 and l2:
+        if l1.val <= l2.val:
+            cur.next, l1 = l1, l1.next
+        else:
+            cur.next, l2 = l2, l2.next
+        cur = cur.next
+    cur.next = l1 or l2
+    return dummy.next
+```
+**TC:** O(n+m) **SC:** O(1) extra
+
+### 62. Merge k Sorted Lists
+*(Same as Blind 75 #43.)*
+```python
+def merge_k_lists_brute(lists):
+    vals = []
+    for node in lists:
+        while node:
+            vals.append(node.val); node = node.next
+    vals.sort()
+    dummy = cur = ListNode(0)
+    for v in vals:
+        cur.next = ListNode(v); cur = cur.next
+    return dummy.next
+```
+**TC:** O(N log N) **SC:** O(N)
+```python
+import heapq
+def merge_k_lists(lists):
+    heap = []
+    for i, node in enumerate(lists):
+        if node:
+            heapq.heappush(heap, (node.val, i, node))
+    dummy = cur = ListNode(0)
+    while heap:
+        val, i, node = heapq.heappop(heap)
+        cur.next = node; cur = cur.next
+        if node.next:
+            heapq.heappush(heap, (node.next.val, i, node.next))
+    return dummy.next
+```
+**TC:** O(N log k) **SC:** O(k)
+
+### 63. Swap Nodes in Pairs
+```python
+# Brute: collect values, swap in pairs, rewrite node values (not true pointer manipulation)
+def swap_pairs_brute(head):
+    vals = []
+    node = head
+    while node:
+        vals.append(node.val); node = node.next
+    for i in range(0, len(vals) - 1, 2):
+        vals[i], vals[i+1] = vals[i+1], vals[i]
+    node = head
+    for v in vals:
+        node.val = v; node = node.next
+    return head
+```
+**TC:** O(n) **SC:** O(n) — value array
+```python
+# Optimal: true pointer swapping, no extra array
+def swap_pairs(head):
+    dummy = ListNode(0); dummy.next = head
+    prev = dummy
+    while prev.next and prev.next.next:
+        first, second = prev.next, prev.next.next
+        first.next = second.next
+        second.next = first
+        prev.next = second
+        prev = first
+    return dummy.next
+```
+**TC:** O(n) **SC:** O(1)
+
+### 64. Reverse Nodes in k-Group
+```python
+# Brute: collect all values, reverse each k-sized chunk, rewrite values in place
+def reverse_k_group_brute(head, k):
+    vals = []
+    node = head
+    while node:
+        vals.append(node.val); node = node.next
+    for i in range(0, len(vals) - len(vals) % k, k):
+        vals[i:i+k] = vals[i:i+k][::-1]
+    node = head
+    for v in vals:
+        node.val = v; node = node.next
+    return head
+```
+**TC:** O(n) **SC:** O(n) — value array
+```python
+# Optimal: true pointer reversal per k-group, no extra array
+def reverse_k_group(head, k):
+    node = head
+    count = 0
+    while node and count < k:
+        node = node.next; count += 1
+    if count < k:
+        return head
+    prev = reverse_k_group(node, k)     # recursively process the rest first
+    cur = head
+    for _ in range(k):
+        nxt = cur.next
+        cur.next = prev
+        prev = cur
+        cur = nxt
+    return prev
+```
+**TC:** O(n) **SC:** O(n/k) recursion stack
+
+### 65. Copy List with Random Pointer
+Each node also has a `random` pointer to any node (or None).
+```python
+# Brute: two passes with a hashmap old -> new (this is actually near-optimal;
+# a true "brute" attempt without a map requires O(n) search per random pointer)
+def copy_random_list_brute(head):
+    if not head:
+        return None
+    nodes = []
+    node = head
+    while node:
+        nodes.append(node); node = node.next
+    copies = [Node(n.val) for n in nodes]
+    for i, n in enumerate(nodes):
+        copies[i].next = copies[i+1] if i+1 < len(nodes) else None
+        if n.random:
+            idx = nodes.index(n.random)     # O(n) search — the "brute" part
+            copies[i].random = copies[idx]
+    return copies[0]
+```
+**TC:** O(n²) — `index()` search for each random pointer **SC:** O(n)
+```python
+# Optimal: hashmap old_node -> new_node built during a single pass, resolved in a second
+def copy_random_list(head):
+    if not head:
+        return None
+    old_to_new = {}
+    node = head
+    while node:
+        old_to_new[node] = Node(node.val)
+        node = node.next
+    node = head
+    while node:
+        old_to_new[node].next = old_to_new.get(node.next)
+        old_to_new[node].random = old_to_new.get(node.random)
+        node = node.next
+    return old_to_new[head]
+```
+**TC:** O(n) **SC:** O(n)
+
+### 66. Linked List Cycle
+*(Same as Blind 75 #41.)*
+```python
+def has_cycle_brute(head):
+    seen = set()
+    while head:
+        if head in seen:
+            return True
+        seen.add(head); head = head.next
+    return False
+```
+**TC:** O(n) **SC:** O(n)
+```python
+def has_cycle(head):
+    slow = fast = head
+    while fast and fast.next:
+        slow = slow.next; fast = fast.next.next
+        if slow is fast:
+            return True
+    return False
+```
+**TC:** O(n) **SC:** O(1)
+
+### 67. Linked List Cycle II
+Return the node where the cycle begins (or None).
+```python
+# Brute: hash set, return first repeated node
+def detect_cycle_brute(head):
+    seen = set()
+    while head:
+        if head in seen:
+            return head
+        seen.add(head); head = head.next
+    return None
+```
+**TC:** O(n) **SC:** O(n)
+```python
+# Optimal: Floyd's algorithm — find meeting point, then advance two pointers at same speed
+def detect_cycle(head):
+    slow = fast = head
+    while fast and fast.next:
+        slow = slow.next; fast = fast.next.next
+        if slow is fast:
+            ptr = head
+            while ptr is not slow:
+                ptr = ptr.next; slow = slow.next
+            return ptr
+    return None
+```
+**TC:** O(n) **SC:** O(1)
+
+### 68. LRU Cache
+*(Same as Blind 75 #15.)*
+```python
+class LRUCacheBrute:
+    def __init__(self, capacity):
+        self.capacity = capacity
+        self.cache = {}
+        self.order = []
+    def get(self, key):
+        if key not in self.cache:
+            return -1
+        self.order.remove(key); self.order.append(key)
+        return self.cache[key]
+    def put(self, key, value):
+        if key in self.cache:
+            self.order.remove(key)
+        elif len(self.cache) >= self.capacity:
+            oldest = self.order.pop(0)
+            del self.cache[oldest]
+        self.cache[key] = value
+        self.order.append(key)
+```
+**TC:** O(n) per op **SC:** O(capacity)
+```python
+from collections import OrderedDict
+class LRUCache:
+    def __init__(self, capacity):
+        self.capacity = capacity
+        self.cache = OrderedDict()
+    def get(self, key):
+        if key not in self.cache:
+            return -1
+        self.cache.move_to_end(key)
+        return self.cache[key]
+    def put(self, key, value):
+        if key in self.cache:
+            self.cache.move_to_end(key)
+        self.cache[key] = value
+        if len(self.cache) > self.capacity:
+            self.cache.popitem(last=False)
+```
+**TC:** O(1) per op **SC:** O(capacity)
+
+### 69. Sort List
+Sort a linked list in O(n log n) time.
+```python
+# Brute: dump values to array, sort, rewrite node values
+def sort_list_brute(head):
+    vals = []
+    node = head
+    while node:
+        vals.append(node.val); node = node.next
+    vals.sort()
+    node = head
+    for v in vals:
+        node.val = v; node = node.next
+    return head
+```
+**TC:** O(n log n) **SC:** O(n) — array
+```python
+# Optimal: merge sort on the linked list itself (find middle, recurse, merge)
+def sort_list(head):
+    if not head or not head.next:
+        return head
+    slow, fast = head, head.next
+    while fast and fast.next:
+        slow = slow.next; fast = fast.next.next
+    mid = slow.next
+    slow.next = None
+    left = sort_list(head)
+    right = sort_list(mid)
+    dummy = cur = ListNode(0)
+    while left and right:
+        if left.val <= right.val:
+            cur.next, left = left, left.next
+        else:
+            cur.next, right = right, right.next
+        cur = cur.next
+    cur.next = left or right
+    return dummy.next
+```
+**TC:** O(n log n) **SC:** O(log n) recursion stack
+
+### 70. Intersection of Two Linked Lists
+```python
+# Brute: for every node in listA, scan all of listB for a match
+def get_intersection_brute(headA, headB):
+    nodeA = headA
+    while nodeA:
+        nodeB = headB
+        while nodeB:
+            if nodeA is nodeB:
+                return nodeA
+            nodeB = nodeB.next
+        nodeA = nodeA.next
+    return None
+```
+**TC:** O(n·m) **SC:** O(1)
+```python
+# Optimal: two pointers, switch heads on reaching the end — they meet at the intersection
+def get_intersection(headA, headB):
+    a, b = headA, headB
+    while a is not b:
+        a = a.next if a else headB
+        b = b.next if b else headA
+    return a
+```
+**TC:** O(n+m) **SC:** O(1)
+
+### 71. Reverse Linked List
+*(Same as Blind 75 #40.)*
+```python
+def reverse_list_brute(head):
+    vals = []
+    while head:
+        vals.append(head.val); head = head.next
+    dummy = cur = ListNode(0) if vals else None
+    for v in reversed(vals):
+        cur.next = ListNode(v); cur = cur.next
+    return dummy.next if dummy else None
+```
+**TC:** O(n) **SC:** O(n)
+```python
+def reverse_list(head):
+    prev = None
+    while head:
+        nxt = head.next
+        head.next = prev
+        prev = head
+        head = nxt
+    return prev
+```
+**TC:** O(n) **SC:** O(1)
+
+### 72. Palindrome Linked List
+```python
+# Brute: copy values to a list, compare to its reverse
+def is_palindrome_brute(head):
+    vals = []
+    while head:
+        vals.append(head.val); head = head.next
+    return vals == vals[::-1]
+```
+**TC:** O(n) **SC:** O(n)
+```python
+# Optimal: find middle, reverse second half, compare in place, (optionally restore list)
+def is_palindrome(head):
+    slow = fast = head
+    while fast and fast.next:
+        slow = slow.next; fast = fast.next.next
+    prev = None
+    while slow:
+        nxt = slow.next
+        slow.next = prev
+        prev = slow
+        slow = nxt
+    left, right = head, prev
+    result = True
+    while right:
+        if left.val != right.val:
+            result = False
+            break
+        left = left.next; right = right.next
+    return result
+```
+**TC:** O(n) **SC:** O(1)
+
+---
+
+## Matrix
+
+### 73. Rotate Image
+*(Same as Blind 75 #48.)*
+```python
+def rotate_brute(matrix):
+    n = len(matrix)
+    rotated = [[matrix[n-1-c][r] for c in range(n)] for r in range(n)]
+    for r in range(n):
+        matrix[r] = rotated[r]
+```
+**TC:** O(n²) **SC:** O(n²)
+```python
+def rotate(matrix):
+    n = len(matrix)
+    for r in range(n):
+        for c in range(r+1, n):
+            matrix[r][c], matrix[c][r] = matrix[c][r], matrix[r][c]
+    for row in matrix:
+        row.reverse()
+```
+**TC:** O(n²) **SC:** O(1)
+
+### 74. Spiral Matrix
+*(Same as Blind 75 #47.)*
+```python
+def spiral_order_brute(matrix):
+    rows, cols = len(matrix), len(matrix[0])
+    visited = set()
+    dirs = [(0,1),(1,0),(0,-1),(-1,0)]
+    r, c, d = 0, 0, 0
+    result = []
+    for _ in range(rows*cols):
+        result.append(matrix[r][c]); visited.add((r,c))
+        nr, nc = r+dirs[d][0], c+dirs[d][1]
+        if not (0<=nr<rows and 0<=nc<cols) or (nr,nc) in visited:
+            d = (d+1) % 4
+            nr, nc = r+dirs[d][0], c+dirs[d][1]
+        r, c = nr, nc
+    return result
+```
+**TC:** O(rows·cols) **SC:** O(rows·cols)
+```python
+def spiral_order(matrix):
+    result = []
+    top, bottom = 0, len(matrix)-1
+    left, right = 0, len(matrix[0])-1
+    while top <= bottom and left <= right:
+        for c in range(left, right+1): result.append(matrix[top][c])
+        top += 1
+        for r in range(top, bottom+1): result.append(matrix[r][right])
+        right -= 1
+        if top <= bottom:
+            for c in range(right, left-1, -1): result.append(matrix[bottom][c])
+            bottom -= 1
+        if left <= right:
+            for r in range(bottom, top-1, -1): result.append(matrix[r][left])
+            left += 1
+    return result
+```
+**TC:** O(rows·cols) **SC:** O(1) extra
+
+### 75. Set Matrix Zeroes
+*(Same as Blind 75 #46.)*
+```python
+def set_zeroes_brute(matrix):
+    rows, cols = len(matrix), len(matrix[0])
+    original = [row[:] for row in matrix]
+    for r in range(rows):
+        for c in range(cols):
+            if original[r][c] == 0:
+                for i in range(rows): matrix[i][c] = 0
+                for j in range(cols): matrix[r][j] = 0
+```
+**TC:** O(rows·cols·(rows+cols)) **SC:** O(rows·cols)
+```python
+def set_zeroes(matrix):
+    rows, cols = len(matrix), len(matrix[0])
+    first_row_zero = any(matrix[0][c] == 0 for c in range(cols))
+    first_col_zero = any(matrix[r][0] == 0 for r in range(rows))
+    for r in range(1, rows):
+        for c in range(1, cols):
+            if matrix[r][c] == 0:
+                matrix[r][0] = 0; matrix[0][c] = 0
+    for r in range(1, rows):
+        for c in range(1, cols):
+            if matrix[r][0] == 0 or matrix[0][c] == 0:
+                matrix[r][c] = 0
+    if first_row_zero:
+        for c in range(cols): matrix[0][c] = 0
+    if first_col_zero:
+        for r in range(rows): matrix[r][0] = 0
+```
+**TC:** O(rows·cols) **SC:** O(1)
+
+### 76. Search a 2D Matrix II
+Rows sorted left→right, columns sorted top→bottom (not a single flattened sorted array).
+```python
+# Brute: scan every cell
+def search_matrix2_brute(matrix, target):
+    for row in matrix:
+        for val in row:
+            if val == target:
+                return True
+    return False
+```
+**TC:** O(rows·cols) **SC:** O(1)
+```python
+# Optimal: start top-right, eliminate a row or column each step
+def search_matrix2(matrix, target):
+    if not matrix or not matrix[0]:
+        return False
+    r, c = 0, len(matrix[0]) - 1
+    while r < len(matrix) and c >= 0:
+        if matrix[r][c] == target:
+            return True
+        elif matrix[r][c] > target:
+            c -= 1
+        else:
+            r += 1
+    return False
+```
+**TC:** O(rows + cols) **SC:** O(1)
+
+---
+
+## Sliding Window
+
+### 77. Longest Substring Without Repeating Characters
+*(Same as Blind 75 #50.)*
+```python
+def length_of_longest_substring_brute(s):
+    best = 0
+    for i in range(len(s)):
+        seen = set()
+        for j in range(i, len(s)):
+            if s[j] in seen: break
+            seen.add(s[j])
+            best = max(best, j - i + 1)
+    return best
+```
+**TC:** O(n²) **SC:** O(n)
+```python
+def length_of_longest_substring(s):
+    last_seen = {}
+    best = start = 0
+    for i, ch in enumerate(s):
+        if ch in last_seen and last_seen[ch] >= start:
+            start = last_seen[ch] + 1
+        last_seen[ch] = i
+        best = max(best, i - start + 1)
+    return best
+```
+**TC:** O(n) **SC:** O(min(n, charset))
+
+### 78. Minimum Window Substring
+*(Same as Blind 75 #52.)*
+```python
+from collections import Counter
+def min_window_brute(s, t):
+    need = Counter(t)
+    best = ""
+    for i in range(len(s)):
+        for j in range(i, len(s)):
+            window = Counter(s[i:j+1])
+            if all(window[c] >= need[c] for c in need):
+                if best == "" or j-i+1 < len(best):
+                    best = s[i:j+1]
+                break
+    return best
+```
+**TC:** O(n³) **SC:** O(n)
+```python
+from collections import Counter
+def min_window(s, t):
+    if not t or not s:
+        return ""
+    need = Counter(t)
+    missing = len(t)
+    left = 0
+    best = (float("inf"), 0, 0)
+    for right, ch in enumerate(s, 1):
+        if need[ch] > 0:
+            missing -= 1
+        need[ch] -= 1
+        if missing == 0:
+            while need[s[left]] < 0:
+                need[s[left]] += 1; left += 1
+            if right - left < best[0]:
+                best = (right-left, left, right)
+            need[s[left]] += 1; missing += 1; left += 1
+    return "" if best[0] == float("inf") else s[best[1]:best[2]]
+```
+**TC:** O(n+m) **SC:** O(charset)
+
+### 79. Sliding Window Maximum
+*(Same as Blind 75 #6 in the DSA guide.)*
+```python
+def sliding_max_brute(nums, k):
+    res = []
+    for i in range(len(nums) - k + 1):
+        res.append(max(nums[i:i+k]))
+    return res
+```
+**TC:** O(n·k) **SC:** O(1) extra
+```python
+from collections import deque
+def sliding_max(nums, k):
+    dq = deque()
+    res = []
+    for i, x in enumerate(nums):
+        while dq and nums[dq[-1]] < x:
+            dq.pop()
+        dq.append(i)
+        if dq[0] <= i - k:
+            dq.popleft()
+        if i >= k - 1:
+            res.append(nums[dq[0]])
+    return res
+```
+**TC:** O(n) **SC:** O(k)
+
+### 80. Find All Anagrams in a String
+Return start indices of `p`'s anagrams in `s`.
+```python
+# Brute: check every window's character count against p's
+from collections import Counter
+def find_anagrams_brute(s, p):
+    need = Counter(p)
+    res = []
+    for i in range(len(s) - len(p) + 1):
+        if Counter(s[i:i+len(p)]) == need:
+            res.append(i)
+    return res
+```
+**TC:** O(n·k) — k = len(p), rebuilding Counter each window **SC:** O(k)
+```python
+# Optimal: fixed-size sliding window with an incremental count array
+from collections import Counter
+def find_anagrams(s, p):
+    if len(s) < len(p):
+        return []
+    need = Counter(p)
+    window = Counter(s[:len(p)])
+    res = []
+    if window == need:
+        res.append(0)
+    for i in range(len(p), len(s)):
+        window[s[i]] += 1
+        left_char = s[i - len(p)]
+        window[left_char] -= 1
+        if window[left_char] == 0:
+            del window[left_char]
+        if window == need:
+            res.append(i - len(p) + 1)
+    return res
+```
+**TC:** O(n) **SC:** O(charset)
+
+---
+
+## Stack
+
+### 81. Valid Parentheses
+*(Same as Blind 75 #55.)*
+```python
+def is_valid_brute(s):
+    prev = -1
+    while len(s) != prev:
+        prev = len(s)
+        s = s.replace("()", "").replace("[]", "").replace("{}", "")
+    return s == ""
+```
+**TC:** O(n²) **SC:** O(n)
+```python
+def is_valid(s):
+    pairs = {')':'(', ']':'[', '}':'{'}
+    stack = []
+    for ch in s:
+        if ch in "([{":
+            stack.append(ch)
+        elif ch in pairs:
+            if not stack or stack.pop() != pairs[ch]:
+                return False
+    return not stack
+```
+**TC:** O(n) **SC:** O(n)
+
+### 82. Largest Rectangle in Histogram
+Largest rectangular area in a histogram.
+```python
+# Brute: for every bar, expand left/right while height allows
+def largest_rectangle_brute(heights):
+    best = 0
+    for i in range(len(heights)):
+        min_h = heights[i]
+        for j in range(i, len(heights)):
+            min_h = min(min_h, heights[j])
+            best = max(best, min_h * (j - i + 1))
+    return best
+```
+**TC:** O(n²) **SC:** O(1)
+```python
+# Optimal: monotonic increasing stack of indices
+def largest_rectangle(heights):
+    stack = []          # (index, height)
+    best = 0
+    for i, h in enumerate(heights + [0]):
+        start = i
+        while stack and stack[-1][1] > h:
+            idx, height = stack.pop()
+            best = max(best, height * (i - idx))
+            start = idx
+        stack.append((start, h))
+    return best
+```
+**TC:** O(n) — each bar pushed/popped once **SC:** O(n)
+
+### 83. Min Stack
+Stack supporting `push`, `pop`, `top`, and `getMin` all in O(1).
+```python
+# Brute: recompute min from the whole stack every time getMin is called
+class MinStackBrute:
+    def __init__(self):
+        self.stack = []
+    def push(self, val):
+        self.stack.append(val)
+    def pop(self):
+        self.stack.pop()
+    def top(self):
+        return self.stack[-1]
+    def get_min(self):
+        return min(self.stack)          # O(n) scan
+```
+**TC:** push/pop/top O(1), get_min O(n) **SC:** O(n)
+```python
+# Optimal: auxiliary stack tracking running minimum
+class MinStack:
+    def __init__(self):
+        self.stack = []
+        self.min_stack = []
+    def push(self, val):
+        self.stack.append(val)
+        m = val if not self.min_stack else min(val, self.min_stack[-1])
+        self.min_stack.append(m)
+    def pop(self):
+        self.stack.pop()
+        self.min_stack.pop()
+    def top(self):
+        return self.stack[-1]
+    def get_min(self):
+        return self.min_stack[-1]
+```
+**TC:** O(1) for all operations **SC:** O(n)
+
+### 84. Decode String
+`"3[a2[c]]"` → `"accaccacc"`.
+```python
+# Brute: repeatedly find and expand the innermost bracket via regex/string ops
+import re
+def decode_string_brute(s):
+    pattern = re.compile(r'(\d+)\[([a-z]*)\]')
+    while '[' in s:
+        s = pattern.sub(lambda m: m.group(2) * int(m.group(1)), s)
+    return s
+```
+**TC:** O(n²) worst case — repeated scans/substitutions **SC:** O(n)
+```python
+# Optimal: stack-based single pass
+def decode_string(s):
+    stack = []       # (prev_string, repeat_count)
+    cur, num = "", 0
+    for ch in s:
+        if ch.isdigit():
+            num = num * 10 + int(ch)
+        elif ch == '[':
+            stack.append((cur, num))
+            cur, num = "", 0
+        elif ch == ']':
+            prev, count = stack.pop()
+            cur = prev + cur * count
+        else:
+            cur += ch
+    return cur
+```
+**TC:** O(n) — n is the length of the decoded output **SC:** O(n)
+
+### 85. Daily Temperatures
+For each day, days until a warmer temperature (0 if none).
+```python
+# Brute: for each day, scan forward until a warmer day is found
+def daily_temperatures_brute(temps):
+    n = len(temps)
+    res = [0] * n
+    for i in range(n):
+        for j in range(i+1, n):
+            if temps[j] > temps[i]:
+                res[i] = j - i
+                break
+    return res
+```
+**TC:** O(n²) **SC:** O(1) extra
+```python
+# Optimal: monotonic decreasing stack of indices
+def daily_temperatures(temps):
+    res = [0] * len(temps)
+    stack = []
+    for i, t in enumerate(temps):
+        while stack and temps[stack[-1]] < t:
+            j = stack.pop()
+            res[j] = i - j
+        stack.append(i)
+    return res
+```
+**TC:** O(n) **SC:** O(n)
+
+---
+
+## Two Pointers
+
+### 86. Container With Most Water
+*(Same as Blind 75 #10.)*
+```python
+def max_area_brute(height):
+    best = 0
+    for i in range(len(height)):
+        for j in range(i+1, len(height)):
+            best = max(best, min(height[i], height[j]) * (j-i))
+    return best
+```
+**TC:** O(n²) **SC:** O(1)
+```python
+def max_area(height):
+    lo, hi, best = 0, len(height)-1, 0
+    while lo < hi:
+        best = max(best, min(height[lo], height[hi]) * (hi-lo))
+        if height[lo] < height[hi]: lo += 1
+        else: hi -= 1
+    return best
+```
+**TC:** O(n) **SC:** O(1)
+
+### 87. 3Sum
+*(Same as Blind 75 #9.)*
+```python
+def three_sum_brute(nums):
+    n, res = len(nums), set()
+    for i in range(n):
+        for j in range(i+1, n):
+            for k in range(j+1, n):
+                if nums[i]+nums[j]+nums[k] == 0:
+                    res.add(tuple(sorted((nums[i], nums[j], nums[k]))))
+    return [list(t) for t in res]
+```
+**TC:** O(n³) **SC:** O(n)
+```python
+def three_sum(nums):
+    nums.sort()
+    res = []
+    for i in range(len(nums)-2):
+        if i > 0 and nums[i] == nums[i-1]:
+            continue
+        lo, hi = i+1, len(nums)-1
+        while lo < hi:
+            s = nums[i]+nums[lo]+nums[hi]
+            if s < 0: lo += 1
+            elif s > 0: hi -= 1
+            else:
+                res.append([nums[i], nums[lo], nums[hi]])
+                lo += 1
+                while lo < hi and nums[lo] == nums[lo-1]:
+                    lo += 1
+    return res
+```
+**TC:** O(n²) **SC:** O(1) extra
+
+### 88. Trapping Rain Water
+Water trapped between bars after raining.
+```python
+# Brute: for each bar, scan left and right for max height
+def trap_brute(height):
+    n = len(height)
+    total = 0
+    for i in range(n):
+        left_max = max(height[:i+1])
+        right_max = max(height[i:])
+        total += min(left_max, right_max) - height[i]
+    return total
+```
+**TC:** O(n²) **SC:** O(1) extra
+```python
+# Optimal: two pointers, track running left/right max
+def trap(height):
+    if not height:
+        return 0
+    lo, hi = 0, len(height) - 1
+    left_max, right_max = height[lo], height[hi]
+    total = 0
+    while lo < hi:
+        if left_max < right_max:
+            lo += 1
+            left_max = max(left_max, height[lo])
+            total += left_max - height[lo]
+        else:
+            hi -= 1
+            right_max = max(right_max, height[hi])
+            total += right_max - height[hi]
+    return total
+```
+**TC:** O(n) **SC:** O(1)
+
+### 89. Move Zeroes
+Move all zeros to the end, keep relative order of non-zeros, in place.
+```python
+# Brute: build a new list of non-zeros + zeros, copy back
+def move_zeroes_brute(nums):
+    non_zero = [x for x in nums if x != 0]
+    result = non_zero + [0] * (len(nums) - len(non_zero))
+    for i in range(len(nums)):
+        nums[i] = result[i]
+```
+**TC:** O(n) **SC:** O(n) — new list
+```python
+# Optimal: two pointers, swap in place, single pass
+def move_zeroes(nums):
+    insert_pos = 0
+    for i in range(len(nums)):
+        if nums[i] != 0:
+            nums[insert_pos], nums[i] = nums[i], nums[insert_pos]
+            insert_pos += 1
+```
+**TC:** O(n) **SC:** O(1)
+
+---
+
+## Trie
+
+### 90. Implement Trie (Prefix Tree)
+*(Same as Blind 75 #71.)*
+```python
+class TrieBrute:
+    def __init__(self):
+        self.words = []
+    def insert(self, word):
+        self.words.append(word)
+    def search(self, word):
+        return word in self.words
+    def starts_with(self, prefix):
+        return any(w.startswith(prefix) for w in self.words)
+```
+**TC:** insert O(1), search/starts_with O(n·k) **SC:** O(total chars)
+```python
+class TrieNode:
+    def __init__(self):
+        self.children = {}
+        self.is_end = False
+
+class Trie:
+    def __init__(self):
+        self.root = TrieNode()
+    def insert(self, word):
+        node = self.root
+        for ch in word:
+            node = node.children.setdefault(ch, TrieNode())
+        node.is_end = True
+    def search(self, word):
+        node = self._find(word)
+        return node is not None and node.is_end
+    def starts_with(self, prefix):
+        return self._find(prefix) is not None
+    def _find(self, s):
+        node = self.root
+        for ch in s:
+            if ch not in node.children:
+                return None
+            node = node.children[ch]
+        return node
+```
+**TC:** O(k) per operation **SC:** O(total chars)
+
+---
+
+## Misc
+
+### 91. Next Permutation
+Rearrange to the lexicographically next greater permutation, in place.
+```python
+# Brute: generate all permutations, sort, find the one right after the current
+from itertools import permutations
+def next_permutation_brute(nums):
+    perms = sorted(set(permutations(nums)))
+    idx = perms.index(tuple(nums))
+    nxt = perms[(idx + 1) % len(perms)]
+    for i in range(len(nums)):
+        nums[i] = nxt[i]
+```
+**TC:** O(n! · n log n) **SC:** O(n! · n)
+```python
+# Optimal: find pivot from the right, swap, reverse suffix
+def next_permutation(nums):
+    n = len(nums)
+    i = n - 2
+    while i >= 0 and nums[i] >= nums[i+1]:
+        i -= 1
+    if i >= 0:
+        j = n - 1
+        while nums[j] <= nums[i]:
+            j -= 1
+        nums[i], nums[j] = nums[j], nums[i]
+    nums[i+1:] = reversed(nums[i+1:])
+```
+**TC:** O(n) **SC:** O(1)
+
+### 92. First Missing Positive
+Smallest missing positive integer, O(n) time, O(1) extra space.
+```python
+# Brute: check 1, 2, 3, ... against a set of the array's values
+def first_missing_positive_brute(nums):
+    num_set = set(nums)
+    i = 1
+    while i in num_set:
+        i += 1
+    return i
+```
+**TC:** O(n) **SC:** O(n) — set
+```python
+# Optimal: index-as-hash — place each value v at index v-1 via in-place swaps
+def first_missing_positive(nums):
+    n = len(nums)
+    for i in range(n):
+        while 1 <= nums[i] <= n and nums[nums[i]-1] != nums[i]:
+            correct = nums[i] - 1
+            nums[i], nums[correct] = nums[correct], nums[i]
+    for i in range(n):
+        if nums[i] != i + 1:
+            return i + 1
+    return n + 1
+```
+**TC:** O(n) — each swap places at least one value correctly **SC:** O(1)
+
+### 93. Maximum Subarray
+*(Same as Blind 75 #5.)*
+```python
+def max_subarray_brute(nums):
+    best = float("-inf")
+    for i in range(len(nums)):
+        cur = 0
+        for j in range(i, len(nums)):
+            cur += nums[j]
+            best = max(best, cur)
+    return best
+```
+**TC:** O(n²) **SC:** O(1)
+```python
+def max_subarray(nums):
+    best = cur = nums[0]
+    for x in nums[1:]:
+        cur = max(x, cur + x)
+        best = max(best, cur)
+    return best
+```
+**TC:** O(n) **SC:** O(1)
+
+### 94. Merge Intervals
+*(Same as Blind 75 #36.)*
+```python
+def merge_brute(intervals):
+    intervals = [list(i) for i in intervals]
+    changed = True
+    while changed:
+        changed = False
+        for i in range(len(intervals)):
+            for j in range(i+1, len(intervals)):
+                a, b = intervals[i], intervals[j]
+                if a[0] <= b[1] and b[0] <= a[1]:
+                    a[0], a[1] = min(a[0], b[0]), max(a[1], b[1])
+                    intervals.pop(j); changed = True; break
+            if changed: break
+    return intervals
+```
+**TC:** O(n³) **SC:** O(n)
+```python
+def merge(intervals):
+    intervals = sorted(intervals, key=lambda x: x[0])
+    merged = [intervals[0]]
+    for s, e in intervals[1:]:
+        if s <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], e)
+        else:
+            merged.append([s, e])
+    return merged
+```
+**TC:** O(n log n) **SC:** O(n)
+
+### 95. Sort Colors
+Sort an array of 0s, 1s, 2s in place (Dutch National Flag).
+```python
+# Brute: count occurrences, overwrite the array
+def sort_colors_brute(nums):
+    counts = [0, 0, 0]
+    for x in nums:
+        counts[x] += 1
+    i = 0
+    for color in range(3):
+        for _ in range(counts[color]):
+            nums[i] = color
+            i += 1
+```
+**TC:** O(n) — two passes **SC:** O(1)
+```python
+# Optimal: Dutch National Flag, one pass with three pointers
+def sort_colors(nums):
+    low, mid, high = 0, 0, len(nums) - 1
+    while mid <= high:
+        if nums[mid] == 0:
+            nums[low], nums[mid] = nums[mid], nums[low]
+            low += 1; mid += 1
+        elif nums[mid] == 1:
+            mid += 1
+        else:
+            nums[mid], nums[high] = nums[high], nums[mid]
+            high -= 1
+    return nums
+```
+**TC:** O(n) — single pass **SC:** O(1)
+
+### 96. Single Number
+Every element appears twice except one — find it.
+```python
+# Brute: count frequency of each element
+from collections import Counter
+def single_number_brute(nums):
+    freq = Counter(nums)
+    for val, count in freq.items():
+        if count == 1:
+            return val
+```
+**TC:** O(n) **SC:** O(n)
+```python
+# Optimal: XOR all elements — duplicates cancel out
+def single_number(nums):
+    result = 0
+    for x in nums:
+        result ^= x
+    return result
+```
+**TC:** O(n) **SC:** O(1)
+
+### 97. Majority Element
+Element appearing more than ⌊n/2⌋ times.
+```python
+# Brute: count frequency of each element
+from collections import Counter
+def majority_element_brute(nums):
+    freq = Counter(nums)
+    return max(freq, key=freq.get)
+```
+**TC:** O(n) **SC:** O(n)
+```python
+# Optimal: Boyer-Moore voting algorithm
+def majority_element(nums):
+    count = 0
+    candidate = None
+    for x in nums:
+        if count == 0:
+            candidate = x
+        count += 1 if x == candidate else -1
+    return candidate
+```
+**TC:** O(n) **SC:** O(1)
+
+### 98. Rotate Array
+Rotate array right by `k` steps, in place.
+```python
+# Brute: rotate one step at a time, k times
+def rotate_array_brute(nums, k):
+    n = len(nums)
+    k %= n
+    for _ in range(k):
+        last = nums.pop()
+        nums.insert(0, last)
+```
+**TC:** O(n·k) — each `pop()`/`insert(0, ...)` is O(n) **SC:** O(1)
+```python
+# Optimal: reverse whole array, then reverse the two parts
+def rotate_array(nums, k):
+    n = len(nums)
+    k %= n
+    nums.reverse()
+    nums[:k] = reversed(nums[:k])
+    nums[k:] = reversed(nums[k:])
+```
+**TC:** O(n) **SC:** O(1)
+
+### 99. Product of Array Except Self
+*(Same as Blind 75 #4.)*
+```python
+def product_except_self_brute(nums):
+    res = []
+    for i in range(len(nums)):
+        p = 1
+        for j in range(len(nums)):
+            if i != j:
+                p *= nums[j]
+        res.append(p)
+    return res
+```
+**TC:** O(n²) **SC:** O(1) extra
+```python
+def product_except_self(nums):
+    n = len(nums)
+    res = [1] * n
+    prefix = 1
+    for i in range(n):
+        res[i] = prefix
+        prefix *= nums[i]
+    suffix = 1
+    for i in range(n-1, -1, -1):
+        res[i] *= suffix
+        suffix *= nums[i]
+    return res
+```
+**TC:** O(n) **SC:** O(1) extra
+
+### 100. Find the Duplicate Number
+One duplicate in `1..n` range array of size `n+1`, without modifying the array or using extra space.
+```python
+# Brute: nested comparison
+def find_duplicate_brute(nums):
+    for i in range(len(nums)):
+        for j in range(i+1, len(nums)):
+            if nums[i] == nums[j]:
+                return nums[i]
+```
+**TC:** O(n²) **SC:** O(1)
+```python
+# Optimal: Floyd's cycle detection treating the array as a linked list (value = next index)
+def find_duplicate(nums):
+    slow = fast = nums[0]
+    while True:
+        slow = nums[slow]
+        fast = nums[nums[fast]]
+        if slow == fast:
+            break
+    slow2 = nums[0]
+    while slow != slow2:
+        slow = nums[slow]
+        slow2 = nums[slow2]
+    return slow
+```
+**TC:** O(n) **SC:** O(1)
+
+---
+
+**Pattern recap:** most "brute force → optimal" jumps in this list fall into a handful of moves —
+swap nested loops for a hashmap/set (O(n²)→O(n)), swap repeated sorting for one sort + linear pass
+(O(n log n) done once instead of per-operation), swap linear scans for binary search on sorted data
+(O(n)→O(log n)), swap recomputation for memoized/bottom-up DP (exponential→polynomial), or swap
+extra data structures (visited sets, value arrays) for in-place pointer/index manipulation to cut SC to O(1).
