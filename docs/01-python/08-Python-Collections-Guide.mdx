@@ -1,0 +1,892 @@
+---
+title: "Python Collections"
+description: "A complete reference for Python's built-in collection types and the collections module"
+---
+
+# Python Collections
+
+A practical reference covering built-in collection types (`list`, `tuple`, `set`, `dict`) and the specialized types in the `collections` module (`Counter`, `deque`, `OrderedDict`, `defaultdict`, `namedtuple`, `ChainMap`), with their most useful methods and examples.
+
+## Table of Contents
+
+- [1. List](#1-list)
+- [2. Tuple](#2-tuple)
+- [3. Set](#3-set)
+- [4. Dict](#4-dict)
+- [5. collections Module](#5-collections-module)
+  - [5.1 Counter](#51-counter)
+  - [5.2 deque](#52-deque)
+  - [5.3 OrderedDict](#53-ordereddict)
+  - [5.4 defaultdict](#54-defaultdict)
+  - [5.5 namedtuple](#55-namedtuple)
+  - [5.6 ChainMap](#56-chainmap)
+- [6. JS-Style Functional Operations](#6-js-style-functional-operations)
+  - [6.1 any / all / some](#61-any--all--some)
+  - [6.2 find / findIndex](#62-find--findindex)
+  - [6.3 map / filter / reduce](#63-map--filter--reduce)
+  - [6.4 includes / some-in-string](#64-includes--some-in-string)
+  - [6.5 String Methods (JS vs Python)](#65-string-methods-js-vs-python)
+- [7. DSA Tips & Tricks (LeetCode-Style Python)](#7-dsa-tips--tricks-leetcode-style-python)
+  - [7.1 heapq (Priority Queue / Heap)](#71-heapq-priority-queue--heap)
+  - [7.2 bisect (Binary Search)](#72-bisect-binary-search)
+  - [7.3 itertools Essentials](#73-itertools-essentials)
+  - [7.4 Two Pointers](#74-two-pointers)
+  - [7.5 Sliding Window](#75-sliding-window)
+  - [7.6 Prefix Sums](#76-prefix-sums)
+  - [7.7 Fast & Slow Pointers (Cycle Detection)](#77-fast--slow-pointers-cycle-detection)
+  - [7.8 Union-Find (Disjoint Set)](#78-union-find-disjoint-set)
+  - [7.9 Graph Traversal (BFS/DFS) Templates](#79-graph-traversal-bfsdfs-templates)
+  - [7.10 Sorting Tricks](#710-sorting-tricks)
+  - [7.11 Math & Bit Tricks](#711-math--bit-tricks)
+  - [7.12 Memoization / DP Helpers](#712-memoization--dp-helpers)
+  - [7.13 Handy One-Liners](#713-handy-one-liners)
+- [8. Quick Comparison Table](#8-quick-comparison-table)
+
+---
+
+## 1. List
+
+A `list` is an **ordered, mutable** sequence that allows duplicate values.
+
+```python
+fruits = ["apple", "banana", "cherry"]
+```
+
+### Common Methods
+
+| Method | Description | Example |
+|---|---|---|
+| `append(x)` | Add item to the end | `fruits.append("mango")` |
+| `insert(i, x)` | Insert item at index `i` | `fruits.insert(1, "kiwi")` |
+| `extend(iterable)` | Append all items from an iterable | `fruits.extend(["fig", "grape"])` |
+| `remove(x)` | Remove first matching value | `fruits.remove("banana")` |
+| `pop(i=-1)` | Remove and return item at index | `fruits.pop()` |
+| `clear()` | Remove all items | `fruits.clear()` |
+| `index(x)` | Return index of first match | `fruits.index("cherry")` |
+| `count(x)` | Count occurrences | `fruits.count("apple")` |
+| `sort(key=None, reverse=False)` | Sort in place | `fruits.sort()` |
+| `reverse()` | Reverse in place | `fruits.reverse()` |
+| `copy()` | Shallow copy | `new_list = fruits.copy()` |
+
+### Example
+
+```python
+nums = [5, 3, 8, 1]
+nums.append(9)          # [5, 3, 8, 1, 9]
+nums.sort()              # [1, 3, 5, 8, 9]
+nums.reverse()            # [9, 8, 5, 3, 1]
+print(nums.index(5))      # 2
+print(nums.count(1))      # 1
+```
+
+---
+
+## 2. Tuple
+
+A `tuple` is an **ordered, immutable** sequence. Because it's immutable, it only has two methods.
+
+```python
+point = (10, 20)
+```
+
+### Common Methods
+
+| Method | Description | Example |
+|---|---|---|
+| `count(x)` | Count occurrences of a value | `point.count(10)` |
+| `index(x)` | Return index of first match | `point.index(20)` |
+
+### Example
+
+```python
+coordinates = (1, 2, 3, 2, 2)
+print(coordinates.count(2))   # 3
+print(coordinates.index(3))   # 2
+
+# Tuple unpacking
+x, y, *rest = coordinates
+print(x, y, rest)             # 1 2 [3, 2, 2]
+
+# Immutability
+try:
+    coordinates[0] = 99
+except TypeError as e:
+    print(e)                  # 'tuple' object does not support item assignment
+```
+
+Tuples are commonly used for fixed collections of values, function returns with multiple values, and as dictionary keys (since they're hashable).
+
+---
+
+## 3. Set
+
+A `set` is an **unordered collection of unique, hashable** items. Great for membership testing and eliminating duplicates.
+
+```python
+colors = {"red", "green", "blue"}
+```
+
+### Common Methods
+
+| Method | Description | Example |
+|---|---|---|
+| `add(x)` | Add a single element | `colors.add("yellow")` |
+| `update(iterable)` | Add multiple elements | `colors.update(["cyan", "magenta"])` |
+| `remove(x)` | Remove element, raises `KeyError` if missing | `colors.remove("red")` |
+| `discard(x)` | Remove element, no error if missing | `colors.discard("black")` |
+| `pop()` | Remove and return an arbitrary element | `colors.pop()` |
+| `clear()` | Remove all elements | `colors.clear()` |
+| `union(other)` / `\|` | Combine sets | `a \| b` |
+| `intersection(other)` / `&` | Common elements | `a & b` |
+| `difference(other)` / `-` | Elements in `a` not in `b` | `a - b` |
+| `symmetric_difference(other)` / `^` | Elements in either, not both | `a ^ b` |
+| `issubset(other)` | Check if `a` is subset of `b` | `a.issubset(b)` |
+| `issuperset(other)` | Check if `a` is superset of `b` | `a.issuperset(b)` |
+
+### Example
+
+```python
+a = {1, 2, 3, 4}
+b = {3, 4, 5, 6}
+
+print(a | b)   # {1, 2, 3, 4, 5, 6}  union
+print(a & b)   # {3, 4}              intersection
+print(a - b)   # {1, 2}              difference
+print(a ^ b)   # {1, 2, 5, 6}        symmetric difference
+print(a.issubset({1, 2, 3, 4, 5}))   # True
+```
+
+---
+
+## 4. Dict
+
+A `dict` is an **ordered (since Python 3.7+) mapping** of unique keys to values.
+
+```python
+person = {"name": "Alice", "age": 30}
+```
+
+### Common Methods
+
+| Method | Description | Example |
+|---|---|---|
+| `get(key, default=None)` | Safe key lookup | `person.get("age", 0)` |
+| `setdefault(key, default)` | Get value, or set it if missing | `person.setdefault("city", "NYC")` |
+| `update(other)` | Merge another dict/iterable of pairs | `person.update({"age": 31})` |
+| `pop(key, default)` | Remove key and return its value | `person.pop("age")` |
+| `popitem()` | Remove and return last inserted (key, value) | `person.popitem()` |
+| `keys()` | View of keys | `person.keys()` |
+| `values()` | View of values | `person.values()` |
+| `items()` | View of (key, value) pairs | `person.items()` |
+| `clear()` | Remove all items | `person.clear()` |
+| `copy()` | Shallow copy | `person.copy()` |
+
+### Example
+
+```python
+scores = {"math": 90, "science": 85}
+
+scores["english"] = 88                 # add new key
+print(scores.get("history", "N/A"))    # N/A (safe access)
+
+for subject, score in scores.items():
+    print(subject, score)
+
+scores.update({"science": 95, "art": 70})
+print(scores)  # {'math': 90, 'science': 95, 'english': 88, 'art': 70}
+```
+
+---
+
+## 5. collections Module
+
+The `collections` module provides specialized, high-performance container datatypes built on top of `list`, `tuple`, `dict`, and `set`.
+
+```python
+from collections import Counter, deque, OrderedDict, defaultdict, namedtuple, ChainMap
+```
+
+### 5.1 Counter
+
+A `dict` subclass for counting hashable objects. Values default to `0` for missing keys.
+
+| Method | Description |
+|---|---|
+| `most_common(n)` | Returns the `n` most common elements |
+| `elements()` | Returns an iterator over elements, repeating by count |
+| `update(iterable)` | Adds counts from another iterable/mapping |
+| `subtract(iterable)` | Subtracts counts |
+| `total()` | Sum of all counts (Python 3.10+) |
+
+```python
+words = ["apple", "banana", "apple", "cherry", "banana", "apple"]
+count = Counter(words)
+print(count)                    # Counter({'apple': 3, 'banana': 2, 'cherry': 1})
+print(count.most_common(2))     # [('apple', 3), ('banana', 2)]
+print(list(count.elements()))   # ['apple','apple','apple','banana','banana','cherry']
+
+count.update(["cherry", "cherry"])
+print(count["cherry"])          # 3
+
+count.subtract(["apple"])
+print(count["apple"])           # 2
+```
+
+### 5.2 deque
+
+A double-ended queue optimized for fast appends/pops from **both ends** (O(1)), unlike a `list` which is O(n) on the left side.
+
+| Method | Description |
+|---|---|
+| `append(x)` | Add to the right end |
+| `appendleft(x)` | Add to the left end |
+| `pop()` | Remove from the right end |
+| `popleft()` | Remove from the left end |
+| `rotate(n)` | Rotate elements `n` steps to the right (negative = left) |
+| `extend(iterable)` | Extend on the right |
+| `extendleft(iterable)` | Extend on the left (reverses order) |
+| `maxlen` | Optional fixed max size, drops opposite end when full |
+
+```python
+dq = deque([1, 2, 3])
+dq.append(4)          # deque([1, 2, 3, 4])
+dq.appendleft(0)       # deque([0, 1, 2, 3, 4])
+dq.pop()                # removes 4 -> deque([0, 1, 2, 3])
+dq.popleft()             # removes 0 -> deque([1, 2, 3])
+dq.rotate(1)               # deque([3, 1, 2])
+
+# Fixed-size deque, useful for sliding windows / recent history
+recent = deque(maxlen=3)
+for i in range(5):
+    recent.append(i)
+print(recent)  # deque([2, 3, 4], maxlen=3)
+```
+
+### 5.3 OrderedDict
+
+A `dict` subclass that remembers insertion order and adds order-specific methods. In modern Python (3.7+), regular `dict` already preserves order, but `OrderedDict` is still useful for explicit order manipulation and equality checks that consider order.
+
+| Method | Description |
+|---|---|
+| `move_to_end(key, last=True)` | Move a key to either end |
+| `popitem(last=True)` | Pop from either end |
+
+```python
+od = OrderedDict()
+od["a"] = 1
+od["b"] = 2
+od["c"] = 3
+
+od.move_to_end("a")
+print(od)  # OrderedDict([('b', 2), ('c', 3), ('a', 1)])
+
+od.move_to_end("c", last=False)
+print(od)  # OrderedDict([('c', 3), ('b', 2), ('a', 1)])
+
+# Order-sensitive equality
+print(OrderedDict(a=1, b=2) == OrderedDict(b=2, a=1))  # False
+print({"a": 1, "b": 2} == {"b": 2, "a": 1})              # True (plain dict ignores order)
+```
+
+### 5.4 defaultdict
+
+A `dict` subclass that calls a factory function to supply a default value for missing keys, avoiding `KeyError` and manual `setdefault` calls.
+
+```python
+dd = defaultdict(list)
+dd["fruits"].append("apple")
+dd["fruits"].append("banana")
+dd["veggies"].append("carrot")
+print(dd)  # defaultdict(<class 'list'>, {'fruits': ['apple', 'banana'], 'veggies': ['carrot']})
+
+# Common pattern: grouping
+words = ["apple", "banana", "avocado", "blueberry", "cherry"]
+grouped = defaultdict(list)
+for word in words:
+    grouped[word[0]].append(word)
+print(dict(grouped))
+# {'a': ['apple', 'avocado'], 'b': ['banana', 'blueberry'], 'c': ['cherry']}
+
+# Counting with int factory (similar to Counter)
+counts = defaultdict(int)
+for word in words:
+    counts[word[0]] += 1
+print(dict(counts))  # {'a': 2, 'b': 2, 'c': 1}
+```
+
+### 5.5 namedtuple
+
+Creates tuple subclasses with named fields, giving tuples readable, self-documenting access while remaining immutable and lightweight.
+
+```python
+Point = namedtuple("Point", ["x", "y"])
+p = Point(3, 4)
+
+print(p.x, p.y)      # 3 4
+print(p[0], p[1])     # 3 4 (still supports indexing)
+
+# Useful methods
+print(p._asdict())    # {'x': 3, 'y': 4}
+p2 = p._replace(x=10)  # returns a new namedtuple with x replaced
+print(p2)              # Point(x=10, y=4)
+print(Point._fields)   # ('x', 'y')
+```
+
+### 5.6 ChainMap
+
+Groups multiple dictionaries (or mappings) into a single, updatable view without merging them into a new dict. Lookups check each mapping in order.
+
+```python
+defaults = {"theme": "light", "language": "en"}
+user_prefs = {"theme": "dark"}
+
+settings = ChainMap(user_prefs, defaults)
+print(settings["theme"])      # dark (found in user_prefs first)
+print(settings["language"])   # en (falls back to defaults)
+
+# Updates affect only the first mapping
+settings["language"] = "fr"
+print(user_prefs)   # {'theme': 'dark', 'language': 'fr'}
+print(defaults)      # {'theme': 'light', 'language': 'en'} (untouched)
+
+# Add a new layer on top
+settings2 = settings.new_child({"theme": "blue"})
+print(settings2["theme"])  # blue
+```
+
+---
+
+## 6. JS-Style Functional Operations
+
+JavaScript array methods like `Array.prototype.some`, `.every`, `.find`, `.map`, `.filter`, and `.reduce` all have close Python equivalents — some as built-ins, some from `functools`, and some as comprehensions.
+
+### 6.1 any / all / some
+
+JS's `Array.some()` maps to Python's built-in `any()`, and JS's `Array.every()` maps to `all()`. Both take an iterable of booleans (often produced by a generator expression) and short-circuit as soon as the result is determined.
+
+```python
+nums = [4, 8, 15, 16, 23, 42]
+
+# JS: nums.some(n => n > 40)
+print(any(n > 40 for n in nums))    # True
+
+# JS: nums.every(n => n > 0)
+print(all(n > 0 for n in nums))     # True
+
+# JS: nums.every(n => n % 2 === 0)
+print(all(n % 2 == 0 for n in nums))  # False (15, 23 are odd)
+
+# Works on any iterable, not just lists
+print(any(c.isupper() for c in "hello World"))  # True
+```
+
+| JavaScript | Python | Description |
+|---|---|---|
+| `arr.some(fn)` | `any(fn(x) for x in arr)` | True if **at least one** element matches |
+| `arr.every(fn)` | `all(fn(x) for x in arr)` | True if **all** elements match |
+
+### 6.2 find / findIndex
+
+Python has no direct `.find()` method on lists, but the same result is achieved with `next()` over a generator expression (with a default to avoid `StopIteration`), or a small helper loop. For index lookup, enumerate does the job.
+
+```python
+users = [
+    {"id": 1, "name": "Alice"},
+    {"id": 2, "name": "Bob"},
+    {"id": 3, "name": "Carol"},
+]
+
+# JS: users.find(u => u.name === "Bob")
+bob = next((u for u in users if u["name"] == "Bob"), None)
+print(bob)  # {'id': 2, 'name': 'Bob'}
+
+# JS: users.findIndex(u => u.name === "Carol")
+idx = next((i for i, u in enumerate(users) if u["name"] == "Carol"), -1)
+print(idx)  # 2
+
+# Not found returns default / -1, same as JS's undefined / -1
+missing = next((u for u in users if u["name"] == "Dave"), None)
+print(missing)  # None
+```
+
+### 6.3 map / filter / reduce
+
+`map()` and `filter()` exist as built-ins in Python (though comprehensions are usually preferred for readability). `reduce()` isn't a built-in — it lives in `functools`, mirroring JS's `Array.reduce()`.
+
+```python
+from functools import reduce
+
+nums = [1, 2, 3, 4, 5]
+
+# JS: nums.map(n => n * 2)
+doubled = list(map(lambda n: n * 2, nums))
+doubled_comp = [n * 2 for n in nums]        # more Pythonic
+print(doubled)       # [2, 4, 6, 8, 10]
+
+# JS: nums.filter(n => n % 2 === 0)
+evens = list(filter(lambda n: n % 2 == 0, nums))
+evens_comp = [n for n in nums if n % 2 == 0]  # more Pythonic
+print(evens)          # [2, 4]
+
+# JS: nums.reduce((acc, n) => acc + n, 0)
+total = reduce(lambda acc, n: acc + n, nums, 0)
+print(total)           # 15
+
+# JS: nums.reduce((acc, n) => acc * n, 1)
+product = reduce(lambda acc, n: acc * n, nums, 1)
+print(product)          # 120
+```
+
+| JavaScript | Python | Notes |
+|---|---|---|
+| `arr.map(fn)` | `map(fn, arr)` or `[fn(x) for x in arr]` | Comprehension is idiomatic |
+| `arr.filter(fn)` | `filter(fn, arr)` or `[x for x in arr if fn(x)]` | Comprehension is idiomatic |
+| `arr.reduce(fn, init)` | `functools.reduce(fn, arr, init)` | Requires an import |
+
+### 6.4 includes / some-in-string
+
+JS's `Array.includes()` and `String.includes()` both map to Python's `in` operator, which works the same way across lists, tuples, sets, dicts (checks keys), and strings.
+
+```python
+nums = [1, 2, 3]
+print(2 in nums)          # True   (JS: nums.includes(2))
+
+text = "hello world"
+print("world" in text)     # True   (JS: text.includes("world"))
+
+d = {"a": 1, "b": 2}
+print("a" in d)             # True  (checks keys, JS: "a" in d or d.hasOwnProperty)
+```
+
+### 6.5 String Methods (JS vs Python)
+
+Python strings have a rich method set with close JS analogues:
+
+| JavaScript | Python | Example |
+|---|---|---|
+| `str.includes(s)` | `s in str` | `"lo" in "hello"` → `True` |
+| `str.indexOf(s)` | `str.find(s)` | `"hello".find("l")` → `2` |
+| `str.split(sep)` | `str.split(sep)` | `"a,b,c".split(",")` → `['a','b','c']` |
+| `arr.join(sep)` | `sep.join(arr)` | `",".join(["a","b","c"])` → `"a,b,c"` |
+| `str.trim()` | `str.strip()` | `"  hi  ".strip()` → `"hi"` |
+| `str.toUpperCase()` | `str.upper()` | `"hi".upper()` → `"HI"` |
+| `str.toLowerCase()` | `str.lower()` | `"HI".lower()` → `"hi"` |
+| `str.replace(a, b)` | `str.replace(a, b)` | `"hi".replace("h","H")` → `"Hi"` |
+| `str.startsWith(s)` | `str.startswith(s)` | `"hello".startswith("he")` → `True` |
+| `str.endsWith(s)` | `str.endswith(s)` | `"hello".endswith("lo")` → `True` |
+| `str.padStart(n, c)` | `str.rjust(n, c)` | `"5".rjust(3, "0")` → `"005"` |
+| `str.padEnd(n, c)` | `str.ljust(n, c)` | `"5".ljust(3, "0")` → `"500"` |
+| `str.repeat(n)` | `str * n` | `"ab" * 3` → `"ababab"` |
+| `` `${a}${b}` `` (template literal) | `f"{a}{b}"` (f-string) | `f"{1+1}"` → `"2"` |
+
+```python
+s = "  Hello, World!  "
+
+print(s.strip())                     # "Hello, World!"
+print(s.strip().lower())              # "hello, world!"
+print(s.strip().replace("World", "Python"))  # "Hello, Python!"
+print("Hello".startswith("He"))        # True
+print(", ".join(["a", "b", "c"]))       # "a, b, c"
+print("a,b,,c".split(","))               # ['a', 'b', '', 'c']
+print("5".rjust(3, "0"))                  # "005"
+
+name, age = "Alice", 30
+print(f"{name} is {age} years old")        # "Alice is 30 years old"
+```
+
+---
+
+## 7. DSA Tips & Tricks (LeetCode-Style Python)
+
+The patterns and standard-library tools that show up again and again when solving algorithm problems in Python.
+
+### 7.1 heapq (Priority Queue / Heap)
+
+Python's `heapq` module implements a **min-heap** on top of a plain list. For a max-heap, negate the values on the way in and out.
+
+```python
+import heapq
+
+nums = [5, 1, 8, 3, 9]
+heapq.heapify(nums)          # in-place, O(n)
+print(nums)                   # heap-ordered list, nums[0] is the smallest
+
+heapq.heappush(nums, 0)        # push -> O(log n)
+smallest = heapq.heappop(nums)  # pop smallest -> O(log n)
+print(smallest)                  # 0
+
+# Top-K largest / smallest without sorting the whole list
+data = [5, 1, 8, 3, 9, 2]
+print(heapq.nlargest(3, data))    # [9, 8, 5]
+print(heapq.nsmallest(3, data))    # [1, 2, 3]
+
+# Max-heap via negation
+max_heap = []
+for n in [5, 1, 8, 3]:
+    heapq.heappush(max_heap, -n)
+print(-heapq.heappop(max_heap))     # 8 (largest)
+
+# Heap of tuples -- great for (distance, node) in Dijkstra, (freq, item), etc.
+pq = [(2, "b"), (1, "a"), (3, "c")]
+heapq.heapify(pq)
+print(heapq.heappop(pq))              # (1, 'a') -- sorts by first element
+```
+
+### 7.2 bisect (Binary Search)
+
+`bisect` gives O(log n) binary search / insertion on a **sorted** list — invaluable for problems that need "find insert position" or "find first/last index satisfying a condition."
+
+```python
+import bisect
+
+sorted_list = [1, 3, 4, 4, 6, 8]
+
+print(bisect.bisect_left(sorted_list, 4))    # 2 -- leftmost insert point
+print(bisect.bisect_right(sorted_list, 4))    # 4 -- rightmost insert point
+
+bisect.insort(sorted_list, 5)                  # insert while keeping sorted order
+print(sorted_list)                              # [1, 3, 4, 4, 5, 6, 8]
+
+# Common pattern: find smallest element >= target (lower bound)
+def lower_bound(arr, target):
+    i = bisect.bisect_left(arr, target)
+    return arr[i] if i < len(arr) else None
+
+print(lower_bound(sorted_list, 5))               # 5
+```
+
+### 7.3 itertools Essentials
+
+`itertools` covers combinatorics and iteration patterns that otherwise take several lines of manual code.
+
+```python
+from itertools import permutations, combinations, product, accumulate, groupby, chain
+
+# Permutations / combinations -- classic backtracking replacements
+print(list(permutations([1, 2, 3])))          # all orderings, length 3
+print(list(combinations([1, 2, 3], 2)))        # [(1,2), (1,3), (2,3)]
+
+# Cartesian product -- replaces nested loops
+print(list(product([0, 1], repeat=2)))          # [(0,0),(0,1),(1,0),(1,1)]
+
+# Running totals -- prefix sum in one line
+print(list(accumulate([1, 2, 3, 4])))            # [1, 3, 6, 10]
+
+# Group consecutive equal elements (input must be pre-sorted/grouped for full grouping)
+data = [1, 1, 2, 2, 2, 3]
+print([(k, len(list(g))) for k, g in groupby(data)])  # [(1,2), (2,3), (3,1)]
+
+# Flatten a list of lists
+nested = [[1, 2], [3, 4], [5]]
+print(list(chain.from_iterable(nested)))          # [1, 2, 3, 4, 5]
+```
+
+### 7.4 Two Pointers
+
+Used for sorted-array problems (pair sums, container problems, removing duplicates) to avoid nested loops — O(n) instead of O(n²).
+
+```python
+def two_sum_sorted(arr, target):
+    left, right = 0, len(arr) - 1
+    while left < right:
+        s = arr[left] + arr[right]
+        if s == target:
+            return [left, right]
+        elif s < target:
+            left += 1
+        else:
+            right -= 1
+    return [-1, -1]
+
+print(two_sum_sorted([1, 2, 3, 4, 6], 6))  # [1, 3]  (2 + 4)
+```
+
+### 7.5 Sliding Window
+
+For substring/subarray problems ("longest substring without repeating characters," "max sum subarray of size k"). Keeps a window of indices and expands/shrinks it in O(n) total.
+
+```python
+def longest_unique_substring(s):
+    seen = {}
+    left = 0
+    best = 0
+    for right, ch in enumerate(s):
+        if ch in seen and seen[ch] >= left:
+            left = seen[ch] + 1
+        seen[ch] = right
+        best = max(best, right - left + 1)
+    return best
+
+print(longest_unique_substring("abcabcbb"))  # 3  ("abc")
+```
+
+### 7.6 Prefix Sums
+
+Precompute cumulative sums so any range-sum query becomes O(1) instead of O(n).
+
+```python
+def build_prefix(nums):
+    prefix = [0] * (len(nums) + 1)
+    for i, n in enumerate(nums):
+        prefix[i + 1] = prefix[i] + n
+    return prefix
+
+def range_sum(prefix, l, r):  # inclusive [l, r]
+    return prefix[r + 1] - prefix[l]
+
+nums = [2, 4, 5, 1, 7]
+prefix = build_prefix(nums)
+print(range_sum(prefix, 1, 3))  # 4+5+1 = 10
+```
+
+### 7.7 Fast & Slow Pointers (Cycle Detection)
+
+Floyd's algorithm ("tortoise and hare") detects cycles in linked lists / sequences in O(n) time, O(1) space.
+
+```python
+def has_cycle(head):
+    slow = fast = head
+    while fast and fast.next:
+        slow = slow.next
+        fast = fast.next.next
+        if slow is fast:
+            return True
+    return False
+```
+
+### 7.8 Union-Find (Disjoint Set)
+
+Standard template for connectivity problems (islands, friend circles, Kruskal's MST) with path compression and union by rank.
+
+```python
+class UnionFind:
+    def __init__(self, n):
+        self.parent = list(range(n))
+        self.rank = [0] * n
+
+    def find(self, x):
+        if self.parent[x] != x:
+            self.parent[x] = self.find(self.parent[x])  # path compression
+        return self.parent[x]
+
+    def union(self, x, y):
+        rx, ry = self.find(x), self.find(y)
+        if rx == ry:
+            return False
+        if self.rank[rx] < self.rank[ry]:
+            rx, ry = ry, rx
+        self.parent[ry] = rx
+        if self.rank[rx] == self.rank[ry]:
+            self.rank[rx] += 1
+        return True
+
+uf = UnionFind(5)
+uf.union(0, 1)
+uf.union(1, 2)
+print(uf.find(0) == uf.find(2))  # True -- 0, 1, 2 are connected
+```
+
+### 7.9 Graph Traversal (BFS/DFS) Templates
+
+Reusable skeletons for grid and graph problems.
+
+```python
+from collections import deque
+
+# BFS -- shortest path in unweighted graph
+def bfs(graph, start):
+    visited = {start}
+    queue = deque([start])
+    order = []
+    while queue:
+        node = queue.popleft()
+        order.append(node)
+        for neighbor in graph[node]:
+            if neighbor not in visited:
+                visited.add(neighbor)
+                queue.append(neighbor)
+    return order
+
+# DFS -- iterative, using an explicit stack
+def dfs(graph, start):
+    visited = set()
+    stack = [start]
+    order = []
+    while stack:
+        node = stack.pop()
+        if node in visited:
+            continue
+        visited.add(node)
+        order.append(node)
+        for neighbor in graph[node]:
+            if neighbor not in visited:
+                stack.append(neighbor)
+    return order
+
+graph = {0: [1, 2], 1: [0, 3], 2: [0], 3: [1]}
+print(bfs(graph, 0))  # [0, 1, 2, 3]
+print(dfs(graph, 0))  # [0, 2, 1, 3]
+```
+
+### 7.10 Sorting Tricks
+
+`sorted()` and `.sort()` accept a `key` function, making complex custom orderings a one-liner instead of a custom comparator.
+
+```python
+words = ["banana", "kiwi", "apple", "fig"]
+
+# Sort by length, then alphabetically for ties
+print(sorted(words, key=lambda w: (len(w), w)))
+# ['fig', 'kiwi', 'apple', 'banana']
+
+# Sort descending
+print(sorted(words, key=len, reverse=True))
+# ['banana', 'apple', 'kiwi', 'fig']
+
+# Sort a list of tuples/dicts by a specific field
+people = [{"name": "Bob", "age": 25}, {"name": "Amy", "age": 22}]
+print(sorted(people, key=lambda p: p["age"]))
+# [{'name': 'Amy', 'age': 22}, {'name': 'Bob', 'age': 25}]
+
+# Sort with a custom comparator (rare, needs functools.cmp_to_key)
+from functools import cmp_to_key
+nums = [3, 30, 34, 5, 9]
+result = sorted(map(str, nums), key=cmp_to_key(lambda a, b: (a + b > b + a) - (a + b < b + a)), reverse=True)
+print("".join(result))  # "9534330" -- largest number formed by concatenation
+```
+
+### 7.11 Math & Bit Tricks
+
+```python
+# Divmod -- quotient and remainder in one call
+q, r = divmod(17, 5)
+print(q, r)  # 3 2
+
+# Integer sqrt (exact, no floating-point error)
+import math
+print(math.isqrt(50))  # 7
+
+# GCD / LCM
+print(math.gcd(12, 18))  # 6
+print(math.lcm(4, 6))     # 12  (Python 3.9+)
+
+# Check power of two using bitwise AND
+def is_power_of_two(n):
+    return n > 0 and (n & (n - 1)) == 0
+print(is_power_of_two(16))  # True
+
+# Count set bits
+print(bin(13))              # '0b1101'
+print(bin(13).count("1"))    # 3
+print(13 .bit_count())        # 3 (Python 3.10+)
+
+# XOR trick -- find the single non-duplicate number in a list
+nums = [4, 1, 2, 1, 2]
+result = 0
+for n in nums:
+    result ^= n
+print(result)  # 4
+
+# Swap without a temp variable
+a, b = 1, 2
+a, b = b, a
+print(a, b)  # 2 1
+```
+
+### 7.12 Memoization / DP Helpers
+
+`functools.lru_cache` turns a naive recursive solution into a memoized one instantly — no manual cache dict needed.
+
+```python
+from functools import lru_cache
+
+@lru_cache(maxsize=None)
+def fib(n):
+    if n <= 1:
+        return n
+    return fib(n - 1) + fib(n - 2)
+
+print(fib(35))  # instant, thanks to memoization
+
+# Bottom-up DP with a rolling array (space-optimized)
+def climb_stairs(n):
+    if n <= 2:
+        return n
+    prev2, prev1 = 1, 2
+    for _ in range(3, n + 1):
+        prev2, prev1 = prev1, prev2 + prev1
+    return prev1
+
+print(climb_stairs(10))  # 89
+```
+
+### 7.13 Handy One-Liners
+
+```python
+# Initialize a 2D grid
+rows, cols = 3, 4
+grid = [[0] * cols for _ in range(rows)]   # correct -- independent rows
+# grid = [[0] * cols] * rows  <-- BUG: all rows reference the same list
+
+# Transpose a matrix
+matrix = [[1, 2, 3], [4, 5, 6]]
+print(list(zip(*matrix)))   # [(1, 4), (2, 5), (3, 6)]
+
+# Flatten nested list (simple 2D case)
+matrix = [[1, 2], [3, 4]]
+flat = [x for row in matrix for x in row]
+print(flat)  # [1, 2, 3, 4]
+
+# Frequency map in one line
+from collections import Counter
+freq = Counter("mississippi")
+
+# Check for anagram
+def is_anagram(a, b):
+    return Counter(a) == Counter(b)
+print(is_anagram("listen", "silent"))  # True
+
+# Reverse a string / list
+s = "hello"
+print(s[::-1])          # "olleh"
+
+# Get max/min with index
+nums = [4, 2, 9, 1]
+max_val = max(nums)
+max_idx = nums.index(max_val)
+print(max_val, max_idx)  # 9 2
+
+# Infinity for comparisons (init "best so far" trackers)
+best = float("-inf")
+worst = float("inf")
+
+# Convert between number bases
+print(int("101", 2))    # 5    binary string -> int
+print(bin(5))             # '0b101'
+print(hex(255))            # '0xff'
+```
+
+---
+
+## 8. Quick Comparison Table
+
+| Type | Ordered | Mutable | Duplicates | Typical Use Case |
+|---|---|---|---|---|
+| `list` | ✅ | ✅ | ✅ | General-purpose sequence |
+| `tuple` | ✅ | ❌ | ✅ | Fixed, hashable sequence |
+| `set` | ❌ | ✅ | ❌ | Uniqueness, membership tests |
+| `dict` | ✅ | ✅ | Keys: ❌ | Key-value mapping |
+| `Counter` | ✅ | ✅ | Keys: ❌ | Frequency counting |
+| `deque` | ✅ | ✅ | ✅ | Fast appends/pops at both ends |
+| `OrderedDict` | ✅ | ✅ | Keys: ❌ | Order-sensitive dict operations |
+| `defaultdict` | ✅ | ✅ | Keys: ❌ | Dict with automatic default values |
+| `namedtuple` | ✅ | ❌ | ✅ | Readable, immutable records |
+| `ChainMap` | ✅ | ✅ | Keys: ❌ | Layered/prioritized dict lookups |
+
+---
+
+**Tip:** Import everything you need from `collections` at once:
+
+```python
+from collections import Counter, deque, OrderedDict, defaultdict, namedtuple, ChainMap
+```
