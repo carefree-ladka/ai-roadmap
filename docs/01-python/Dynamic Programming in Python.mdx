@@ -1,0 +1,965 @@
+---
+title: "Dynamic Programming"
+description: "Category-wise DP problems with Brute Force, Top-Down, Bottom-Up, and Space-Optimized solutions"
+---
+
+# Dynamic Programming
+
+A reference guide to classic Dynamic Programming problems, grouped by category. Every problem is solved four ways:
+
+1. **Brute Force** — plain recursion, exponential time
+2. **Top-Down** — recursion + memoization
+3. **Bottom-Up** — iterative tabulation
+4. **Space Optimized** — bottom-up with reduced auxiliary space
+
+---
+
+## Table of Contents
+
+- [1. Core DP Concepts](#1-core-dp-concepts)
+- [2. 1D DP](#2-1d-dp)
+  - [2.1 Fibonacci Number](#21-fibonacci-number)
+  - [2.2 Climbing Stairs](#22-climbing-stairs)
+  - [2.3 House Robber](#23-house-robber)
+- [3. Grid DP](#3-grid-dp)
+  - [3.1 Unique Paths](#31-unique-paths)
+  - [3.2 Minimum Path Sum](#32-minimum-path-sum)
+- [4. Knapsack DP](#4-knapsack-dp)
+  - [4.1 0/1 Knapsack](#41-01-knapsack)
+  - [4.2 Coin Change (Minimum Coins)](#42-coin-change-minimum-coins)
+  - [4.3 Partition Equal Subset Sum](#43-partition-equal-subset-sum)
+- [5. Subsequence DP](#5-subsequence-dp)
+  - [5.1 Longest Common Subsequence](#51-longest-common-subsequence)
+  - [5.2 Longest Increasing Subsequence](#52-longest-increasing-subsequence)
+- [6. String DP](#6-string-dp)
+  - [6.1 Edit Distance](#61-edit-distance)
+  - [6.2 Longest Palindromic Substring](#62-longest-palindromic-substring)
+- [7. Interval DP](#7-interval-dp)
+  - [7.1 Matrix Chain Multiplication](#71-matrix-chain-multiplication)
+- [8. Complexity Summary](#8-complexity-summary)
+
+---
+
+## 1. Core DP Concepts
+
+DP applies when a problem has:
+
+- **Optimal substructure** — the optimal solution can be built from optimal solutions of subproblems.
+- **Overlapping subproblems** — the same subproblem is solved multiple times in a naive recursive solution.
+
+| Approach | Direction | Storage | Typical Use |
+|---|---|---|---|
+| Brute Force | Top → down recursion, no cache | None | Baseline correctness, tiny inputs |
+| Top-Down (Memoization) | Recursion + cache | Dict / array, sized to state space | Sparse state space, natural recursive formulation |
+| Bottom-Up (Tabulation) | Iterative, small → large | Full table | Avoids recursion overhead/stack limits |
+| Space Optimized | Iterative | Rolling array / few variables | When only the last row/state is needed |
+
+---
+
+## 2. 1D DP
+
+### 2.1 Fibonacci Number
+
+**Problem:** Return the n-th Fibonacci number, `F(0)=0, F(1)=1, F(n)=F(n-1)+F(n-2)`.
+
+**Brute Force — O(2^n) time, O(n) stack space**
+
+```python
+def fib_brute(n: int) -> int:
+    if n <= 1:
+        return n
+    return fib_brute(n - 1) + fib_brute(n - 2)
+```
+
+**Top-Down — O(n) time, O(n) space**
+
+```python
+def fib_top_down(n: int, memo: dict | None = None) -> int:
+    if memo is None:
+        memo = {}
+    if n <= 1:
+        return n
+    if n in memo:
+        return memo[n]
+    memo[n] = fib_top_down(n - 1, memo) + fib_top_down(n - 2, memo)
+    return memo[n]
+```
+
+**Bottom-Up — O(n) time, O(n) space**
+
+```python
+def fib_bottom_up(n: int) -> int:
+    if n <= 1:
+        return n
+    dp = [0] * (n + 1)
+    dp[1] = 1
+    for i in range(2, n + 1):
+        dp[i] = dp[i - 1] + dp[i - 2]
+    return dp[n]
+```
+
+**Space Optimized — O(n) time, O(1) space**
+
+```python
+def fib_optimized(n: int) -> int:
+    if n <= 1:
+        return n
+    prev2, prev1 = 0, 1
+    for _ in range(2, n + 1):
+        prev2, prev1 = prev1, prev1 + prev2
+    return prev1
+```
+
+---
+
+### 2.2 Climbing Stairs
+
+**Problem:** You can climb 1 or 2 steps at a time. Count distinct ways to reach the top of `n` stairs.
+
+**Brute Force — O(2^n) time, O(n) stack space**
+
+```python
+def climb_brute(n: int) -> int:
+    if n <= 2:
+        return n
+    return climb_brute(n - 1) + climb_brute(n - 2)
+```
+
+**Top-Down — O(n) time, O(n) space**
+
+```python
+def climb_top_down(n: int, memo: dict | None = None) -> int:
+    if memo is None:
+        memo = {}
+    if n <= 2:
+        return n
+    if n in memo:
+        return memo[n]
+    memo[n] = climb_top_down(n - 1, memo) + climb_top_down(n - 2, memo)
+    return memo[n]
+```
+
+**Bottom-Up — O(n) time, O(n) space**
+
+```python
+def climb_bottom_up(n: int) -> int:
+    if n <= 2:
+        return n
+    dp = [0] * (n + 1)
+    dp[1], dp[2] = 1, 2
+    for i in range(3, n + 1):
+        dp[i] = dp[i - 1] + dp[i - 2]
+    return dp[n]
+```
+
+**Space Optimized — O(n) time, O(1) space**
+
+```python
+def climb_optimized(n: int) -> int:
+    if n <= 2:
+        return n
+    prev2, prev1 = 1, 2
+    for _ in range(3, n + 1):
+        prev2, prev1 = prev1, prev1 + prev2
+    return prev1
+```
+
+---
+
+### 2.3 House Robber
+
+**Problem:** Given non-negative integers `nums` representing money in houses arranged in a line, find the max sum without robbing two adjacent houses.
+
+**Brute Force — O(2^n) time, O(n) stack space**
+
+```python
+def rob_brute(nums: list[int], i: int = 0) -> int:
+    if i >= len(nums):
+        return 0
+    take = nums[i] + rob_brute(nums, i + 2)
+    skip = rob_brute(nums, i + 1)
+    return max(take, skip)
+```
+
+**Top-Down — O(n) time, O(n) space**
+
+```python
+def rob_top_down(nums: list[int], i: int = 0, memo: dict | None = None) -> int:
+    if memo is None:
+        memo = {}
+    if i >= len(nums):
+        return 0
+    if i in memo:
+        return memo[i]
+    memo[i] = max(nums[i] + rob_top_down(nums, i + 2, memo),
+                  rob_top_down(nums, i + 1, memo))
+    return memo[i]
+```
+
+**Bottom-Up — O(n) time, O(n) space**
+
+```python
+def rob_bottom_up(nums: list[int]) -> int:
+    n = len(nums)
+    if n == 0:
+        return 0
+    dp = [0] * (n + 1)
+    dp[1] = nums[0]
+    for i in range(2, n + 1):
+        dp[i] = max(dp[i - 1], dp[i - 2] + nums[i - 1])
+    return dp[n]
+```
+
+**Space Optimized — O(n) time, O(1) space**
+
+```python
+def rob_optimized(nums: list[int]) -> int:
+    prev2, prev1 = 0, 0
+    for num in nums:
+        prev2, prev1 = prev1, max(prev1, prev2 + num)
+    return prev1
+```
+
+---
+
+## 3. Grid DP
+
+### 3.1 Unique Paths
+
+**Problem:** Count paths from top-left to bottom-right of an `m x n` grid, moving only right or down.
+
+**Brute Force — O(2^(m+n)) time**
+
+```python
+def unique_paths_brute(m: int, n: int) -> int:
+    if m == 1 or n == 1:
+        return 1
+    return unique_paths_brute(m - 1, n) + unique_paths_brute(m, n - 1)
+```
+
+**Top-Down — O(m*n) time, O(m*n) space**
+
+```python
+def unique_paths_top_down(m: int, n: int, memo: dict | None = None) -> int:
+    if memo is None:
+        memo = {}
+    if m == 1 or n == 1:
+        return 1
+    if (m, n) in memo:
+        return memo[(m, n)]
+    memo[(m, n)] = (unique_paths_top_down(m - 1, n, memo)
+                     + unique_paths_top_down(m, n - 1, memo))
+    return memo[(m, n)]
+```
+
+**Bottom-Up — O(m*n) time, O(m*n) space**
+
+```python
+def unique_paths_bottom_up(m: int, n: int) -> int:
+    dp = [[1] * n for _ in range(m)]
+    for i in range(1, m):
+        for j in range(1, n):
+            dp[i][j] = dp[i - 1][j] + dp[i][j - 1]
+    return dp[m - 1][n - 1]
+```
+
+**Space Optimized — O(m*n) time, O(n) space**
+
+```python
+def unique_paths_optimized(m: int, n: int) -> int:
+    row = [1] * n
+    for _ in range(1, m):
+        for j in range(1, n):
+            row[j] += row[j - 1]
+    return row[-1]
+```
+
+---
+
+### 3.2 Minimum Path Sum
+
+**Problem:** Given an `m x n` grid of non-negative numbers, find the path from top-left to bottom-right minimizing the sum of numbers along the path (right/down moves only).
+
+**Brute Force — O(2^(m+n)) time**
+
+```python
+def min_path_sum_brute(grid: list[list[int]], i: int = 0, j: int = 0) -> int:
+    m, n = len(grid), len(grid[0])
+    if i == m - 1 and j == n - 1:
+        return grid[i][j]
+    if i == m - 1:
+        return grid[i][j] + min_path_sum_brute(grid, i, j + 1)
+    if j == n - 1:
+        return grid[i][j] + min_path_sum_brute(grid, i + 1, j)
+    return grid[i][j] + min(
+        min_path_sum_brute(grid, i + 1, j),
+        min_path_sum_brute(grid, i, j + 1),
+    )
+```
+
+**Top-Down — O(m*n) time, O(m*n) space**
+
+```python
+def min_path_sum_top_down(grid: list[list[int]], i: int = 0, j: int = 0, memo: dict | None = None) -> int:
+    if memo is None:
+        memo = {}
+    m, n = len(grid), len(grid[0])
+    if (i, j) in memo:
+        return memo[(i, j)]
+    if i == m - 1 and j == n - 1:
+        return grid[i][j]
+    if i == m - 1:
+        result = grid[i][j] + min_path_sum_top_down(grid, i, j + 1, memo)
+    elif j == n - 1:
+        result = grid[i][j] + min_path_sum_top_down(grid, i + 1, j, memo)
+    else:
+        result = grid[i][j] + min(
+            min_path_sum_top_down(grid, i + 1, j, memo),
+            min_path_sum_top_down(grid, i, j + 1, memo),
+        )
+    memo[(i, j)] = result
+    return result
+```
+
+**Bottom-Up — O(m*n) time, O(m*n) space**
+
+```python
+def min_path_sum_bottom_up(grid: list[list[int]]) -> int:
+    m, n = len(grid), len(grid[0])
+    dp = [[0] * n for _ in range(m)]
+    dp[0][0] = grid[0][0]
+    for j in range(1, n):
+        dp[0][j] = dp[0][j - 1] + grid[0][j]
+    for i in range(1, m):
+        dp[i][0] = dp[i - 1][0] + grid[i][0]
+    for i in range(1, m):
+        for j in range(1, n):
+            dp[i][j] = grid[i][j] + min(dp[i - 1][j], dp[i][j - 1])
+    return dp[m - 1][n - 1]
+```
+
+**Space Optimized — O(m*n) time, O(n) space**
+
+```python
+def min_path_sum_optimized(grid: list[list[int]]) -> int:
+    n = len(grid[0])
+    row = [float("inf")] * n
+    row[0] = 0
+    for r in grid:
+        row[0] += r[0]
+        for j in range(1, n):
+            row[j] = r[j] + min(row[j], row[j - 1])
+    return row[-1]
+```
+
+---
+
+## 4. Knapsack DP
+
+### 4.1 0/1 Knapsack
+
+**Problem:** Given weights and values of `n` items and capacity `W`, maximize value without exceeding capacity; each item used at most once.
+
+**Brute Force — O(2^n) time**
+
+```python
+def knapsack_brute(weights: list[int], values: list[int], W: int, i: int = 0) -> int:
+    if i == len(weights) or W == 0:
+        return 0
+    if weights[i] > W:
+        return knapsack_brute(weights, values, W, i + 1)
+    take = values[i] + knapsack_brute(weights, values, W - weights[i], i + 1)
+    skip = knapsack_brute(weights, values, W, i + 1)
+    return max(take, skip)
+```
+
+**Top-Down — O(n*W) time, O(n*W) space**
+
+```python
+def knapsack_top_down(weights, values, W, i=0, memo=None) -> int:
+    if memo is None:
+        memo = {}
+    if i == len(weights) or W == 0:
+        return 0
+    if (i, W) in memo:
+        return memo[(i, W)]
+    if weights[i] > W:
+        result = knapsack_top_down(weights, values, W, i + 1, memo)
+    else:
+        take = values[i] + knapsack_top_down(weights, values, W - weights[i], i + 1, memo)
+        skip = knapsack_top_down(weights, values, W, i + 1, memo)
+        result = max(take, skip)
+    memo[(i, W)] = result
+    return result
+```
+
+**Bottom-Up — O(n*W) time, O(n*W) space**
+
+```python
+def knapsack_bottom_up(weights: list[int], values: list[int], W: int) -> int:
+    n = len(weights)
+    dp = [[0] * (W + 1) for _ in range(n + 1)]
+    for i in range(1, n + 1):
+        for w in range(W + 1):
+            if weights[i - 1] > w:
+                dp[i][w] = dp[i - 1][w]
+            else:
+                dp[i][w] = max(dp[i - 1][w], values[i - 1] + dp[i - 1][w - weights[i - 1]])
+    return dp[n][W]
+```
+
+**Space Optimized — O(n*W) time, O(W) space**
+
+```python
+def knapsack_optimized(weights: list[int], values: list[int], W: int) -> int:
+    dp = [0] * (W + 1)
+    for i in range(len(weights)):
+        for w in range(W, weights[i] - 1, -1):  # iterate right-to-left
+            dp[w] = max(dp[w], values[i] + dp[w - weights[i]])
+    return dp[W]
+```
+
+---
+
+### 4.2 Coin Change (Minimum Coins)
+
+**Problem:** Given coin denominations and a target `amount`, find the fewest coins needed (unbounded supply), or `-1` if impossible.
+
+**Brute Force — O(k^amount) time (k = number of coins)**
+
+```python
+def coin_change_brute(coins: list[int], amount: int) -> int:
+    if amount == 0:
+        return 0
+    if amount < 0:
+        return float("inf")
+    best = float("inf")
+    for c in coins:
+        res = coin_change_brute(coins, amount - c)
+        best = min(best, res + 1)
+    return best
+```
+
+**Top-Down — O(amount * k) time, O(amount) space**
+
+```python
+def coin_change_top_down(coins: list[int], amount: int, memo: dict | None = None) -> int:
+    if memo is None:
+        memo = {}
+    if amount == 0:
+        return 0
+    if amount < 0:
+        return float("inf")
+    if amount in memo:
+        return memo[amount]
+    best = min(
+        (coin_change_top_down(coins, amount - c, memo) + 1 for c in coins),
+        default=float("inf"),
+    )
+    memo[amount] = best
+    return best
+```
+
+**Bottom-Up — O(amount * k) time, O(amount) space**
+
+```python
+def coin_change_bottom_up(coins: list[int], amount: int) -> int:
+    dp = [float("inf")] * (amount + 1)
+    dp[0] = 0
+    for a in range(1, amount + 1):
+        for c in coins:
+            if c <= a:
+                dp[a] = min(dp[a], dp[a - c] + 1)
+    return dp[amount] if dp[amount] != float("inf") else -1
+```
+
+**Space Optimized:** the bottom-up table is already the minimal 1D form (`O(amount)`); there is no further reduction since every `dp[a]` may depend on any smaller index.
+
+---
+
+### 4.3 Partition Equal Subset Sum
+
+**Problem:** Determine if an array can be split into two subsets with equal sum.
+
+**Brute Force — O(2^n) time**
+
+```python
+def can_partition_brute(nums: list[int], i: int = 0, target: int | None = None) -> bool:
+    if target is None:
+        if sum(nums) % 2 != 0:
+            return False
+        target = sum(nums) // 2
+    if target == 0:
+        return True
+    if i == len(nums) or target < 0:
+        return False
+    return can_partition_brute(nums, i + 1, target - nums[i]) or can_partition_brute(nums, i + 1, target)
+```
+
+**Top-Down — O(n*sum) time, O(n*sum) space**
+
+```python
+def can_partition_top_down(nums: list[int]) -> bool:
+    total = sum(nums)
+    if total % 2 != 0:
+        return False
+    target = total // 2
+    memo = {}
+
+    def helper(i: int, t: int) -> bool:
+        if t == 0:
+            return True
+        if i == len(nums) or t < 0:
+            return False
+        if (i, t) in memo:
+            return memo[(i, t)]
+        memo[(i, t)] = helper(i + 1, t - nums[i]) or helper(i + 1, t)
+        return memo[(i, t)]
+
+    return helper(0, target)
+```
+
+**Bottom-Up — O(n*sum) time, O(n*sum) space**
+
+```python
+def can_partition_bottom_up(nums: list[int]) -> bool:
+    total = sum(nums)
+    if total % 2 != 0:
+        return False
+    target = total // 2
+    n = len(nums)
+    dp = [[False] * (target + 1) for _ in range(n + 1)]
+    for i in range(n + 1):
+        dp[i][0] = True
+    for i in range(1, n + 1):
+        for t in range(1, target + 1):
+            dp[i][t] = dp[i - 1][t]
+            if nums[i - 1] <= t:
+                dp[i][t] = dp[i][t] or dp[i - 1][t - nums[i - 1]]
+    return dp[n][target]
+```
+
+**Space Optimized — O(n*sum) time, O(sum) space**
+
+```python
+def can_partition_optimized(nums: list[int]) -> bool:
+    total = sum(nums)
+    if total % 2 != 0:
+        return False
+    target = total // 2
+    dp = [False] * (target + 1)
+    dp[0] = True
+    for num in nums:
+        for t in range(target, num - 1, -1):  # right-to-left, 0/1 usage
+            dp[t] = dp[t] or dp[t - num]
+    return dp[target]
+```
+
+---
+
+## 5. Subsequence DP
+
+### 5.1 Longest Common Subsequence
+
+**Problem:** Given strings `text1`, `text2`, find the length of their longest common subsequence.
+
+**Brute Force — O(2^(m+n)) time**
+
+```python
+def lcs_brute(text1: str, text2: str, i: int = 0, j: int = 0) -> int:
+    if i == len(text1) or j == len(text2):
+        return 0
+    if text1[i] == text2[j]:
+        return 1 + lcs_brute(text1, text2, i + 1, j + 1)
+    return max(lcs_brute(text1, text2, i + 1, j), lcs_brute(text1, text2, i, j + 1))
+```
+
+**Top-Down — O(m*n) time, O(m*n) space**
+
+```python
+def lcs_top_down(text1: str, text2: str, i=0, j=0, memo=None) -> int:
+    if memo is None:
+        memo = {}
+    if i == len(text1) or j == len(text2):
+        return 0
+    if (i, j) in memo:
+        return memo[(i, j)]
+    if text1[i] == text2[j]:
+        result = 1 + lcs_top_down(text1, text2, i + 1, j + 1, memo)
+    else:
+        result = max(lcs_top_down(text1, text2, i + 1, j, memo),
+                     lcs_top_down(text1, text2, i, j + 1, memo))
+    memo[(i, j)] = result
+    return result
+```
+
+**Bottom-Up — O(m*n) time, O(m*n) space**
+
+```python
+def lcs_bottom_up(text1: str, text2: str) -> int:
+    m, n = len(text1), len(text2)
+    dp = [[0] * (n + 1) for _ in range(m + 1)]
+    for i in range(1, m + 1):
+        for j in range(1, n + 1):
+            if text1[i - 1] == text2[j - 1]:
+                dp[i][j] = dp[i - 1][j - 1] + 1
+            else:
+                dp[i][j] = max(dp[i - 1][j], dp[i][j - 1])
+    return dp[m][n]
+```
+
+**Space Optimized — O(m*n) time, O(min(m,n)) space**
+
+```python
+def lcs_optimized(text1: str, text2: str) -> int:
+    if len(text1) < len(text2):
+        text1, text2 = text2, text1
+    n = len(text2)
+    prev = [0] * (n + 1)
+    for i in range(1, len(text1) + 1):
+        curr = [0] * (n + 1)
+        for j in range(1, n + 1):
+            if text1[i - 1] == text2[j - 1]:
+                curr[j] = prev[j - 1] + 1
+            else:
+                curr[j] = max(prev[j], curr[j - 1])
+        prev = curr
+    return prev[n]
+```
+
+---
+
+### 5.2 Longest Increasing Subsequence
+
+**Problem:** Find the length of the longest strictly increasing subsequence in `nums`.
+
+**Brute Force — O(2^n) time**
+
+```python
+def lis_brute(nums: list[int], i: int = 0, prev: int = float("-inf")) -> int:
+    if i == len(nums):
+        return 0
+    skip = lis_brute(nums, i + 1, prev)
+    take = 0
+    if nums[i] > prev:
+        take = 1 + lis_brute(nums, i + 1, nums[i])
+    return max(take, skip)
+```
+
+**Top-Down — O(n^2) time, O(n^2) space**
+
+```python
+def lis_top_down(nums: list[int]) -> int:
+    memo = {}
+
+    def helper(i: int, prev_idx: int) -> int:
+        if i == len(nums):
+            return 0
+        if (i, prev_idx) in memo:
+            return memo[(i, prev_idx)]
+        skip = helper(i + 1, prev_idx)
+        take = 0
+        if prev_idx == -1 or nums[i] > nums[prev_idx]:
+            take = 1 + helper(i + 1, i)
+        memo[(i, prev_idx)] = max(take, skip)
+        return memo[(i, prev_idx)]
+
+    return helper(0, -1)
+```
+
+**Bottom-Up — O(n^2) time, O(n) space**
+
+```python
+def lis_bottom_up(nums: list[int]) -> int:
+    if not nums:
+        return 0
+    n = len(nums)
+    dp = [1] * n
+    for i in range(1, n):
+        for j in range(i):
+            if nums[j] < nums[i]:
+                dp[i] = max(dp[i], dp[j] + 1)
+    return max(dp)
+```
+
+**Space Optimized — O(n log n) time, O(n) space**
+*(This uses patience-sorting / binary search rather than a rolling array — the "space optimized" transition for LIS is really an algorithmic swap.)*
+
+```python
+import bisect
+
+def lis_optimized(nums: list[int]) -> int:
+    tails: list[int] = []
+    for num in nums:
+        pos = bisect.bisect_left(tails, num)
+        if pos == len(tails):
+            tails.append(num)
+        else:
+            tails[pos] = num
+    return len(tails)
+```
+
+---
+
+## 6. String DP
+
+### 6.1 Edit Distance
+
+**Problem:** Minimum number of insert/delete/replace operations to convert `word1` into `word2`.
+
+**Brute Force — O(3^(m+n)) time**
+
+```python
+def edit_distance_brute(word1: str, word2: str, i: int = 0, j: int = 0) -> int:
+    if i == len(word1):
+        return len(word2) - j
+    if j == len(word2):
+        return len(word1) - i
+    if word1[i] == word2[j]:
+        return edit_distance_brute(word1, word2, i + 1, j + 1)
+    insert = edit_distance_brute(word1, word2, i, j + 1)
+    delete = edit_distance_brute(word1, word2, i + 1, j)
+    replace = edit_distance_brute(word1, word2, i + 1, j + 1)
+    return 1 + min(insert, delete, replace)
+```
+
+**Top-Down — O(m*n) time, O(m*n) space**
+
+```python
+def edit_distance_top_down(word1: str, word2: str, i=0, j=0, memo=None) -> int:
+    if memo is None:
+        memo = {}
+    if i == len(word1):
+        return len(word2) - j
+    if j == len(word2):
+        return len(word1) - i
+    if (i, j) in memo:
+        return memo[(i, j)]
+    if word1[i] == word2[j]:
+        result = edit_distance_top_down(word1, word2, i + 1, j + 1, memo)
+    else:
+        result = 1 + min(
+            edit_distance_top_down(word1, word2, i, j + 1, memo),
+            edit_distance_top_down(word1, word2, i + 1, j, memo),
+            edit_distance_top_down(word1, word2, i + 1, j + 1, memo),
+        )
+    memo[(i, j)] = result
+    return result
+```
+
+**Bottom-Up — O(m*n) time, O(m*n) space**
+
+```python
+def edit_distance_bottom_up(word1: str, word2: str) -> int:
+    m, n = len(word1), len(word2)
+    dp = [[0] * (n + 1) for _ in range(m + 1)]
+    for i in range(m + 1):
+        dp[i][0] = i
+    for j in range(n + 1):
+        dp[0][j] = j
+    for i in range(1, m + 1):
+        for j in range(1, n + 1):
+            if word1[i - 1] == word2[j - 1]:
+                dp[i][j] = dp[i - 1][j - 1]
+            else:
+                dp[i][j] = 1 + min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1])
+    return dp[m][n]
+```
+
+**Space Optimized — O(m*n) time, O(min(m,n)) space**
+
+```python
+def edit_distance_optimized(word1: str, word2: str) -> int:
+    if len(word1) < len(word2):
+        word1, word2 = word2, word1
+    n = len(word2)
+    prev = list(range(n + 1))
+    for i in range(1, len(word1) + 1):
+        curr = [i] + [0] * n
+        for j in range(1, n + 1):
+            if word1[i - 1] == word2[j - 1]:
+                curr[j] = prev[j - 1]
+            else:
+                curr[j] = 1 + min(prev[j], curr[j - 1], prev[j - 1])
+        prev = curr
+    return prev[n]
+```
+
+---
+
+### 6.2 Longest Palindromic Substring
+
+**Problem:** Find the longest substring of `s` that is a palindrome.
+
+**Brute Force — O(n^3) time**
+
+```python
+def longest_palindrome_brute(s: str) -> str:
+    def is_pal(sub: str) -> bool:
+        return sub == sub[::-1]
+
+    best = ""
+    n = len(s)
+    for i in range(n):
+        for j in range(i, n):
+            sub = s[i:j + 1]
+            if is_pal(sub) and len(sub) > len(best):
+                best = sub
+    return best
+```
+
+**Top-Down — O(n^2) time, O(n^2) space**
+
+```python
+def longest_palindrome_top_down(s: str) -> str:
+    n = len(s)
+    memo = {}
+
+    def is_pal(i: int, j: int) -> bool:
+        if i >= j:
+            return True
+        if (i, j) in memo:
+            return memo[(i, j)]
+        memo[(i, j)] = s[i] == s[j] and is_pal(i + 1, j - 1)
+        return memo[(i, j)]
+
+    best = ""
+    for i in range(n):
+        for j in range(i, n):
+            if is_pal(i, j) and j - i + 1 > len(best):
+                best = s[i:j + 1]
+    return best
+```
+
+**Bottom-Up — O(n^2) time, O(n^2) space**
+
+```python
+def longest_palindrome_bottom_up(s: str) -> str:
+    n = len(s)
+    if n == 0:
+        return ""
+    dp = [[False] * n for _ in range(n)]
+    start, max_len = 0, 1
+    for i in range(n):
+        dp[i][i] = True
+    for length in range(2, n + 1):
+        for i in range(n - length + 1):
+            j = i + length - 1
+            if s[i] == s[j] and (length == 2 or dp[i + 1][j - 1]):
+                dp[i][j] = True
+                if length > max_len:
+                    start, max_len = i, length
+    return s[start:start + max_len]
+```
+
+**Space Optimized — O(n^2) time, O(1) extra space**
+*(Expand-around-center avoids the 2D table entirely.)*
+
+```python
+def longest_palindrome_optimized(s: str) -> str:
+    if not s:
+        return ""
+
+    def expand(l: int, r: int) -> tuple[int, int]:
+        while l >= 0 and r < len(s) and s[l] == s[r]:
+            l -= 1
+            r += 1
+        return l + 1, r - 1
+
+    start, end = 0, 0
+    for i in range(len(s)):
+        l1, r1 = expand(i, i)       # odd length
+        l2, r2 = expand(i, i + 1)   # even length
+        if r1 - l1 > end - start:
+            start, end = l1, r1
+        if r2 - l2 > end - start:
+            start, end = l2, r2
+    return s[start:end + 1]
+```
+
+---
+
+## 7. Interval DP
+
+### 7.1 Matrix Chain Multiplication
+
+**Problem:** Given dimensions `p[0..n]` of `n` matrices (matrix `i` has size `p[i-1] x p[i]`), find the minimum number of scalar multiplications to multiply the chain.
+
+**Brute Force — O(2^n) time (Catalan-number growth)**
+
+```python
+def mcm_brute(p: list[int], i: int, j: int) -> int:
+    if i == j:
+        return 0
+    best = float("inf")
+    for k in range(i, j):
+        cost = (mcm_brute(p, i, k) + mcm_brute(p, k + 1, j) + p[i - 1] * p[k] * p[j])
+        best = min(best, cost)
+    return best
+```
+
+**Top-Down — O(n^3) time, O(n^2) space**
+
+```python
+def mcm_top_down(p: list[int]) -> int:
+    n = len(p) - 1
+    memo = {}
+
+    def helper(i: int, j: int) -> int:
+        if i == j:
+            return 0
+        if (i, j) in memo:
+            return memo[(i, j)]
+        best = float("inf")
+        for k in range(i, j):
+            cost = helper(i, k) + helper(k + 1, j) + p[i - 1] * p[k] * p[j]
+            best = min(best, cost)
+        memo[(i, j)] = best
+        return best
+
+    return helper(1, n)
+```
+
+**Bottom-Up — O(n^3) time, O(n^2) space**
+
+```python
+def mcm_bottom_up(p: list[int]) -> int:
+    n = len(p) - 1
+    dp = [[0] * (n + 1) for _ in range(n + 1)]
+    for length in range(2, n + 1):
+        for i in range(1, n - length + 2):
+            j = i + length - 1
+            dp[i][j] = float("inf")
+            for k in range(i, j):
+                cost = dp[i][k] + dp[k + 1][j] + p[i - 1] * p[k] * p[j]
+                dp[i][j] = min(dp[i][j], cost)
+    return dp[1][n]
+```
+
+**Space Optimized:** the interval table `dp[i][j]` (`i <= j`) is the minimal representation for interval DP — every cell depends on far-apart cells `dp[i][k]` and `dp[k+1][j]`, so it cannot be collapsed to a rolling 1D array the way linear/grid DP can. `O(n^2)` space is effectively optimal here.
+
+---
+
+## 8. Complexity Summary
+
+| Problem | Brute Force | Top-Down | Bottom-Up | Space Optimized |
+|---|---|---|---|---|
+| Fibonacci | O(2^n) | O(n) time, O(n) space | O(n) time, O(n) space | O(n) time, O(1) space |
+| Climbing Stairs | O(2^n) | O(n) / O(n) | O(n) / O(n) | O(n) / O(1) |
+| House Robber | O(2^n) | O(n) / O(n) | O(n) / O(n) | O(n) / O(1) |
+| Unique Paths | O(2^(m+n)) | O(mn) / O(mn) | O(mn) / O(mn) | O(mn) / O(n) |
+| Min Path Sum | O(2^(m+n)) | O(mn) / O(mn) | O(mn) / O(mn) | O(mn) / O(n) |
+| 0/1 Knapsack | O(2^n) | O(nW) / O(nW) | O(nW) / O(nW) | O(nW) / O(W) |
+| Coin Change | O(k^amount) | O(amount·k) / O(amount) | O(amount·k) / O(amount) | same as bottom-up |
+| Partition Subset Sum | O(2^n) | O(n·sum) / O(n·sum) | O(n·sum) / O(n·sum) | O(n·sum) / O(sum) |
+| LCS | O(2^(m+n)) | O(mn) / O(mn) | O(mn) / O(mn) | O(mn) / O(min(m,n)) |
+| LIS | O(2^n) | O(n²) / O(n²) | O(n²) / O(n) | O(n log n) / O(n) |
+| Edit Distance | O(3^(m+n)) | O(mn) / O(mn) | O(mn) / O(mn) | O(mn) / O(min(m,n)) |
+| Longest Palindromic Substring | O(n³) | O(n²) / O(n²) | O(n²) / O(n²) | O(n²) time / O(1) space |
+| Matrix Chain Multiplication | O(2^n) | O(n³) / O(n²) | O(n³) / O(n²) | O(n²) is already minimal |
+
+### Key Takeaways
+
+- **Top-down** is easiest to derive directly from the brute-force recursion — just add a cache.
+- **Bottom-up** removes recursion/stack overhead and is usually preferred in production code.
+- **Space optimization** works when the current DP row/state only depends on a limited window of previous states (e.g., 1–2 previous rows). Interval DP (like Matrix Chain Multiplication) and problems needing full history typically can't be compressed further.
