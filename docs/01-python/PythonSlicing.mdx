@@ -1,0 +1,402 @@
+# Python Slicing
+
+## Table of Contents
+1. [What is Slicing?](#1-what-is-slicing)
+2. [Basic Syntax](#2-basic-syntax)
+3. [How Slicing Works Internally (Theory)](#3-how-slicing-works-internally-theory)
+4. [Positive Indexing Slices](#4-positive-indexing-slices)
+5. [Negative Indexing Slices](#5-negative-indexing-slices)
+6. [Step Parameter](#6-step-parameter)
+7. [Reversing with Slicing](#7-reversing-with-slicing)
+8. [Slicing Strings](#8-slicing-strings)
+9. [Slicing Lists](#9-slicing-lists)
+10. [Slicing Tuples](#10-slicing-tuples)
+11. [Slicing with `range()` objects](#11-slicing-with-range-objects)
+12. [The `slice()` Object](#12-the-slice-object)
+13. [Slice Assignment (Mutating Lists)](#13-slice-assignment-mutating-lists)
+14. [Deleting Elements with Slicing](#14-deleting-elements-with-slicing)
+15. [Copying with Slicing (Shallow Copy)](#15-copying-with-slicing-shallow-copy)
+16. [Slicing 2D Lists / Nested Lists](#16-slicing-2d-lists--nested-lists)
+17. [Slicing with NumPy Arrays (Bonus)](#17-slicing-with-numpy-arrays-bonus)
+18. [Out-of-Range Slices Never Error](#18-out-of-range-slices-never-error)
+19. [Common Pitfalls / Gotchas](#19-common-pitfalls--gotchas)
+20. [Time & Space Complexity of Slicing](#20-time--space-complexity-of-slicing)
+21. [When to Use Slicing in DSA](#21-when-to-use-slicing-in-dsa)
+22. [Cheat Sheet](#22-cheat-sheet)
+
+---
+
+## 1. What is Slicing?
+
+Slicing is a Python feature that lets you extract a **sub-part** (a "slice") of a sequence — such as a `list`, `tuple`, `string`, or `range` — without writing a loop. It returns a **new object** containing the selected elements.
+
+Any object that supports indexing (has `__getitem__`) and is a sequence can be sliced.
+
+---
+
+## 2. Basic Syntax
+
+```python
+sequence[start:stop:step]
+```
+
+| Part  | Meaning                                   | Default        |
+|-------|--------------------------------------------|----------------|
+| start | index to begin from (inclusive)            | `0`            |
+| stop  | index to stop at (**exclusive**)           | `len(sequence)`|
+| step  | how many indices to jump each time         | `1`            |
+
+All three parts are **optional**. You can omit any of them:
+
+```python
+a[:]        # whole sequence (copy)
+a[2:]       # from index 2 to end
+a[:5]       # from start to index 4
+a[::2]      # every 2nd element
+a[::-1]     # reversed
+```
+
+---
+
+## 3. How Slicing Works Internally (Theory)
+
+- Slicing calls `sequence.__getitem__(slice(start, stop, step))` under the hood.
+- Python computes the actual `(start, stop, step)` using `slice.indices(len)`, which normalizes negative indices and clamps out-of-range values so they never raise `IndexError`.
+- For **lists, tuples, strings** — slicing always returns a **new object** of the same type (a copy), not a view.
+- Example internal normalization:
+
+```python
+s = slice(1, 10, 2)
+print(s.indices(5))   # (1, 5, 2) -> clamped to length 5
+```
+
+---
+
+## 4. Positive Indexing Slices
+
+Indices count from `0` at the left.
+
+```python
+nums = [10, 20, 30, 40, 50]
+#        0   1   2   3   4
+
+print(nums[1:4])   # [20, 30, 40]  -> indices 1,2,3
+print(nums[0:2])   # [10, 20]
+print(nums[2:])    # [30, 40, 50]
+print(nums[:3])    # [10, 20, 30]
+print(nums[:])     # [10, 20, 30, 40, 50] (full copy)
+```
+
+---
+
+## 5. Negative Indexing Slices
+
+Negative indices count from `-1` at the right end.
+
+```python
+nums = [10, 20, 30, 40, 50]
+#       -5  -4  -3  -2  -1
+
+print(nums[-3:])     # [30, 40, 50]
+print(nums[:-2])     # [10, 20, 30]
+print(nums[-4:-1])   # [20, 30, 40]
+print(nums[-1])      # 50 (indexing, not slicing)
+```
+
+---
+
+## 6. Step Parameter
+
+```python
+nums = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+
+print(nums[::2])      # [0, 2, 4, 6, 8]   every 2nd element
+print(nums[1::2])     # [1, 3, 5, 7, 9]   odd-index elements
+print(nums[0:8:3])    # [0, 3, 6]
+print(nums[::-2])     # [9, 7, 5, 3, 1]   reverse, every 2nd
+```
+
+A negative `step` moves right-to-left, so `start` must be greater than `stop` (in index terms) for a non-empty result.
+
+---
+
+## 7. Reversing with Slicing
+
+```python
+s = "hello"
+print(s[::-1])      # "olleh"
+
+nums = [1, 2, 3, 4]
+print(nums[::-1])   # [4, 3, 2, 1]
+```
+
+This is the idiomatic, fastest way to reverse a sequence in Python (no explicit loop needed).
+
+---
+
+## 8. Slicing Strings
+
+Strings are immutable sequences of characters, so slicing works identically to lists but always returns a new string.
+
+```python
+s = "Python Programming"
+
+print(s[0:6])     # "Python"
+print(s[-11:])    # "Programming"
+print(s[::2])     # "Pto rgamn" (every 2nd char)
+print(s[::-1])    # "gnimmargorP nohtyP"
+
+# Common trick: check palindrome
+def is_palindrome(txt):
+    return txt == txt[::-1]
+
+print(is_palindrome("madam"))  # True
+```
+
+---
+
+## 9. Slicing Lists
+
+```python
+lst = [10, 20, 30, 40, 50, 60]
+
+print(lst[1:4])     # [20, 30, 40]
+print(lst[:3])      # [10, 20, 30]
+print(lst[3:])      # [40, 50, 60]
+print(lst[-3:-1])   # [40, 50]
+print(lst[::3])     # [10, 40]
+```
+
+Slicing a list **always** returns a shallow-copied new list — the original is untouched (unless you assign to the slice, see Section 13).
+
+---
+
+## 10. Slicing Tuples
+
+Same rules as lists, but the result is a tuple (tuples are immutable, so slicing is the standard way to get a "sub-tuple").
+
+```python
+t = (1, 2, 3, 4, 5)
+print(t[1:3])    # (2, 3)
+print(t[::-1])   # (5, 4, 3, 2, 1)
+```
+
+---
+
+## 11. Slicing with `range()` Objects
+
+`range` objects also support slicing and return a new `range` object (lazy, memory-efficient).
+
+```python
+r = range(10)
+print(r[2:5])        # range(2, 5)
+print(list(r[2:5]))  # [2, 3, 4]
+print(r[::-1])        # range(9, -1, -1)
+```
+
+---
+
+## 12. The `slice()` Object
+
+You can create a reusable slice object explicitly — useful when the same slice pattern is applied repeatedly.
+
+```python
+s = slice(1, 5, 2)
+nums = [10, 20, 30, 40, 50, 60]
+print(nums[s])          # [20, 40]
+
+# Applying same slice to multiple sequences
+row_slice = slice(0, 3)
+print("Programming"[row_slice])  # "Pro"
+print([1,2,3,4,5][row_slice])    # [1, 2, 3]
+```
+
+---
+
+## 13. Slice Assignment (Mutating Lists)
+
+Unlike strings/tuples, **lists are mutable**, so you can assign to a slice to replace, grow, or shrink the list in place.
+
+```python
+lst = [1, 2, 3, 4, 5]
+
+lst[1:3] = [20, 30, 300]     # replace 2 elements with 3
+print(lst)                    # [1, 20, 30, 300, 4, 5]
+
+lst[0:2] = []                 # remove elements (shrink)
+print(lst)                    # [30, 300, 4, 5]
+
+lst[1:1] = [99, 98]           # insert without removing (empty slice)
+print(lst)                    # [30, 99, 98, 300, 4, 5]
+
+lst[:] = [1, 2, 3]            # replace entire content, same list object
+print(lst)                    # [1, 2, 3]
+```
+
+With a step, the number of replacement elements must match exactly:
+
+```python
+lst = [0, 1, 2, 3, 4, 5]
+lst[::2] = [100, 200, 300]
+print(lst)   # [100, 1, 200, 3, 300, 5]
+```
+
+---
+
+## 14. Deleting Elements with Slicing
+
+```python
+lst = [10, 20, 30, 40, 50]
+del lst[1:3]
+print(lst)     # [10, 40, 50]
+
+lst2 = [0, 1, 2, 3, 4, 5, 6]
+del lst2[::2]
+print(lst2)    # [1, 3, 5]
+```
+
+---
+
+## 15. Copying with Slicing (Shallow Copy)
+
+```python
+original = [1, 2, 3]
+copy = original[:]         # shallow copy
+copy.append(4)
+print(original)   # [1, 2, 3]  (unchanged)
+print(copy)        # [1, 2, 3, 4]
+```
+
+⚠️ It's a **shallow** copy — nested mutable objects (like inner lists) are still shared:
+
+```python
+nested = [[1, 2], [3, 4]]
+shallow = nested[:]
+shallow[0].append(99)
+print(nested)   # [[1, 2, 99], [3, 4]]  -> inner list changed too!
+```
+
+For deep copies, use `copy.deepcopy()`.
+
+---
+
+## 16. Slicing 2D Lists / Nested Lists
+
+Slicing does **not** work directly across dimensions like NumPy — you must slice row-wise and then column-wise if needed.
+
+```python
+matrix = [
+    [1, 2, 3],
+    [4, 5, 6],
+    [7, 8, 9]
+]
+
+print(matrix[0:2])          # first 2 rows: [[1,2,3],[4,5,6]]
+print(matrix[1])             # single row: [4, 5, 6]
+print(matrix[1][0:2])        # slice within a row: [4, 5]
+
+# Get a column using list comprehension (plain lists can't slice columns directly)
+col0 = [row[0] for row in matrix]
+print(col0)   # [1, 4, 7]
+```
+
+---
+
+## 17. Slicing with NumPy Arrays (Bonus)
+
+NumPy extends slicing to multiple dimensions and — importantly — slices are **views**, not copies.
+
+```python
+import numpy as np
+arr = np.array([[1,2,3],[4,5,6],[7,8,9]])
+
+print(arr[0:2, 1:3])   # rows 0-1, cols 1-2 -> [[2,3],[5,6]]
+print(arr[:, 0])        # entire first column -> [1,4,7]
+
+sub = arr[0:2, 0:2]
+sub[0,0] = 100
+print(arr[0,0])         # 100  -> original changed! (view, not copy)
+```
+
+---
+
+## 18. Out-of-Range Slices Never Error
+
+Unlike normal indexing, slicing silently clamps out-of-bound indices instead of raising `IndexError`.
+
+```python
+lst = [1, 2, 3]
+print(lst[10:20])   # []  (empty, no error)
+print(lst[1:100])   # [2, 3]
+print(lst[100])     # IndexError! (regular indexing does raise)
+```
+
+---
+
+## 19. Common Pitfalls / Gotchas
+
+- `a[i:j]` includes `i` but **excludes** `j` — off-by-one errors are the #1 mistake.
+- `a[::-1]` reverses, but `a[5:1]` (no negative step) gives an **empty list**, not an error — because default step is `+1` and start > stop.
+- Slicing a list returns a **new list**; slicing a NumPy array returns a **view** — mutating one affects the other.
+- `a[:]` copies only one level deep (shallow copy) — nested objects are shared.
+- Step of `0` raises `ValueError: slice step cannot be zero`.
+- Mixing slice-assignment length with step incorrectly raises `ValueError: attempt to assign sequence of size X to extended slice of size Y`.
+
+---
+
+## 20. Time & Space Complexity of Slicing
+
+| Sequence Type | Time Complexity        | Space Complexity |
+|----------------|-------------------------|-------------------|
+| `list[i:j]`    | O(k) where k = j - i     | O(k) — new list   |
+| `str[i:j]`     | O(k)                     | O(k) — new string |
+| `tuple[i:j]`   | O(k)                     | O(k) — new tuple  |
+| NumPy `arr[i:j]` | O(1) (view creation)   | O(1) — no copy    |
+
+Slicing a Python list/string/tuple is always **linear** in the size of the slice, because it copies elements into a new object.
+
+---
+
+## 21. When to Use Slicing in DSA
+
+Slicing is a powerful shortcut in coding interviews and DSA problems — but knowing **when** it helps (and when it hurts) matters.
+
+### ✅ Good use cases
+- **Reversing arrays/strings**: `arr[::-1]` instead of manual two-pointer reversal — great for quick checks (palindrome, reverse output).
+- **Sliding window snapshots**: grabbing a fixed window `arr[i:i+k]` for brute-force window sum before optimizing to O(n).
+- **Divide and conquer**: algorithms like **merge sort** or **quick sort** conceptually split arrays — `arr[:mid]`, `arr[mid:]` express this cleanly (though real interview implementations often use index pointers instead, to avoid extra O(n) copies at each recursion level).
+- **Prefix/suffix extraction**: getting first-k or last-k elements for prefix sums, Kadane's variants, etc.
+- **String problems**: substring extraction, checking rotations (`s in (s2+s2)` combined with slicing), anagram windows.
+- **Two-pointer / partition validation**: quickly verifying a candidate slice `arr[left:right]` matches expected output while debugging.
+- **Circular array simulation**: `arr[k:] + arr[:k]` to rotate an array by k positions in O(n).
+- **Binary search boundary extraction**: getting `arr[mid:]` or `arr[:mid]` for problems needing sub-array logic (rare, since BS usually uses indices only).
+
+### ⚠️ Use with caution / avoid in
+- **Performance-critical / large-n problems**: since `list[i:j]` is O(k), using slicing repeatedly inside a loop (e.g., inside merge sort recursion) can silently turn an O(n log n) algorithm into O(n² log n) due to copy overhead. Prefer index pointers (`left`, `right`) for large inputs or when asymptotic complexity matters.
+- **In-place algorithms**: if a problem explicitly asks for O(1) extra space (e.g., in-place array rotation, in-place reversal), avoid slicing since it always allocates a new object — use swapping/two-pointers instead.
+- **Repeated slicing in tight loops**: e.g., `while len(arr) > 0: process(arr[0]); arr = arr[1:])` is O(n²) total — use a pointer/index or `deque.popleft()` (O(1)) instead.
+- **Matrix/graph problems needing views**: plain Python lists can't slice columns or give shared views — use NumPy, or index manually, if mutation-through-view or multi-dimensional slicing is needed.
+
+### Rule of thumb
+> Use slicing for **clarity and quick correctness** (interview whiteboard code, reversing, extracting windows, rotation). Switch to **explicit indices/pointers** when you need strict O(1) space or must avoid repeated O(k) copy costs in performance-sensitive / large-input DSA problems.
+
+---
+
+## 22. Cheat Sheet
+
+```python
+a[:]        # copy whole sequence
+a[start:]   # from start to end
+a[:stop]    # from beginning to stop-1
+a[start:stop]        # start to stop-1
+a[start:stop:step]   # with step
+a[::-1]     # reversed
+a[::k]      # every k-th element
+a[-n:]      # last n elements
+a[:-n]      # all except last n elements
+a[i:j] = [] # delete elements (mutable seq)
+del a[i:j]  # delete elements
+a[i:j] = other  # replace elements
+```
+
+**Remember:** `start` inclusive, `stop` exclusive, negative step reverses direction, out-of-range never errors.
