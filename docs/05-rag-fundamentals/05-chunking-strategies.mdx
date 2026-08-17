@@ -1,0 +1,434 @@
+---
+title: Chunking Strategies
+description: Why RAG splits documents into chunks, fixed-size vs token-aware splitting, overlap, sentence/paragraph and recursive splitting, structure-aware and semantic chunking, choosing chunk size, and the metadata to attach per chunk.
+---
+
+import TOCInline from '@theme/TOCInline';
+
+# Chunking Strategies
+
+<TOCInline toc={toc} minHeadingLevel={2} maxHeadingLevel={2} />
+
+:::tip[In this guide]
+Chunking is the quiet decision that makes or breaks retrieval. This guide covers
+every practical strategy — from naive fixed-size splits to structure-aware and
+semantic chunking — plus overlap, token-awareness, and the metadata to carry with
+each chunk. It builds on the [ingestion pipeline](./01-ingestion-pipeline.mdx) and
+sets up the hands-on experiments in
+[Advanced RAG chunking](../06-advanced-rag/01-chunking-experiments.mdx).
+:::
+
+## What Is It?
+
+**Chunking** is splitting a document into smaller, self-contained pieces before
+you embed and store them. Each chunk becomes one row in your vector store: one
+piece of text, one embedding, one set of metadata.
+
+```python
+# one long document -> several retrievable chunks
+document = "... 20,000 characters of a product manual ..."
+chunks = chunk_text(document, size=800, overlap=100)
+# -> ["...", "...", "...", ...]  each embedded and stored separately
+```
+
+## Why Does It Matter?
+
+Retrieval returns *chunks*, not documents. The chunk boundary decides what the
+LLM ultimately sees. Chunk too large and every hit drags in irrelevant text that
+dilutes the answer and burns tokens; chunk too small and a single idea gets
+split across pieces so no one chunk is retrievable on its own. Chunking quality
+sets a ceiling on retrieval quality that no better model can lift.
+
+---
+
+## Why Chunk At All?
+
+Three hard limits force you to split.
+
+1. **Embedding models have an input limit.** `all-MiniLM-L6-v2` truncates long
+   input (roughly 256 word-pieces). Text past the limit is silently dropped
+   before it ever becomes a vector.
+2. **One vector per document is too coarse.** Averaging a whole manual into 384
+   numbers blurs every distinct topic into mush, so nothing stands out at query
+   time.
+3. **Context windows are finite.** You can only fit so many characters into the
+   prompt. Small, relevant chunks let you pack in *several* precise hits instead
+   of one bloated one — see [context windows](./13-context-windows.mdx).
+
+:::info[Theory: precision vs recall in retrieval]
+Think of each chunk as a claim the retriever can match against. Small chunks are
+*precise* — a hit is tightly about one thing — but you risk missing surrounding
+context. Large chunks improve *recall* of context but lower precision, because
+the relevant sentence is buried among unrelated ones. Chunking is where you tune
+that tradeoff, before any search happens.
+:::
+
+---
+
+## Fixed-Size Chunking (Characters vs Tokens)
+
+The simplest strategy: walk the text and cut every N units. You already saw the
+character version in the [ingestion pipeline](./01-ingestion-pipeline.mdx):
+
+```python
+def chunk_text(text: str, size: int = 800, overlap: int = 100) -> list[str]:
+    chunks, start = [], 0
+    while start < len(text):
+        end = start + size
+        chunks.append(text[start:end])
+        start = end - overlap        # step back so chunks overlap
+    return chunks
+```
+
+This is fast and predictable, but it cuts blindly — often mid-word or
+mid-sentence. It is a fine baseline and a poor final answer.
+
+:::note[Highlight: characters are not tokens]
+`size=800` counts *characters*. Models count *tokens* (word-pieces). As a rough
+rule of thumb, one token is about four characters of English, so 800 characters
+is roughly 200 tokens. Because embedding models cap on tokens, a character-based
+splitter can still overflow the model on dense text (code, tables, CJK). When you
+need to respect a model limit precisely, count tokens.
+:::
+
+### Token-aware fixed-size chunking
+
+```python
+from sentence_transformers import SentenceTransformer
+
+model = SentenceTransformer("all-MiniLM-L6-v2")
+tokenizer = model.tokenizer   # the underlying word-piece tokenizer
+
+def chunk_by_tokens(text: str, max_tokens: int = 200, overlap: int = 40) -> list[str]:
+    token_ids = tokenizer.encode(text, add_special_tokens=False)
+    chunks, start = [], 0
+    while start < len(token_ids):
+        window = token_ids[start : start + max_tokens]
+        chunks.append(tokenizer.decode(window))
+        start += max_tokens - overlap
+    return chunks
+```
+
+Now `max_tokens` maps directly to what the model can actually ingest, so nothing
+gets silently truncated.
+
+:::warning[Silent truncation is the sneakiest chunking bug]
+If a chunk exceeds the embedding model's token limit, the model does not error —
+it just drops the overflow. The tail of the chunk never influences the vector, so
+that content becomes unretrievable with no warning. Token-aware chunking prevents
+this class of bug.
+:::
+
+---
+
+## Overlap
+
+Overlap repeats a slice of text between consecutive chunks so an idea that
+straddles a boundary survives in at least one chunk intact.
+
+```text
+size = 800, overlap = 100
+
+chunk 0: chars   0 .. 800
+chunk 1: chars 700 .. 1500     <- first 100 chars repeat chunk 0's tail
+chunk 2: chars 1400 .. 2200
+```
+
+- **How much?** Around **10–20%** of chunk size is the common starting range
+  (e.g. 100 characters of overlap on 800-character chunks).
+- **Too little** and a sentence split across the seam is lost from both chunks.
+- **Too much** and you inflate storage and re-retrieve near-duplicate text,
+  which wastes prompt tokens later.
+
+:::info[Theory: why overlap works]
+Retrieval is all-or-nothing at the chunk level — a chunk either comes back or it
+doesn't. If the one sentence that answers the question is cut exactly at a
+boundary, neither neighboring chunk embeds it cleanly, so neither ranks well.
+Overlap guarantees every span of text appears *whole* in at least one chunk.
+:::
+
+---
+
+## Sentence and Paragraph Splitting
+
+Instead of arbitrary character offsets, split on natural language units so
+boundaries fall where meaning does.
+
+```python
+import re
+
+def split_sentences(text: str) -> list[str]:
+    # naive splitter: break after ., !, ? followed by whitespace
+    parts = re.split(r"(?<=[.!?])\s+", text.strip())
+    return [p for p in parts if p]
+
+def chunk_by_sentences(text: str, max_chars: int = 800) -> list[str]:
+    chunks, current = [], ""
+    for sentence in split_sentences(text):
+        if len(current) + len(sentence) + 1 > max_chars and current:
+            chunks.append(current.strip())
+            current = sentence
+        else:
+            current = f"{current} {sentence}".strip()
+    if current:
+        chunks.append(current)
+    return chunks
+```
+
+Paragraph splitting is the same idea one level up: split on blank lines
+(`\n\n`), then pack paragraphs into chunks up to a size budget. Sentences and
+paragraphs give cleaner boundaries than fixed-size cuts, at the cost of variable
+chunk lengths.
+
+:::note[Highlight: use a real sentence splitter for messy text]
+The regex above is fine for clean prose but stumbles on "Dr. Smith", "3.14", and
+abbreviations. For production, a library splitter (spaCy, `nltk.sent_tokenize`,
+or `syntok`) handles edge cases far better. Keep the naive version for learning;
+reach for a library when accuracy matters.
+:::
+
+---
+
+## Recursive Character Splitting
+
+The most useful general-purpose strategy: try to split on the **largest** natural
+boundary first, and only fall back to smaller ones when a piece is still too big.
+Order: paragraphs → sentences → words → characters.
+
+```python
+def recursive_split(text: str, max_chars: int = 800,
+                    separators: list[str] | None = None) -> list[str]:
+    separators = separators if separators is not None else ["\n\n", "\n", ". ", " ", ""]
+    if len(text) <= max_chars or not separators:
+        return [text]
+
+    sep, *rest = separators
+    pieces = text.split(sep) if sep else list(text)
+
+    chunks, current = [], ""
+    for piece in pieces:
+        candidate = f"{current}{sep}{piece}" if current else piece
+        if len(candidate) <= max_chars:
+            current = candidate
+        else:
+            if current:
+                chunks.append(current)
+            # the piece itself may still be too big -> recurse with finer separators
+            if len(piece) > max_chars:
+                chunks.extend(recursive_split(piece, max_chars, rest))
+                current = ""
+            else:
+                current = piece
+    if current:
+        chunks.append(current)
+    return chunks
+```
+
+This keeps paragraphs whole when they fit and only breaks them down when they
+must be broken. It is the default behind most RAG frameworks for good reason: it
+respects structure without needing to understand the document.
+
+---
+
+## Structure-Aware Chunking
+
+For formats with explicit structure — Markdown, HTML, source code — split on the
+structure itself so each chunk is a coherent unit and can inherit useful context
+like its heading.
+
+```python
+import re
+
+def split_markdown_by_heading(md: str) -> list[dict]:
+    """Split on H1/H2/H3 lines, keeping the heading trail with each section."""
+    sections, heading, buffer = [], "", []
+    for line in md.splitlines():
+        if re.match(r"^#{1,3}\s", line):
+            if buffer:
+                sections.append({"heading": heading, "text": "\n".join(buffer).strip()})
+                buffer = []
+            heading = line.lstrip("#").strip()
+        else:
+            buffer.append(line)
+    if buffer:
+        sections.append({"heading": heading, "text": "\n".join(buffer).strip()})
+    return [s for s in sections if s["text"]]
+```
+
+For code, split on function or class boundaries rather than line counts so a
+chunk is a whole unit the model can reason about:
+
+```python
+def split_python_by_def(source: str) -> list[str]:
+    # split before top-level def/class lines
+    parts = re.split(r"\n(?=(?:def |class )\w)", source)
+    return [p.strip() for p in parts if p.strip()]
+```
+
+:::caution[Don't shred code blocks or tables]
+A fixed-size splitter will happily cut a code block, a JSON payload, or a
+Markdown table in half — producing chunks that are syntactically broken and
+semantically useless. When a document mixes prose and code, detect fenced code
+blocks and keep each one intact as its own chunk (or attach it to the paragraph
+that introduces it).
+:::
+
+---
+
+## Semantic Chunking
+
+Instead of splitting on characters or structure, split on **meaning**: embed
+sentences, then start a new chunk whenever consecutive sentences drift apart in
+vector space. This groups sentences that are actually about the same thing.
+
+```python
+import numpy as np
+from sentence_transformers import SentenceTransformer
+
+model = SentenceTransformer("all-MiniLM-L6-v2")
+
+def semantic_chunks(text: str, threshold: float = 0.6) -> list[str]:
+    sentences = split_sentences(text)
+    if not sentences:
+        return []
+    vecs = model.encode(sentences, normalize_embeddings=True)
+
+    chunks, current = [], [sentences[0]]
+    for i in range(1, len(sentences)):
+        similarity = float(np.dot(vecs[i - 1], vecs[i]))   # cosine (vectors normalized)
+        if similarity < threshold:            # topic shifted -> cut here
+            chunks.append(" ".join(current))
+            current = [sentences[i]]
+        else:
+            current.append(sentences[i])
+    chunks.append(" ".join(current))
+    return chunks
+```
+
+Semantic chunking produces the most coherent chunks but is the most expensive: it
+embeds every sentence up front and needs a tuned `threshold`. Reach for it when
+retrieval quality justifies the extra ingestion cost.
+
+:::info[Theory: let the boundaries follow the topic]
+Fixed-size and recursive splitting choose boundaries by *shape* (length,
+punctuation, structure). Semantic chunking chooses them by *content* — a boundary
+appears exactly where the topic changes. That alignment is why it can lift
+retrieval precision, since each chunk is about one idea by construction.
+:::
+
+---
+
+## Choosing Chunk Size
+
+There is no universal number; there is a tradeoff you tune for your data and your
+questions.
+
+| Chunk size | Effect on retrieval | Effect on the prompt |
+| --- | --- | --- |
+| Small (~100–150 tokens) | High precision, may miss surrounding context | Fits many hits; needs more of them |
+| Medium (~200–300 tokens) | Balanced — common default | Reasonable token cost |
+| Large (~500+ tokens) | High context recall, lower precision, more noise | Few hits fill the window fast |
+
+Start around 200–300 tokens with 10–20% overlap, then measure. The precise
+answer for *your* corpus comes from running an [eval set](./14-rag-evaluation.mdx)
+across a few sizes — which is exactly the experiment in
+[Advanced RAG chunking](../06-advanced-rag/01-chunking-experiments.mdx).
+
+:::note[Highlight: chunk size and top-k are coupled]
+Chunk size does not stand alone — it interacts with how many chunks you retrieve.
+Small chunks usually want a larger top-k (you need several to reconstruct
+context); large chunks want a smaller one (each already carries a lot). Tune the
+two together, keeping the [context window](./13-context-windows.mdx) budget in
+mind.
+:::
+
+---
+
+## Metadata To Attach Per Chunk
+
+A chunk is only as useful as the metadata that travels with it. At minimum store:
+
+- **source** — file name, URL, or document id (needed for citations).
+- **position** — chunk index within the document (ordering, dedup, neighbor
+  lookups).
+- **heading / section** — the section trail from structure-aware chunking (adds
+  context and enables [metadata filtering](./09-metadata-filtering.mdx)).
+- **type / format** — `prose`, `code`, `table` (lets you filter or rank by kind).
+- **created / updated** — timestamps for freshness filters.
+
+```python
+import chromadb
+from sentence_transformers import SentenceTransformer
+
+client = chromadb.PersistentClient(path="./chroma")
+collection = client.get_or_create_collection("docs", metadata={"hnsw:space": "cosine"})
+embedder = SentenceTransformer("all-MiniLM-L6-v2")
+
+def store_chunks(source: str, sections: list[dict]) -> int:
+    ids, texts, metas, vectors = [], [], [], []
+    for i, section in enumerate(sections):
+        chunk = section["text"]
+        ids.append(f"{source}-{i}")
+        texts.append(chunk)
+        metas.append({
+            "source": source,
+            "chunk": i,
+            "heading": section.get("heading", ""),
+            "type": "prose",
+        })
+        vectors.append(embedder.encode(chunk).tolist())
+    collection.add(ids=ids, documents=texts, metadatas=metas, embeddings=vectors)
+    return len(ids)
+```
+
+:::warning[Metadata is easiest to add at ingestion — not later]
+Heading, position, and type are cheap to capture while you are already walking the
+document during chunking. Reconstructing them afterward from stored text is
+painful and often impossible. Decide your metadata schema before you ingest, and
+carry it through every chunk.
+:::
+
+---
+
+## Common Mistakes
+
+- Character-only splitting that silently overflows the embedding token limit.
+- No overlap, so ideas at chunk seams become unretrievable.
+- One giant chunk per document (coarse vectors, noisy hits).
+- Fixed-size cuts that shred code blocks, tables, or JSON.
+- Picking a chunk size by intuition instead of measuring on an eval set.
+- Forgetting metadata (source, position, heading) at ingestion time.
+
+## Interview Questions
+
+- Why do we chunk documents before embedding them?
+- What is chunk overlap, and roughly how much should you use?
+- Explain recursive character splitting and why it beats naive fixed-size cuts.
+- How does chunk size trade off retrieval precision against context?
+- What is semantic chunking, and when is its extra cost worth it?
+- What metadata would you attach to each chunk, and why?
+
+## Things to Remember
+
+- Chunking sets the ceiling on retrieval quality.
+- Count tokens, not just characters, to avoid silent truncation.
+- Use 10–20% overlap; prefer recursive or structure-aware splitting over blind cuts.
+- Chunk size and top-k are tuned together, against an eval set.
+- Attach source, position, and heading metadata during ingestion.
+
+## Mini Exercise
+
+Take one Markdown document and chunk it three ways: fixed-size 800-character with
+100 overlap, recursive character split at 800, and structure-aware by heading.
+Store each set in a separate Chroma collection with `source` and `heading`
+metadata, run the same question against all three, and compare which returns the
+most relevant chunk.
+
+## Done When
+
+- [ ] You can implement fixed-size, recursive, and structure-aware chunkers.
+- [ ] You can explain overlap and choose a sensible amount.
+- [ ] You understand the difference between counting characters and tokens.
+- [ ] You attach source, position, and heading metadata to every chunk.
+
+Next: [Vector Databases](./06-vector-databases.mdx).

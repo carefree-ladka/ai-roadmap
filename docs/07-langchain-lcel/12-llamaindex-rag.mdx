@@ -1,0 +1,369 @@
+---
+title: LlamaIndex RAG
+description: Production-shaped RAG in LlamaIndex — ingestion pipelines, Chroma persistence, chunking options, top-k retrievers, response modes, reranking postprocessors, chat engines, citations, and evaluation.
+---
+
+import TOCInline from '@theme/TOCInline';
+
+# LlamaIndex RAG
+
+<TOCInline toc={toc} minHeadingLevel={2} maxHeadingLevel={2} />
+
+:::tip[In this guide]
+The 5-line RAG from [LlamaIndex Basics](./11-llamaindex-basics.mdx) gets you
+started; this guide makes it real. We cover ingestion pipelines, persisting to
+[Chroma](../05-rag-fundamentals/06-vector-databases.mdx), chunking options,
+tuning [top-k retrieval](../05-rag-fundamentals/08-top-k-retrieval.mdx),
+response modes, reranking, chat engines, citations, and
+[evaluation](../05-rag-fundamentals/14-rag-evaluation.mdx) — all local on
+Ollama and Chroma.
+:::
+
+## What Is It?
+
+This is the applied layer of LlamaIndex: turning the baseline pipeline into
+something you can persist, tune, and trust. Each stage — ingest, store, retrieve,
+synthesize, postprocess — becomes an explicit, configurable object.
+
+## Why Does It Matter?
+
+Defaults get a demo working; production needs control. You want to embed once
+and reuse the store, chunk for your content, retrieve the right number of Nodes,
+rerank to cut noise, hold a conversation with memory, and cite sources. This
+guide maps each of those needs to a LlamaIndex component.
+
+---
+
+## The Ingestion Pipeline
+
+`IngestionPipeline` makes ingestion explicit: an ordered list of
+**transformations** applied to your Documents to produce embedded Nodes. It also
+caches, so re-running skips unchanged inputs.
+
+```python
+from llama_index.core import SimpleDirectoryReader
+from llama_index.core.ingestion import IngestionPipeline
+from llama_index.core.node_parser import SentenceSplitter
+from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+
+documents = SimpleDirectoryReader("./data").load_data()
+
+pipeline = IngestionPipeline(
+    transformations=[
+        SentenceSplitter(chunk_size=512, chunk_overlap=50),
+        HuggingFaceEmbedding(model_name="BAAI/bge-small-en-v1.5"),
+    ]
+)
+
+nodes = pipeline.run(documents=documents)
+print(f"produced {len(nodes)} embedded nodes")
+```
+
+:::info[Theory: ingestion as a transformation chain]
+Every ingestion step is a transformation from Nodes to Nodes: split, add
+metadata, extract keywords, embed. Modeling it as a list means you can reorder,
+add, or remove steps without rewriting glue code, and the built-in cache keys on
+each Node's content — change a document and only that document is reprocessed.
+This mirrors the [ingestion pipeline](../05-rag-fundamentals/01-ingestion-pipeline.mdx)
+concept from RAG Fundamentals.
+:::
+
+---
+
+## Persisting to a Vector Store
+
+The in-memory index vanishes when your process exits. Wire in a
+`ChromaVectorStore` via a `StorageContext` to persist embeddings, then reload
+without re-embedding.
+
+```python
+import chromadb
+from llama_index.core import (
+    Settings, SimpleDirectoryReader, StorageContext, VectorStoreIndex,
+)
+from llama_index.llms.ollama import Ollama
+from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+from llama_index.vector_stores.chroma import ChromaVectorStore
+
+Settings.llm = Ollama(model="llama3.2", request_timeout=120.0)
+Settings.embed_model = HuggingFaceEmbedding(model_name="BAAI/bge-small-en-v1.5")
+
+# a persistent Chroma client writes to disk
+db = chromadb.PersistentClient(path="./chroma_llamaindex")
+collection = db.get_or_create_collection("rag_academy")
+
+vector_store = ChromaVectorStore(chroma_collection=collection)
+storage_context = StorageContext.from_defaults(vector_store=vector_store)
+
+documents = SimpleDirectoryReader("./data").load_data()
+index = VectorStoreIndex.from_documents(
+    documents, storage_context=storage_context
+)
+```
+
+Reloading later skips ingestion entirely — you build the index straight from the
+existing vectors:
+
+```python
+import chromadb
+from llama_index.core import VectorStoreIndex
+from llama_index.vector_stores.chroma import ChromaVectorStore
+
+db = chromadb.PersistentClient(path="./chroma_llamaindex")
+collection = db.get_or_create_collection("rag_academy")
+vector_store = ChromaVectorStore(chroma_collection=collection)
+
+# from_vector_store: no documents, no re-embedding
+index = VectorStoreIndex.from_vector_store(vector_store)
+query_engine = index.as_query_engine()
+print(query_engine.query("What does RAG reduce?"))
+```
+
+:::warning[Same embedding model on reload]
+When you reload with `from_vector_store`, the stored vectors were produced by a
+specific embedding model. Your query is embedded at search time by
+`Settings.embed_model`. If those differ, similarity scores are meaningless. Pin
+the embedding model and keep it identical across build and reload.
+:::
+
+---
+
+## Node Parsers and Chunking Options
+
+`SentenceSplitter` covers most cases, but LlamaIndex offers parsers for
+different retrieval strategies.
+
+```python
+from llama_index.core.node_parser import (
+    SentenceSplitter, SentenceWindowNodeParser,
+)
+
+# 1. default: fixed-size sentence-aware chunks
+splitter = SentenceSplitter(chunk_size=512, chunk_overlap=50)
+
+# 2. sentence-window: index single sentences, but keep a window of
+#    surrounding sentences in metadata for richer context at synthesis time
+window_parser = SentenceWindowNodeParser.from_defaults(
+    window_size=3,
+    window_metadata_key="window",
+    original_text_metadata_key="original_text",
+)
+```
+
+- **`SentenceSplitter`** — the workhorse; tune `chunk_size` / `chunk_overlap`.
+- **`SentenceWindowNodeParser`** — retrieve precise single sentences, then expand to neighbors for context (great for dense documents).
+- **Semantic splitter** — splits where the embedding meaning shifts rather than at a fixed size; higher quality, more compute at ingest time.
+
+:::note[Highlight: chunking is a retrieval-quality lever]
+The parser you choose changes what a "match" means. Small chunks retrieve
+precisely but may lack context; windowed and semantic parsers trade a little
+ingest cost for answers that read as more complete. Revisit
+[Chunking Strategies](../05-rag-fundamentals/05-chunking-strategies.mdx) when
+answers feel fragmented.
+:::
+
+---
+
+## Retrievers and Top-K
+
+`as_retriever` exposes the retrieval step. `similarity_top_k` sets how many
+Nodes to pull — the single most impactful knob on RAG quality.
+
+```python
+retriever = index.as_retriever(similarity_top_k=4)
+nodes = retriever.retrieve("How does persistence work in LlamaIndex?")
+for n in nodes:
+    print(round(n.score, 3), n.node.metadata.get("file_name"))
+```
+
+:::info[Theory: the top-k tradeoff]
+Too small a `k` and the answer's supporting evidence may never reach the LLM.
+Too large and you flood the prompt with weakly related Nodes, raising cost and
+inviting the model to latch onto irrelevant text. Start around 3 to 5 and tune
+against real questions — the full reasoning lives in
+[Top-K Retrieval](../05-rag-fundamentals/08-top-k-retrieval.mdx).
+:::
+
+---
+
+## Query Engines and Response Modes
+
+The response synthesizer decides how retrieved Nodes become an answer.
+`response_mode` picks the strategy.
+
+```python
+# compact (default): pack as many Nodes as fit per LLM call, few calls
+compact = index.as_query_engine(response_mode="compact")
+
+# refine: answer from the first Node, then iteratively refine with each next Node
+refine = index.as_query_engine(response_mode="refine")
+
+# tree_summarize: summarize Nodes in a tree, good for broad "summarize everything"
+tree = index.as_query_engine(response_mode="tree_summarize")
+
+print(compact.query("Summarize how LlamaIndex persists data."))
+```
+
+| Mode | How it works | Best for |
+| --- | --- | --- |
+| `compact` | Stuff max Nodes per call, minimal LLM calls | Most Q&A; fast and cheap |
+| `refine` | Sequentially refine the answer Node by Node | High precision over many Nodes |
+| `tree_summarize` | Hierarchical summarization | Broad summaries over large sets |
+
+---
+
+## Postprocessing and Reranking
+
+Node postprocessors run **after** retrieval and **before** synthesis to filter
+or reorder Nodes. Two common ones: a similarity cutoff and a reranker.
+
+```python
+from llama_index.core.postprocessor import SimilarityPostprocessor
+
+# drop weakly-related Nodes below a score threshold
+query_engine = index.as_query_engine(
+    similarity_top_k=8,
+    node_postprocessors=[SimilarityPostprocessor(similarity_cutoff=0.5)],
+)
+```
+
+A reranker retrieves broadly, then uses a stronger model to reorder for
+relevance — retrieve wide, keep the best few.
+
+```python
+from llama_index.core.postprocessor import SentenceTransformerRerank
+
+reranker = SentenceTransformerRerank(
+    model="cross-encoder/ms-marco-MiniLM-L-2-v2",
+    top_n=3,      # keep only the 3 best after reranking
+)
+
+query_engine = index.as_query_engine(
+    similarity_top_k=10,           # retrieve wide
+    node_postprocessors=[reranker] # then rerank down to the best 3
+)
+```
+
+:::info[Theory: two-stage retrieval]
+Vector similarity is fast but approximate — it ranks by embedding distance, not
+true relevance. A reranker is slower but sharper: it scores each query/Node pair
+directly. Combining them (retrieve many cheaply, rerank a few accurately) gives
+you both recall and precision, which is why reranking is a staple of
+[Advanced RAG](../06-advanced-rag/index.mdx).
+:::
+
+---
+
+## Chat Engines
+
+A query engine answers one-shot questions. A **chat engine** adds memory, so
+follow-ups understand context — conversational RAG.
+
+```python
+chat_engine = index.as_chat_engine(chat_mode="context")
+
+print(chat_engine.chat("What does RAG reduce?"))
+print(chat_engine.chat("And how does LlamaIndex do that specifically?"))
+# the second turn resolves "that" using the first turn's context
+```
+
+- `chat_mode="context"` — retrieve relevant Nodes each turn and add them to the conversation.
+- `chat_mode="condense_question"` — rewrite the follow-up into a standalone question, then retrieve.
+- `reset()` — clear the memory buffer to start fresh.
+
+The memory patterns here parallel LangChain's, covered in
+[Memory & Agents](./09-memory-agents.mdx).
+
+---
+
+## Sources and Citations
+
+Grounded answers must be auditable. Every `Response` carries the Nodes it used
+in `source_nodes`.
+
+```python
+response = query_engine.query("How does Chroma persistence work here?")
+
+print(response.response)                       # the answer text
+
+for src in response.source_nodes:
+    print("score:", round(src.score, 3))
+    print("file :", src.node.metadata.get("file_name"))
+    print("text :", src.node.text[:120])
+    print("---")
+```
+
+:::note[Highlight: no sources, no trust]
+If you cannot point at the chunks behind an answer, you cannot verify it or debug
+a bad one. Surface `source_nodes` in your UI or logs from day one — it is the
+cheapest reliability win in RAG.
+:::
+
+---
+
+## A Note on Evaluation
+
+LlamaIndex ships evaluators so you can measure quality instead of eyeballing it.
+
+```python
+from llama_index.core.evaluation import FaithfulnessEvaluator
+
+evaluator = FaithfulnessEvaluator()   # uses Settings.llm as the judge
+
+response = query_engine.query("What does RAG reduce?")
+result = evaluator.evaluate_response(response=response)
+print("faithful:", result.passing)    # is the answer grounded in its sources?
+```
+
+- **Faithfulness** — is the answer supported by the retrieved Nodes (no hallucination)?
+- **Relevancy** — do the answer and sources actually address the question?
+
+These map directly onto the metrics in
+[RAG Evaluation](../05-rag-fundamentals/14-rag-evaluation.mdx). Run them on a
+fixed question set whenever you change chunking, top-k, or the prompt.
+
+---
+
+## Common Mistakes
+
+- Re-embedding on every run instead of reloading from a persistent Chroma store.
+- Using different embedding models at build and query time.
+- Leaving `similarity_top_k` at the default without tuning against real questions.
+- Skipping a reranker, then blaming the LLM for noisy retrieval.
+- Using a query engine for a chat UI, losing conversational context.
+- Never inspecting `source_nodes`, so bad answers are impossible to debug.
+
+## Interview Questions
+
+- What does an `IngestionPipeline` do, and why model ingestion as transformations?
+- How do you persist a LlamaIndex index and reload it without re-embedding?
+- Explain `compact` vs `refine` vs `tree_summarize` response modes.
+- What is a node postprocessor, and how does reranking improve retrieval?
+- Query engine vs chat engine — when do you need each?
+- How would you evaluate whether a RAG answer is faithful?
+
+## Things to Remember
+
+- `IngestionPipeline` = ordered transformations with caching.
+- Persist with `ChromaVectorStore` + `StorageContext`; reload via `from_vector_store`.
+- `similarity_top_k` is the highest-impact retrieval knob.
+- Response modes trade calls for precision; reranking trades compute for relevance.
+- Chat engines add memory; `source_nodes` gives you citations.
+- Evaluate faithfulness and relevancy on a fixed question set.
+
+## Mini Exercise
+
+Persist an index to Chroma, then in a fresh script reload it with
+`from_vector_store` and answer a question — confirm no re-embedding happens. Add
+a `SimilarityPostprocessor` cutoff and a reranker, compare answers, and print
+`source_nodes` for each. Finally, run a `FaithfulnessEvaluator` on one answer.
+
+## Done When
+
+- [ ] You can build an ingestion pipeline and persist to Chroma.
+- [ ] You can reload an index without re-embedding.
+- [ ] You can tune top-k, response modes, and add a reranker.
+- [ ] You can run a chat engine and surface citations from `source_nodes`.
+- [ ] You can evaluate an answer's faithfulness.
+
+Next: [LangChain vs LlamaIndex](./13-langchain-vs-llamaindex.mdx).

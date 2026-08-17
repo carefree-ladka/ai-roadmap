@@ -1,0 +1,320 @@
+---
+title: Vector Databases
+description: What a vector database is, why brute-force lists don't scale, ANN indexes like HNSW and IVF, distance metrics, the Chroma collection model, persistence, and how to choose among Chroma, FAISS, pgvector, Qdrant, Weaviate, and Pinecone.
+---
+
+import TOCInline from '@theme/TOCInline';
+
+# Vector Databases
+
+<TOCInline toc={toc} minHeadingLevel={2} maxHeadingLevel={2} />
+
+:::tip[In this guide]
+A vector database is the storage engine that makes retrieval fast. This guide
+explains what it stores, why a plain list stops working as you grow, how ANN
+indexes and distance metrics work, and how to pick one for your project. For the
+hands-on Chroma walkthrough see
+[Vector DB with Chroma](../04-embeddings-vector-db/02-vector-db-chroma.mdx); next
+we go deep on [similarity search](./07-similarity-search.mdx).
+:::
+
+## What Is It?
+
+A **vector database** stores embeddings alongside their text and metadata, and
+answers one core question fast: *given this query vector, which stored vectors are
+nearest?* It combines a **vector index** (for approximate nearest-neighbor
+search), a **document/metadata store**, and a **query API** that can filter by
+metadata while it searches.
+
+```python
+import chromadb
+from sentence_transformers import SentenceTransformer
+
+client = chromadb.PersistentClient(path="./chroma")
+collection = client.get_or_create_collection("docs", metadata={"hnsw:space": "cosine"})
+embedder = SentenceTransformer("all-MiniLM-L6-v2")
+
+# store
+collection.add(
+    ids=["doc-0"],
+    documents=["Vector databases index embeddings for fast nearest-neighbor search."],
+    metadatas=[{"source": "notes.md"}],
+    embeddings=[embedder.encode("Vector databases index embeddings for fast nearest-neighbor search.").tolist()],
+)
+
+# search
+hits = collection.query(query_embeddings=[embedder.encode("how is search made fast?").tolist()], n_results=3)
+```
+
+## Why Does It Matter?
+
+Retrieval speed and quality both live here. A vector database gives you
+sub-linear search over millions of chunks, metadata filtering, and persistence —
+without you hand-rolling an index. It is the piece that turns "compare against
+everything" into "compare against the few candidates that matter".
+
+---
+
+## Why Not a Plain List / Brute Force?
+
+You *can* store vectors in a Python list and compare the query to every one. This
+is **brute-force** (also called *exact* or *flat*) search, and it is genuinely
+fine for small collections.
+
+```python
+import numpy as np
+
+def brute_force_search(query_vec, vectors, k=4):
+    # cosine similarity against every stored vector
+    sims = vectors @ query_vec          # assumes normalized vectors
+    top = np.argsort(sims)[::-1][:k]
+    return top, sims[top]
+```
+
+The problem is scale. Brute force is **O(n)** per query — every search touches
+every vector. At a few thousand chunks that is imperceptible; at millions it is
+seconds per query.
+
+| Corpus size | Brute force per query | Feels like |
+| --- | --- | --- |
+| 1,000 | trivial | instant |
+| 100,000 | noticeable | a short pause |
+| 10,000,000 | very slow | unusable for interactive apps |
+
+:::info[Theory: why an index changes the complexity]
+Brute force has no structure to exploit — it must score all n vectors. An index
+organizes vectors so a query only has to look at a small, promising subset,
+turning O(n) into roughly O(log n) or better in practice. You trade a little
+accuracy (approximate, not exact, neighbors) for an enormous speedup. That trade
+is the whole reason vector databases exist.
+:::
+
+---
+
+## ANN Indexes (HNSW, IVF)
+
+**ANN** stands for *approximate nearest neighbor*. Instead of guaranteeing the
+exact closest vectors, ANN indexes return the closest ones *almost always*, far
+faster. Two common families:
+
+- **HNSW (Hierarchical Navigable Small World).** Builds a layered graph where each
+  vector links to its neighbors. A search enters at the top layer and "greedily"
+  hops toward the query, descending layers to refine. Excellent recall and speed;
+  it is Chroma's default index.
+- **IVF (Inverted File Index).** Clusters vectors into buckets ("cells") around
+  centroids. A query only searches the few nearest buckets instead of the whole
+  set. Common in FAISS; often paired with compression (IVF-PQ) to shrink memory.
+
+```text
+HNSW: navigate a neighbor graph      IVF: search only nearby clusters
+
+   top layer   o---------o             [ c1 ]  [ c2 ]* [ c3 ]
+                \        /              [ c4 ]* [ c5 ]  [ c6 ]
+   base layer  o-o-o-o-o-o             query lands near c2, c4 -> search those only
+```
+
+:::note[Highlight: recall is a tunable knob]
+ANN indexes expose parameters that trade recall for speed. HNSW has `ef_search`
+(how many candidates to explore) and `M` (neighbors per node); IVF has `nprobe`
+(how many clusters to visit). Higher values mean more accurate results but slower
+queries. Defaults are sensible — only touch them once you can *measure* recall.
+:::
+
+---
+
+## Distance Metrics
+
+The index needs a definition of "near". The metric must match how your embeddings
+were trained and normalized.
+
+| Metric | What it measures | Use when |
+| --- | --- | --- |
+| **Cosine** | Angle between vectors (ignores magnitude) | Default for text embeddings |
+| **Dot product** | Angle *and* magnitude | Vectors already normalized, or magnitude carries meaning |
+| **L2 (Euclidean)** | Straight-line distance | Some image/audio embeddings |
+
+In Chroma you pick this when you create the collection:
+
+```python
+collection = client.get_or_create_collection(
+    "docs",
+    metadata={"hnsw:space": "cosine"},   # "cosine" | "ip" (dot) | "l2"
+)
+```
+
+:::warning[Match the metric to your model]
+`sentence-transformers` text models are trained and compared with cosine
+similarity, so use `"cosine"`. Mixing a metric the model was not trained for (say,
+L2 on unnormalized text vectors) quietly degrades ranking — no error, just worse
+results. When in doubt for text, choose cosine. Full detail lives in
+[similarity search](./07-similarity-search.mdx).
+:::
+
+---
+
+## Collections and Documents (the Chroma Model)
+
+Chroma organizes data into **collections**. Each stored item has four parallel
+parts, aligned by position:
+
+- **ids** — unique string per item (e.g. `source-chunkIndex`).
+- **documents** — the chunk text.
+- **metadatas** — a `dict[str, str]`-like record per item for filtering.
+- **embeddings** — the vector.
+
+```python
+collection.add(
+    ids=["manual-0", "manual-1"],
+    documents=["Turn the device on by...", "To reset, hold the button..."],
+    metadatas=[{"source": "manual.md", "chunk": 0}, {"source": "manual.md", "chunk": 1}],
+    embeddings=[embedder.encode("Turn the device on by...").tolist(),
+                embedder.encode("To reset, hold the button...").tolist()],
+)
+```
+
+:::info[Theory: one store, two jobs]
+A vector database is really two stores sharing one API: an *approximate* vector
+index for "what is similar", and an *exact* metadata store for "what matches these
+fields". Retrieval combines them — narrow by metadata, rank by vector similarity —
+which is what makes [metadata filtering](./09-metadata-filtering.mdx) possible in
+the same query.
+:::
+
+---
+
+## Persistence
+
+An in-memory store loses everything on restart. Chroma's `PersistentClient`
+writes to disk so your embeddings survive process restarts — you ingest once and
+query forever.
+
+```python
+import chromadb
+
+# writes to ./chroma; reopening the same path restores your collections
+client = chromadb.PersistentClient(path="./chroma")
+collection = client.get_or_create_collection("docs", metadata={"hnsw:space": "cosine"})
+
+print(collection.count())   # same count after a restart — data persisted
+```
+
+:::caution[Re-embedding cannot be skipped after a model change]
+Persistence saves your *vectors*, but vectors are only meaningful for the model
+that produced them. If you switch embedding models, the persisted vectors are
+stale — you must re-embed the whole corpus into a fresh collection. Persistence
+protects you from re-ingesting on restart, not from changing the model.
+:::
+
+---
+
+## Adding and Querying
+
+Ingestion writes; retrieval reads. Querying takes a query embedding, a `n_results`
+(your top-k), and optional metadata filters.
+
+```python
+def add_chunks(chunks: list[str], source: str) -> None:
+    collection.add(
+        ids=[f"{source}-{i}" for i in range(len(chunks))],
+        documents=chunks,
+        metadatas=[{"source": source, "chunk": i} for i in range(len(chunks))],
+        embeddings=[embedder.encode(c).tolist() for c in chunks],
+    )
+
+def search(question: str, k: int = 4, source: str | None = None) -> list[dict]:
+    query_vec = embedder.encode(question).tolist()
+    where = {"source": source} if source else None
+    res = collection.query(query_embeddings=[query_vec], n_results=k, where=where)
+    return [
+        {"text": doc, "meta": meta, "distance": dist}
+        for doc, meta, dist in zip(
+            res["documents"][0], res["metadatas"][0], res["distances"][0]
+        )
+    ]
+```
+
+The `where` argument runs a metadata filter alongside the vector search — the
+subject of [metadata filtering](./09-metadata-filtering.mdx). The returned
+`distances` drive [similarity search](./07-similarity-search.mdx) and
+[top-k retrieval](./08-top-k-retrieval.mdx).
+
+---
+
+## Options Landscape
+
+Several vector stores exist; they differ in where they run, whether they bundle
+an index or a full database, and how they scale.
+
+| Store | Type | Runs | Best for |
+| --- | --- | --- | --- |
+| **Chroma** | Embedded / server | Local or self-hosted | Learning, prototypes, local-first RAG |
+| **FAISS** | Library (index only) | In-process | Max control, research, custom pipelines |
+| **pgvector** | Postgres extension | Your existing Postgres | Teams already on Postgres; SQL + vectors together |
+| **Qdrant** | Vector database | Self-hosted or cloud | Rich filtering, production self-hosting |
+| **Weaviate** | Vector database | Self-hosted or cloud | Hybrid search, built-in modules |
+| **Pinecone** | Managed service | Cloud only | Fully managed scale, no ops |
+
+When to choose each:
+
+- **Chroma** — you want to learn RAG or ship a local/prototype app fast. Simple
+  API, persistent, no server to run.
+- **FAISS** — you need a raw, tunable index and will build the metadata/storage
+  layer yourself.
+- **pgvector** — your data already lives in Postgres and you want vectors without
+  adding new infrastructure.
+- **Qdrant / Weaviate** — you have grown past a prototype and want production
+  features (advanced filtering, hybrid search) while self-hosting.
+- **Pinecone** — you want someone else to run it and scale it, and are fine with a
+  hosted, paid service.
+
+:::note[Highlight: start local, migrate on evidence]
+Chroma and pgvector are local-first — no account, no network, no cost — which
+makes them ideal to learn and prototype with. The retrieval *concepts* (top-k,
+metrics, filters) transfer across every store, so migrating later is mostly an API
+change, not a rewrite. Move to a hosted or clustered store when scale or ops
+needs — not fashion — demand it.
+:::
+
+---
+
+## Common Mistakes
+
+- Using a brute-force list at a scale where it becomes unusably slow.
+- Choosing a distance metric that doesn't match the embedding model.
+- Using an in-memory client and losing all data on restart.
+- Expecting persisted vectors to stay valid after changing the embedding model.
+- Reaching for a managed cloud store before a local one has hit a real limit.
+- Tuning ANN parameters blindly without measuring recall.
+
+## Interview Questions
+
+- What does a vector database store, and what problem does it solve?
+- Why doesn't brute-force search scale, and what is the complexity difference?
+- Explain HNSW and IVF at a high level.
+- How do you choose a distance metric, and why is cosine common for text?
+- Describe Chroma's collection model (ids, documents, metadatas, embeddings).
+- When would you pick pgvector over Pinecone, or FAISS over Chroma?
+
+## Things to Remember
+
+- A vector database = ANN index + metadata store + query API.
+- Brute force is O(n); ANN indexes (HNSW, IVF) make search sub-linear.
+- Match the distance metric to your embedding model — cosine for text.
+- Use a persistent client so embeddings survive restarts.
+- Start local (Chroma/pgvector); migrate when scale demands it.
+
+## Mini Exercise
+
+Create a persistent Chroma collection with `hnsw:space: cosine`, add ten chunks
+with `source` metadata, and query it. Restart your script and confirm
+`collection.count()` still returns ten — proving persistence — then run the same
+query filtered to one `source`.
+
+## Done When
+
+- [ ] You can explain why an indexed store beats a brute-force list at scale.
+- [ ] You can describe HNSW/IVF and choose a distance metric.
+- [ ] You can add to and query a persistent Chroma collection.
+- [ ] You can justify a vector-store choice for a given project.
+
+Next: [Similarity Search](./07-similarity-search.mdx).

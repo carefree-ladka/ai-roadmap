@@ -1,0 +1,286 @@
+---
+title: Callbacks, Tracing & LangSmith
+description: Observability for LangChain — the callback handler system, a custom logging handler, LangSmith hosted tracing, set_debug/set_verbose, token and cost tracking, evaluation with datasets, and a privacy note.
+---
+
+import TOCInline from '@theme/TOCInline';
+
+# Callbacks, Tracing & LangSmith
+
+<TOCInline toc={toc} minHeadingLevel={2} maxHeadingLevel={2} />
+
+:::tip[In this guide]
+When a chain returns a bad answer, you need to see *inside* it. This guide covers
+callbacks and a custom handler, LangSmith hosted tracing, quick debugging with
+`set_debug`/`set_verbose`, token and cost tracking, dataset evaluation, and the
+privacy tradeoffs — extending the metrics in
+[RAG evaluation](../05-rag-fundamentals/14-rag-evaluation.mdx).
+:::
+
+## What Is It?
+
+Observability tooling for LangChain: **callbacks** are hooks that fire at each
+step of a run (model start, model end, retriever end, errors), and **LangSmith**
+is a hosted service that records those steps as visual traces. Together they let
+you see what a chain actually did, not just its final output.
+
+## Why Does It Matter?
+
+A chain or agent is a black box — you send a question, you get an answer, and
+when it is wrong you have no idea which step failed. Was retrieval empty? Did the
+prompt render wrong? Did the model ignore the context? Observability turns that
+opaque box into an inspectable sequence of steps, which is the only practical way
+to debug, optimize cost, and evaluate LLM apps.
+
+---
+
+## The Observability Problem
+
+Consider a RAG chain that returns a confidently wrong answer. The failure could
+be anywhere: the retriever surfaced irrelevant chunks, the prompt template
+dropped the context, the model hallucinated despite good context, or an output
+parser mangled the result. From the outside they all look identical — a bad
+string.
+
+:::info[Theory: composed systems hide their failure point]
+LCEL chains and agents compose many steps, and each step's output feeds the
+next. A single bad answer is the end of a chain of causes. Without visibility
+into the *intermediate* values — the retrieved documents, the fully rendered
+prompt, the raw model output — debugging degrades into guesswork. Observability
+exists to expose those intermediate values so you can localize the failure.
+:::
+
+---
+
+## Callbacks
+
+The callback system lets you hook into a run's lifecycle. A callback handler is
+an object with methods that LangChain invokes at specific moments.
+
+| Callback method | Fires when |
+| --- | --- |
+| `on_llm_start` | A model call begins (with the prompts) |
+| `on_llm_new_token` | Each streamed token |
+| `on_llm_end` | A model call finishes (with the response) |
+| `on_retriever_end` | Retrieval returns documents |
+| `on_chain_start` / `on_chain_end` | A chain step begins / ends |
+| `on_llm_error` / `on_chain_error` | A step raises an error |
+
+Here is a simple custom logging handler:
+
+```python
+from langchain_core.callbacks import BaseCallbackHandler
+
+class LoggingHandler(BaseCallbackHandler):
+    def on_llm_start(self, serialized, prompts, **kwargs):
+        print(f"[llm start] prompt: {prompts[0][:80]}...")
+
+    def on_llm_end(self, response, **kwargs):
+        text = response.generations[0][0].text
+        print(f"[llm end] {len(text)} chars generated")
+
+    def on_retriever_end(self, documents, **kwargs):
+        print(f"[retriever] returned {len(documents)} documents")
+
+    def on_llm_error(self, error, **kwargs):
+        print(f"[llm error] {error}")
+```
+
+Pass the handler per call through `config`, so you can turn logging on and off
+without touching the chain:
+
+```python
+handler = LoggingHandler()
+chain.invoke(
+    {"topic": "callbacks"},
+    config={"callbacks": [handler]},
+)
+```
+
+:::note[Highlight: callbacks are the mechanism, LangSmith is the product]
+Callbacks are the low-level hook system. Streaming, token counting, and
+LangSmith tracing are all *built on* callbacks. You write a custom handler for
+bespoke logging or metrics; for general-purpose tracing you let LangSmith's
+handler do the work.
+:::
+
+---
+
+## LangSmith: Hosted Tracing
+
+LangSmith is a hosted service that records every step of every run as a
+navigable trace. You enable it entirely through environment variables — no code
+changes to your chains.
+
+```bash
+export LANGCHAIN_TRACING_V2=true
+export LANGCHAIN_API_KEY="ls__your_api_key"
+export LANGCHAIN_PROJECT="rag-academy"   # optional: groups traces
+```
+
+With those set, LangChain automatically attaches a tracing callback to every
+run. Each trace shows the full tree: the retriever call and the documents it
+returned, the rendered prompt, the model call with its token counts and latency,
+and the final output — each step expandable and timed.
+
+```python
+# no code change needed — with the env vars set, this run is traced
+result = rag_chain.invoke({"input": "What does RAG reduce?"})
+```
+
+:::note[Highlight: traces show tokens and latency per step]
+A LangSmith trace attributes latency and token usage to each individual step, so
+you can see *which* step is slow or expensive — often retrieval or an
+overstuffed prompt — instead of guessing from a single end-to-end number.
+:::
+
+---
+
+## Quick Debugging: set_debug and set_verbose
+
+For fast local debugging without LangSmith, two global switches print run details
+to the console.
+
+```python
+from langchain.globals import set_debug, set_verbose
+
+set_verbose(True)   # readable, high-level: inputs and outputs of each step
+chain.invoke({"topic": "verbose mode"})
+
+set_debug(True)     # everything: full raw payloads of every step
+chain.invoke({"topic": "debug mode"})
+
+# turn both off
+set_debug(False)
+set_verbose(False)
+```
+
+:::caution[set_debug is noisy]
+`set_debug(True)` dumps the complete raw input and output of every step — useful
+when you are stuck, overwhelming otherwise. Use `set_verbose` for a readable
+overview and reserve `set_debug` for when you need the full payloads. Never leave
+either on in production; they flood logs and can print sensitive content.
+:::
+
+---
+
+## Token and Cost Tracking
+
+To measure usage, read token counts off the model response or use a callback.
+`on_llm_end` receives an `llm_output` that typically carries token usage, which
+you can accumulate across a run.
+
+```python
+from langchain_core.callbacks import BaseCallbackHandler
+
+class TokenCounter(BaseCallbackHandler):
+    def __init__(self):
+        self.total_tokens = 0
+
+    def on_llm_end(self, response, **kwargs):
+        usage = (response.llm_output or {}).get("token_usage", {})
+        self.total_tokens += usage.get("total_tokens", 0)
+
+counter = TokenCounter()
+chain.invoke({"topic": "tokens"}, config={"callbacks": [counter]})
+print(f"used {counter.total_tokens} tokens")
+```
+
+:::info[Theory: tokens are the unit of cost and latency]
+Even with a local Ollama model where you pay no per-token fee, tokens still
+govern **latency** and **context-window** limits — a bloated prompt is slower and
+may crowd out real content. Tracking tokens tells you where your prompt budget
+goes, and for hosted models it maps directly to dollar cost. LangSmith surfaces
+these counts per step automatically.
+:::
+
+---
+
+## Evaluation with LangSmith Datasets
+
+Beyond live tracing, LangSmith lets you build **datasets** — collections of
+example inputs and reference outputs — and run your chain against them to score
+quality systematically instead of eyeballing one answer at a time.
+
+```python
+# sketch: run a chain over a dataset and score each result
+from langsmith import Client
+
+client = Client()
+dataset = client.create_dataset("rag-eval")
+client.create_example(
+    inputs={"input": "What does RAG reduce?"},
+    outputs={"answer": "Hallucinations by grounding answers in retrieved data."},
+    dataset_id=dataset.id,
+)
+# an evaluator then compares your chain's answer to the reference
+```
+
+:::note[Highlight: ties directly to RAG evaluation]
+Dataset evaluation is where observability meets quality measurement — the
+faithfulness, relevance, and correctness metrics from
+[RAG evaluation](../05-rag-fundamentals/14-rag-evaluation.mdx) run as evaluators
+over a LangSmith dataset, giving you a repeatable score you can track as you
+change prompts, retrievers, or models.
+:::
+
+---
+
+## Privacy Note
+
+LangSmith is a hosted service: enabling tracing sends your prompts, retrieved
+documents, and model outputs to LangChain's servers. For much of your work with
+local Ollama models, the whole point was to keep data on your machine.
+
+:::warning[Tracing can leak sensitive data to a third party]
+If your prompts or documents contain private, regulated, or confidential data, do
+**not** enable `LANGCHAIN_TRACING_V2` against the hosted service without
+approval. Options: self-host LangSmith, use custom callback handlers that log
+locally only, or leave tracing off for sensitive workloads. Observability is
+valuable, but not at the cost of exfiltrating data you deliberately kept local.
+:::
+
+---
+
+## Common Mistakes
+
+- Debugging a bad answer by staring at the output instead of inspecting steps.
+- Leaving `set_debug(True)` on, flooding logs (and possibly leaking data).
+- Enabling hosted tracing on sensitive local data without approval.
+- Forgetting `LANGCHAIN_API_KEY`, so `LANGCHAIN_TRACING_V2` silently does nothing.
+- Ignoring token counts because a local model is "free" — they still drive latency.
+- Evaluating quality by eyeballing single answers instead of using a dataset.
+
+## Interview Questions
+
+- Why are chains and agents hard to debug without observability?
+- What is a callback handler, and name a few of its methods.
+- How do you enable LangSmith tracing, and what does a trace show?
+- Difference between `set_debug` and `set_verbose`?
+- How would you track token usage across a chain run?
+- What privacy risk does hosted tracing introduce, and how do you mitigate it?
+
+## Things to Remember
+
+- Callbacks are lifecycle hooks (`on_llm_start`, `on_llm_end`, `on_retriever_end`, ...).
+- Streaming, token counting, and tracing are all built on callbacks.
+- LangSmith records step-by-step traces via env vars, no code change.
+- `set_verbose` for a readable overview; `set_debug` for full payloads.
+- Track tokens for cost and latency, even with local models.
+- Hosted tracing sends data off-machine — mind privacy for sensitive workloads.
+
+## Mini Exercise
+
+Write a custom `BaseCallbackHandler` that logs the retrieved document count and
+total tokens for a RAG run, and attach it via `config`. Then set the LangSmith
+env vars against a non-sensitive test corpus, run the same chain, and compare
+what your handler logged with what the LangSmith trace shows per step.
+
+## Done When
+
+- [ ] You can write and attach a custom callback handler.
+- [ ] You can enable LangSmith tracing and read a trace.
+- [ ] You can use `set_debug`/`set_verbose` for quick local debugging.
+- [ ] You can track tokens and explain the privacy tradeoff of hosted tracing.
+
+Next: [LlamaIndex Basics](./11-llamaindex-basics.mdx).

@@ -1,0 +1,303 @@
+---
+title: Context Windows
+description: What a context window is, tokens vs characters, the token budget math, how the window constrains top-k and chunk size, strategies when context is too big, lost-in-the-middle, and counting tokens in code.
+---
+
+import TOCInline from '@theme/TOCInline';
+
+# Context Windows
+
+<TOCInline toc={toc} minHeadingLevel={2} maxHeadingLevel={2} />
+
+:::tip[In this guide]
+Every LLM can only "see" a fixed number of tokens at once. That budget has to hold
+your instructions, retrieved context, the question, and room for the answer — all
+at the same time. This guide covers token math, how the window constrains
+[chunking](./05-chunking-strategies.mdx) and [top-k](./08-top-k-retrieval.mdx),
+and what to do when context won't fit. Pairs with [reranking](./11-reranking.mdx)
+and [prompt construction](./12-prompt-construction.mdx).
+:::
+
+## What Is It?
+
+A **context window** is the maximum number of tokens a model can process in a
+single call. Critically, this budget covers **both the input prompt and the
+generated output** — they share the same window.
+
+```text
+context window (e.g. 8192 tokens)
+├────────────── prompt (input) ──────────────┤├──── output (generation) ────┤
+[ system + retrieved context + question ]      [ the model's answer ]
+```
+
+If your prompt plus the space reserved for the answer exceeds the window, the call
+fails or the model silently truncates — dropping context and producing worse
+answers.
+
+## Why Does It Matter?
+
+RAG works by stuffing retrieved context into the prompt, so it is constantly
+pushing against the window limit. The window is the hard constraint that decides
+how many chunks you can include ([top-k](./08-top-k-retrieval.mdx)), how big each
+chunk can be ([chunk size](./05-chunking-strategies.mdx)), and how long an answer
+the model can produce. Ignore it and you get truncation errors, mysteriously
+cut-off answers, or ballooning cost and latency.
+
+---
+
+## Tokens vs Characters and Words
+
+Models don't read characters or words — they read **tokens**, sub-word units
+produced by the model's tokenizer. Common words are often a single token; longer
+or rarer words split into several.
+
+A useful rough rule for English text:
+
+- **~4 characters per token**, or roughly **~0.75 words per token** (about 100
+  tokens per 75 words).
+
+```text
+"Retrieval augmented generation"  ->  ~5-7 tokens
+"unbelievability"                 ->  splits into several sub-word tokens
+"ERR_4021"                        ->  often several tokens (digits + underscore)
+```
+
+:::caution[The 4-chars rule is an estimate, not a guarantee]
+Code, JSON, non-English text, URLs, and IDs tokenize very differently from prose —
+often into many more tokens per character. Use the ratio for a quick sanity check,
+but count with the actual tokenizer when you're near the limit or the content
+isn't plain English.
+:::
+
+---
+
+## The Token Budget Math
+
+Think of the window as a fixed bucket you must divide up:
+
+```text
+window  >=  system_instructions
+          + retrieved_context (top_k chunks)
+          + question
+          + reserved_output    (space you leave for the answer)
+```
+
+Rearranged, the space left for retrieved context is:
+
+```text
+context_budget = window - system - question - reserved_output - safety_margin
+```
+
+Everything competes for the same tokens. A bigger reserved output leaves less room
+for context; more context leaves less room for the answer.
+
+:::info[Theory: reserve output space up front]
+A frequent bug is filling the entire window with input, then discovering the model
+has no room to actually answer. Always subtract a **reserved output** amount (say
+512–1024 tokens) *before* deciding how much context fits. The generation shares
+the window, so budget for it first.
+:::
+
+---
+
+## How This Constrains Top-k and Chunk Size
+
+The window ties directly back to two earlier decisions:
+
+- **Chunk size** (see [chunking strategies](./05-chunking-strategies.mdx)): if each
+  chunk is ~500 tokens, ten chunks is ~5000 tokens of context alone.
+- **Top-k** (see [top-k retrieval](./08-top-k-retrieval.mdx)): `top_k × chunk_size`
+  must fit inside `context_budget`.
+
+```text
+top_k * avg_chunk_tokens  <=  context_budget
+```
+
+So the three are locked together: a larger window lets you raise `top_k` or chunk
+size; a smaller window forces you to retrieve fewer or smaller chunks — which is a
+strong argument for [reranking](./11-reranking.mdx) to make each included chunk
+count.
+
+:::note[Highlight: quality beats quantity]
+Rather than cramming the window full, retrieve a wide pool, rerank it, and include
+only the few best chunks. Fewer, more relevant chunks fit comfortably, avoid the
+lost-middle problem, and usually produce better answers than a window stuffed to
+the brim.
+:::
+
+---
+
+## Strategies When Context Is Too Big
+
+When your candidate context exceeds the budget, you have several options:
+
+- **Fewer, better chunks.** Use [reranking](./11-reranking.mdx) to keep only the
+  top few, dropping marginal chunks entirely.
+- **Summarize / compress context.** Run a cheap pass that condenses each chunk (or
+  the whole set) into a shorter form before the final prompt — "contextual
+  compression."
+- **Map-reduce over chunks.** Answer the question against each chunk (or small
+  batches) independently — the *map* step — then combine those partial answers in
+  a final *reduce* step. This scales past the window at the cost of more LLM calls.
+
+```text
+map-reduce:
+  chunk 1 ─▶ partial answer 1 ┐
+  chunk 2 ─▶ partial answer 2 ├─▶ reduce ─▶ final answer
+  chunk 3 ─▶ partial answer 3 ┘
+```
+
+```python
+async def map_reduce_answer(question: str, chunks: list[dict]) -> str:
+    # MAP: get a partial answer per chunk (each prompt is small, fits easily)
+    partials = []
+    for c in chunks:
+        prompt = f"Context:\n{c['text']}\n\nQuestion: {question}\n\nAnswer from this context only:"
+        partials.append(await generate(prompt))   # Ollama, temperature 0.1
+
+    # REDUCE: combine the partial answers into one
+    joined = "\n\n".join(f"- {p}" for p in partials)
+    reduce_prompt = (
+        f"Combine these partial answers into one consistent answer.\n\n"
+        f"Question: {question}\n\nPartial answers:\n{joined}\n\nFinal answer:"
+    )
+    return await generate(reduce_prompt)
+```
+
+:::warning[Compression can lose the exact detail you need]
+Summarizing context saves tokens but can drop precise figures, codes, or edge-case
+wording — exactly the details a grounded answer often hinges on. Prefer trimming to
+fewer high-relevance chunks first; reach for summarization or map-reduce only when
+the material genuinely can't fit.
+:::
+
+---
+
+## Lost in the Middle
+
+Even when everything fits, a bigger context is not automatically better. Models
+recall information at the **start** and **end** of the context far more reliably
+than material in the **middle** — the lost-in-the-middle effect also discussed in
+[prompt construction](./12-prompt-construction.mdx).
+
+```text
+recall:   HIGH  ...  low  low  low  ...  HIGH
+          start        middle           end
+```
+
+So a window that is technically large enough can still yield poor answers if the
+key chunk is buried in the middle of a long context. The fix is the same: keep
+context short and put the most relevant chunk at an edge.
+
+---
+
+## Cost and Latency Scale With Tokens
+
+Tokens aren't free. On hosted APIs you pay per input **and** output token, and on
+any model — local Ollama included — more tokens mean more compute and higher
+latency. A prompt twice as long is slower and, on paid APIs, roughly twice as
+expensive on the input side.
+
+:::note[Highlight: the window is a max, not a target]
+The window is the ceiling of what fits, not the amount you should use. Using fewer
+tokens is cheaper, faster, and often more accurate. Fill the window with the best
+context, not the most context.
+:::
+
+---
+
+## Counting Tokens in Code
+
+For exact counts, use the model's tokenizer. Hosted OpenAI models use `tiktoken`;
+local models expose their own tokenizer (Hugging Face `transformers`, or the
+count Ollama returns in its response metadata). For a rough, dependency-free
+estimate, the ~4-chars rule works:
+
+```python
+def approx_token_count(text: str) -> int:
+    """Rough estimate: ~4 characters per token for English prose."""
+    return max(1, len(text) // 4)
+
+
+# Exact count with tiktoken (for OpenAI-family models):
+# import tiktoken
+# enc = tiktoken.get_encoding("cl100k_base")
+# exact = len(enc.encode(text))
+```
+
+### Worked "Does It Fit?" Budget Check
+
+```python
+def fits_in_window(
+    system: str,
+    chunks: list[dict],
+    question: str,
+    window: int = 8192,
+    reserved_output: int = 1024,
+    safety_margin: int = 128,
+) -> tuple[bool, int]:
+    """Return (fits, tokens_over_or_remaining)."""
+    used = (
+        approx_token_count(system)
+        + sum(approx_token_count(c["text"]) for c in chunks)
+        + approx_token_count(question)
+        + reserved_output
+        + safety_margin
+    )
+    remaining = window - used
+    return remaining >= 0, remaining
+
+
+ok, remaining = fits_in_window(
+    system="You are a support assistant. Answer only from context.",
+    chunks=[{"text": "..." * 400}, {"text": "..." * 400}],  # ~2 chunks
+    question="How long is a reset link valid?",
+    window=8192,
+)
+print("fits" if ok else "too big", "| tokens remaining:", remaining)
+```
+
+If `fits` is `False`, drop the lowest-ranked chunk (or rerank and keep fewer) and
+re-check until it fits — leaving the reserved output untouched so the model always
+has room to answer.
+
+---
+
+## Common Mistakes
+
+- Forgetting output shares the window, so the model has no room to answer.
+- Estimating tokens for code/JSON with the 4-chars rule and undercounting badly.
+- Maxing out the window "because it's there," raising cost and latency for no gain.
+- Setting `top_k × chunk_size` larger than the context budget → truncation.
+- Ignoring lost-in-the-middle and burying the key chunk in a long context.
+
+## Interview Questions
+
+- What does a context window include besides the retrieved context?
+- Roughly how many characters are in a token, and when does that estimate break?
+- How does the window constrain your choice of top-k and chunk size?
+- What options do you have when the context is too big to fit?
+- Why is a larger context not always better (lost-in-the-middle, cost, latency)?
+
+## Things to Remember
+
+- The window caps prompt + output combined — reserve output space first.
+- ~4 chars per token is a quick estimate; use a real tokenizer near the limit.
+- `top_k × chunk_size` must fit the context budget.
+- When it won't fit: fewer/better chunks, compress, or map-reduce.
+- The window is a ceiling, not a target — fewer tokens is cheaper and often better.
+
+## Mini Exercise
+
+Given an 8192-token window, a 200-token system prompt, a 40-token question, and a
+1024-token output reserve, compute the context budget. Then decide the largest
+`top_k` you can use with 500-token chunks, and verify it with the `fits_in_window`
+function above.
+
+## Done When
+
+- [ ] You can explain what the context window includes and the budget math.
+- [ ] You can estimate and exactly count tokens in code.
+- [ ] You can pick top-k and chunk size that fit, and handle oversize context.
+
+Next: [RAG Evaluation](./14-rag-evaluation.mdx).

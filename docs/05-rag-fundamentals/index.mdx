@@ -37,6 +37,23 @@ Build a working RAG pipeline and expose it through `/ingest` and `/ask`.
 2. [Retrieval & Generation](./02-retrieval-generation.mdx) — retrieve top-k, build a grounded prompt, generate.
 3. [First Project](./03-first-project.mdx) — the full FastAPI + Ollama + Chroma RAG API.
 
+### Core Concepts (deep dives)
+
+Reference deep dives on every RAG building block — read them alongside the
+project flow above:
+
+4. [Embeddings](./04-embeddings.mdx) — vectors, dimensions, normalization, same-model rule.
+5. [Chunking Strategies](./05-chunking-strategies.mdx) — sizes, overlap, recursive and structure-aware splitting.
+6. [Vector Databases](./06-vector-databases.mdx) — ANN indexes, distance metrics, Chroma and the options landscape.
+7. [Similarity Search](./07-similarity-search.mdx) — cosine vs dot vs L2, exact vs approximate.
+8. [Top-K Retrieval](./08-top-k-retrieval.mdx) — choosing k, thresholds, over-fetch and trim.
+9. [Metadata Filtering](./09-metadata-filtering.mdx) — `where` filters, tenant isolation, freshness.
+10. [Hybrid Search](./10-hybrid-search.mdx) — combine keyword and vector retrieval with rank fusion.
+11. [Reranking](./11-reranking.mdx) — cross-encoders and the retrieve-then-rerank pattern.
+12. [Prompt Construction](./12-prompt-construction.mdx) — grounding, citations, context ordering, injection defense.
+13. [Context Windows](./13-context-windows.mdx) — token budgets, fitting context, lost-in-the-middle.
+14. [RAG Evaluation](./14-rag-evaluation.mdx) — retrieval and generation metrics, eval sets, LLM-as-judge.
+
 ## The Big Picture
 
 ```mermaid

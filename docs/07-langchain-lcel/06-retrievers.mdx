@@ -1,0 +1,399 @@
+---
+title: Retrievers
+description: LangChain retrievers in depth — the Runnable that maps a query to documents, as_retriever with similarity vs MMR, MultiQuery, contextual compression, parent-document, ensemble (hybrid), and self-query retrievers.
+---
+
+import TOCInline from '@theme/TOCInline';
+
+# Retrievers
+
+<TOCInline toc={toc} minHeadingLevel={2} maxHeadingLevel={2} />
+
+:::tip[In this guide]
+A retriever is the "R" in RAG. This deep dive covers the retriever interface,
+turning a vector store into a retriever, diversity with MMR, and the advanced
+retrievers — MultiQuery, compression, parent-document, ensemble (hybrid), and
+self-query — then connects them back to the fundamentals in
+[Top-k Retrieval](../05-rag-fundamentals/08-top-k-retrieval.mdx).
+:::
+
+## What Is It?
+
+A retriever is a Runnable that takes a query **string** and returns a list of
+`Document` objects ranked by relevance. It hides *how* documents are found —
+dense vectors, keyword search, a database query — behind one uniform interface,
+so any retriever slots into the same spot in a chain.
+
+## Why Does It Matter?
+
+Retrieval quality caps the ceiling of your whole RAG system: a model can only
+answer well from documents it actually receives. Because every retriever shares
+one interface, you can swap a plain vector search for an MMR, hybrid, or
+compression variant without touching the rest of the chain — making retrieval
+the single most productive place to tune quality.
+
+---
+
+## The Retriever Interface
+
+Every retriever is a Runnable whose input is a query string and whose output is
+`list[Document]`. That means you call it with `invoke` and pipe it with `|` like
+any other component.
+
+```python
+# a retriever maps: query string -> list[Document]
+docs = retriever.invoke("What does RAG reduce?")
+for d in docs:
+    print(d.page_content[:80], d.metadata)
+```
+
+:::info[Theory: retriever vs vector store]
+A **vector store** is storage plus a similarity index; a **retriever** is a thin
+Runnable wrapper around a retrieval strategy. The store answers "find vectors
+near this vector"; the retriever answers "find documents relevant to this
+query" and may add steps — query rewriting, filtering, re-ranking, merging
+multiple sources — on top of the raw store. Keeping them separate lets one store
+back many different retrievers.
+:::
+
+---
+
+## vectorstore.as_retriever
+
+The most common retriever comes straight off a vector store. `as_retriever`
+wraps a `Chroma` (or any store) with a search strategy and search arguments.
+
+```python
+from langchain_ollama import OllamaEmbeddings
+from langchain_chroma import Chroma
+
+embeddings = OllamaEmbeddings(model="nomic-embed-text")
+vectorstore = Chroma(persist_directory="./chroma", embedding_function=embeddings)
+
+# plain similarity, return top 4
+retriever = vectorstore.as_retriever(
+    search_type="similarity",
+    search_kwargs={"k": 4},
+)
+
+retriever.invoke("How does hybrid search work?")
+```
+
+Two knobs matter most:
+
+| Argument | Meaning |
+| --- | --- |
+| `search_type` | `"similarity"` (nearest), `"mmr"` (diverse), or `"similarity_score_threshold"` |
+| `search_kwargs` | `k` (how many), `score_threshold`, `fetch_k`, `lambda_mult`, `filter` |
+
+```python
+# only return docs above a similarity score, capped at 6
+retriever = vectorstore.as_retriever(
+    search_type="similarity_score_threshold",
+    search_kwargs={"score_threshold": 0.5, "k": 6},
+)
+```
+
+:::note[Highlight: k is a quality dial]
+`k` trades recall against noise. Too small and you miss the passage that holds
+the answer; too large and you flood the prompt with irrelevant text (and burn
+tokens). Tune it deliberately — the reasoning lives in
+[Top-k Retrieval](../05-rag-fundamentals/08-top-k-retrieval.mdx).
+:::
+
+:::caution[score_threshold cutoffs are dataset-specific]
+A threshold that works on one corpus can silently return zero documents on
+another, because similarity score distributions differ by embedding model and
+domain. Always test thresholds against real queries, and handle the empty-result
+case in your chain.
+:::
+
+---
+
+## MMR (Maximal Marginal Relevance)
+
+Plain similarity can return four near-duplicate chunks that all say the same
+thing. **MMR** re-ranks candidates to balance relevance to the query against
+diversity from the docs already chosen, so the context covers more ground.
+
+```python
+retriever = vectorstore.as_retriever(
+    search_type="mmr",
+    search_kwargs={
+        "k": 4,            # how many to return
+        "fetch_k": 20,     # how many to pull before diversifying
+        "lambda_mult": 0.5 # 1.0 = pure relevance, 0.0 = pure diversity
+    },
+)
+retriever.invoke("Summarize the main risks of RAG.")
+```
+
+:::info[Theory: how MMR picks]
+MMR fetches `fetch_k` candidates, then greedily builds the result set: at each
+step it scores every remaining candidate as `lambda_mult` times its relevance to
+the query minus `(1 - lambda_mult)` times its maximum similarity to items
+already selected. Lowering `lambda_mult` punishes redundancy harder, so you get
+broader coverage at the cost of some raw relevance. It is the standard fix for
+"my top-k are all the same paragraph."
+:::
+
+---
+
+## MultiQueryRetriever
+
+A single phrasing of a question may miss relevant chunks that use different
+wording. `MultiQueryRetriever` uses an LLM to generate several paraphrases of
+the query, retrieves for each, and merges the unique results.
+
+```python
+from langchain.retrievers.multi_query import MultiQueryRetriever
+from langchain_ollama import ChatOllama
+
+base_retriever = vectorstore.as_retriever(search_kwargs={"k": 4})
+llm = ChatOllama(model="llama3.2", temperature=0)
+
+retriever = MultiQueryRetriever.from_llm(
+    retriever=base_retriever,
+    llm=llm,
+)
+
+# under the hood the LLM might produce:
+#   "What does RAG reduce?"
+#   "How does retrieval-augmented generation cut hallucinations?"
+#   "In what ways does RAG lower model errors?"
+docs = retriever.invoke("What does RAG reduce?")
+```
+
+:::note[Highlight: recall booster, latency cost]
+MultiQuery mainly improves **recall** — it surfaces documents a single query
+would miss. The price is extra LLM calls (to generate variations) plus multiple
+retrievals per question, so it adds latency. Use it when misses hurt more than a
+few hundred milliseconds do.
+:::
+
+---
+
+## ContextualCompressionRetriever
+
+Retrieved chunks often contain a sentence or two that matters wrapped in
+paragraphs that do not. `ContextualCompressionRetriever` runs the base
+retriever, then post-processes each document — compressing or filtering it —
+before it reaches the prompt.
+
+```python
+from langchain.retrievers import ContextualCompressionRetriever
+from langchain.retrievers.document_compressors import LLMChainExtractor
+from langchain_ollama import ChatOllama
+
+llm = ChatOllama(model="llama3.2", temperature=0)
+compressor = LLMChainExtractor.from_llm(llm)   # keep only query-relevant text
+
+base_retriever = vectorstore.as_retriever(search_kwargs={"k": 6})
+retriever = ContextualCompressionRetriever(
+    base_compressor=compressor,
+    base_retriever=base_retriever,
+)
+
+retriever.invoke("What embedding model does the project use?")
+```
+
+You can also compress with a cheaper, non-LLM filter (for example an
+embeddings-similarity filter) to drop off-topic chunks without extra model
+calls. Compression pairs naturally with re-ranking — see
+[Reranking](../05-rag-fundamentals/11-reranking.mdx).
+
+:::warning[Compression adds a model call per document]
+`LLMChainExtractor` invokes the LLM on each retrieved chunk, which multiplies
+cost and latency. For large `k`, prefer a lightweight embeddings filter, or
+re-rank first and compress only the survivors.
+:::
+
+---
+
+## ParentDocumentRetriever
+
+Small chunks embed and match precisely, but a model answers better with the
+surrounding context. `ParentDocumentRetriever` resolves the tension: it indexes
+small child chunks for accurate matching, but returns the larger **parent**
+documents those children came from.
+
+```python
+from langchain.retrievers import ParentDocumentRetriever
+from langchain.storage import InMemoryStore
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_chroma import Chroma
+from langchain_ollama import OllamaEmbeddings
+
+embeddings = OllamaEmbeddings(model="nomic-embed-text")
+
+# the vector store indexes the small children
+child_splitter = RecursiveCharacterTextSplitter(chunk_size=400)
+parent_splitter = RecursiveCharacterTextSplitter(chunk_size=2000)
+
+vectorstore = Chroma(collection_name="parents", embedding_function=embeddings)
+docstore = InMemoryStore()   # holds the full parent docs
+
+retriever = ParentDocumentRetriever(
+    vectorstore=vectorstore,
+    docstore=docstore,
+    child_splitter=child_splitter,
+    parent_splitter=parent_splitter,
+)
+retriever.add_documents(documents)   # splits, embeds children, stores parents
+
+# matches on precise child chunks, hands the model the bigger parent
+retriever.invoke("What does the reranking section recommend?")
+```
+
+:::info[Theory: match small, return large]
+This is "small-to-big" retrieval. Matching precision improves with small chunks
+(each embedding is about one idea), while answer quality improves with more
+context. By decoupling the unit you *search* from the unit you *return*, you get
+both — a common upgrade over fixed-size chunking covered in
+[Document Loaders & Splitters](./05-document-loaders-splitters.mdx).
+:::
+
+---
+
+## EnsembleRetriever (Hybrid)
+
+Dense vector search understands meaning but can miss exact terms (names, codes,
+rare keywords); sparse keyword search (BM25) nails exact terms but misses
+paraphrases. `EnsembleRetriever` runs both and fuses their rankings — this is
+**hybrid search** inside LangChain.
+
+```python
+from langchain.retrievers import EnsembleRetriever
+from langchain_community.retrievers import BM25Retriever
+from langchain_chroma import Chroma
+from langchain_ollama import OllamaEmbeddings
+
+embeddings = OllamaEmbeddings(model="nomic-embed-text")
+vectorstore = Chroma(persist_directory="./chroma", embedding_function=embeddings)
+
+# dense: semantic similarity
+dense = vectorstore.as_retriever(search_kwargs={"k": 5})
+
+# sparse: keyword / BM25 over the same documents
+sparse = BM25Retriever.from_documents(documents)
+sparse.k = 5
+
+# fuse them; weights control each retriever's influence
+retriever = EnsembleRetriever(
+    retrievers=[dense, sparse],
+    weights=[0.5, 0.5],
+)
+retriever.invoke("What is the ChatOllama temperature setting?")
+```
+
+:::info[Theory: reciprocal rank fusion]
+`EnsembleRetriever` merges results with **Reciprocal Rank Fusion (RRF)**: each
+document scores as the sum over retrievers of `1 / (k + rank)`, so a document
+ranked highly by *either* method rises, and documents ranked well by *both* rise
+most. RRF needs no score calibration between the two systems, which is why it
+combines dense and sparse rankings cleanly. The concept in full lives in
+[Hybrid Search](../05-rag-fundamentals/10-hybrid-search.mdx).
+:::
+
+:::note[Highlight: hybrid is the pragmatic default]
+For most production RAG, dense + BM25 hybrid beats either alone — it catches both
+"means the same thing" and "uses this exact word." Start here when semantic-only
+retrieval keeps missing exact names or IDs.
+:::
+
+---
+
+## SelfQueryRetriever
+
+Sometimes a question implies a **filter**, not just a topic — "papers after 2021
+about retrieval." `SelfQueryRetriever` uses an LLM to split the question into a
+semantic query plus a structured metadata filter, then queries the store with
+both.
+
+```python
+from langchain.retrievers.self_query.base import SelfQueryRetriever
+from langchain.chains.query_constructor.base import AttributeInfo
+from langchain_ollama import ChatOllama
+
+metadata_field_info = [
+    AttributeInfo(name="year", description="Publication year", type="integer"),
+    AttributeInfo(name="topic", description="Subject area", type="string"),
+]
+
+llm = ChatOllama(model="llama3.2", temperature=0)
+retriever = SelfQueryRetriever.from_llm(
+    llm=llm,
+    vectorstore=vectorstore,
+    document_contents="Research paper abstracts",
+    metadata_field_info=metadata_field_info,
+)
+
+# LLM parses -> query="retrieval", filter: year > 2021
+retriever.invoke("papers after 2021 about retrieval")
+```
+
+:::caution[Self-query depends on clean metadata]
+The filter is only as good as the metadata you stored at ingestion time. If
+documents lack a `year` field, no filter can select on it. Populate metadata
+consistently when you load and split, and give each field a clear
+`description` so the LLM maps questions to fields correctly.
+:::
+
+---
+
+## Choosing a Retriever
+
+| Need | Retriever |
+| --- | --- |
+| Simple semantic search | `as_retriever` (similarity) |
+| Diverse, non-redundant context | `as_retriever` (mmr) |
+| Catch different phrasings | `MultiQueryRetriever` |
+| Trim noise from chunks | `ContextualCompressionRetriever` |
+| Precise match, rich context | `ParentDocumentRetriever` |
+| Semantic + exact-term (hybrid) | `EnsembleRetriever` |
+| Question implies a metadata filter | `SelfQueryRetriever` |
+
+---
+
+## Common Mistakes
+
+- Leaving `k` at its default instead of tuning it per corpus.
+- Using plain similarity when top-k are near-duplicates (reach for MMR).
+- Setting a `score_threshold` on one dataset and assuming it transfers.
+- Running `LLMChainExtractor` compression over a large `k` and paying per-chunk LLM cost.
+- Building a `SelfQueryRetriever` over documents with missing or inconsistent metadata.
+- Treating semantic-only retrieval as enough when queries contain exact names or codes.
+
+## Interview Questions
+
+- What does a retriever take as input and return as output?
+- How does MMR differ from plain similarity search, and when would you use it?
+- What problem does `MultiQueryRetriever` solve, and what does it cost?
+- Explain the "small-to-big" idea behind `ParentDocumentRetriever`.
+- How does an `EnsembleRetriever` combine dense and sparse results?
+- When is a `SelfQueryRetriever` the right choice?
+
+## Things to Remember
+
+- A retriever is a Runnable: query string in, `list[Document]` out.
+- `as_retriever` exposes `search_type` and `search_kwargs` (`k`, thresholds).
+- MMR trades relevance for diversity via `lambda_mult` and `fetch_k`.
+- MultiQuery boosts recall; compression trims noise; parent-document adds context.
+- Ensemble = hybrid (dense + BM25) fused with reciprocal rank fusion.
+- Self-query turns a question into a semantic query plus a metadata filter.
+
+## Mini Exercise
+
+Take your existing Chroma store and build three retrievers over it: a plain
+`similarity` retriever with `k=4`, an `mmr` retriever, and an `EnsembleRetriever`
+that fuses the vector retriever with a `BM25Retriever`. Run the same query
+through all three and compare which documents each returns.
+
+## Done When
+
+- [ ] You can turn a vector store into a retriever and tune `search_kwargs`.
+- [ ] You can switch to MMR for diversity and explain the tradeoff.
+- [ ] You can build a MultiQuery and an Ensemble (hybrid) retriever.
+- [ ] You can explain when compression, parent-document, and self-query help.
+
+Next: [RAG Chains](./07-rag-chains.mdx).

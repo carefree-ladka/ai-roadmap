@@ -1,0 +1,291 @@
+---
+title: Streaming, Async & Batch
+description: Making LangChain chains responsive — streaming tokens with stream(), async with ainvoke/astream, intermediate events via astream_events, batching with max_concurrency, and streaming from a FastAPI endpoint.
+---
+
+import TOCInline from '@theme/TOCInline';
+
+# Streaming, Async & Batch
+
+<TOCInline toc={toc} minHeadingLevel={2} maxHeadingLevel={2} />
+
+:::tip[In this guide]
+The same chain can run four ways: blocking, streaming, async, and batched. This
+guide covers when each matters, how to stream intermediate steps with
+`astream_events`, and how to wire a streaming FastAPI endpoint — connecting to
+your [AI backend](../02-fastapi/22-ai-backend.mdx).
+:::
+
+## What Is It?
+
+Every Runnable exposes a family of execution methods: `invoke` (blocking),
+`stream` (token-by-token), the async pair `ainvoke`/`astream`, `astream_events`
+(intermediate steps), and `batch`/`abatch` (many inputs at once). Same chain,
+different execution modes — no rebuild required.
+
+## Why Does It Matter?
+
+LLM generation is slow — several seconds for a full answer. How you *execute* a
+chain decides whether users stare at a spinner or watch words appear
+immediately. Streaming transforms perceived latency, async lets one server
+handle many concurrent requests, and batching maximizes throughput for offline
+jobs. These are the difference between a demo and a usable app.
+
+---
+
+## Why Streaming Matters
+
+A model that takes 6 seconds to finish feels broken if the screen is blank for 6
+seconds. Streaming emits each token as it is generated, so the first words
+appear in a few hundred milliseconds and the rest flow in — the total time is
+the same, but the *perceived* latency collapses.
+
+:::info[Theory: time-to-first-token vs total time]
+Two latency numbers matter. **Total generation time** is fixed by the model and
+output length. **Time-to-first-token (TTFT)** is how long until the user sees
+*anything*. Streaming does not shrink total time, but it slashes TTFT to roughly
+the time for one token, which is what users actually perceive as
+"responsiveness." This is why every serious chat UI streams.
+:::
+
+---
+
+## stream(): Token by Token
+
+`stream` returns an iterator that yields chunks as the model produces them. For
+a chain ending in `StrOutputParser`, each chunk is a piece of the answer string.
+
+```python
+from langchain_ollama import ChatOllama
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+
+prompt = ChatPromptTemplate.from_template("Explain {topic} in three sentences.")
+model = ChatOllama(model="llama3.2", temperature=0.1)
+chain = prompt | model | StrOutputParser()
+
+# print each token the moment it arrives
+for chunk in chain.stream({"topic": "hybrid search"}):
+    print(chunk, end="", flush=True)
+```
+
+:::note[Highlight: streaming flows through the whole chain]
+LCEL propagates streaming end to end. As long as every step supports it, the
+final parser yields tokens as fast as the model emits them. `StrOutputParser`
+streams cleanly; a parser that must see the *entire* output first (like strict
+JSON parsing) cannot stream partial results — it waits for the full response.
+:::
+
+---
+
+## Async: ainvoke / astream
+
+Async methods let a single process handle many chains concurrently without one
+slow LLM call blocking the others. Every sync method has an `a`-prefixed async
+twin: `ainvoke`, `astream`, `abatch`.
+
+```python
+import asyncio
+from langchain_ollama import ChatOllama
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+
+chain = ChatPromptTemplate.from_template("Define {term}.") | ChatOllama(model="llama3.2") | StrOutputParser()
+
+async def main():
+    # await a full async result
+    answer = await chain.ainvoke({"term": "MMR"})
+    print(answer)
+
+    # or stream asynchronously
+    async for chunk in chain.astream({"term": "reranking"}):
+        print(chunk, end="", flush=True)
+
+asyncio.run(main())
+```
+
+:::info[Theory: why async matters for web servers]
+LLM calls are **I/O-bound** — the process spends most of its time waiting on the
+model, not computing. With blocking `invoke`, one request ties up a worker for
+the whole call. With `ainvoke`/`astream` inside an async server, the event loop
+handles other requests while each call waits, so one process serves many
+concurrent users. This is exactly why FastAPI endpoints that call LLMs should be
+`async def` — see [AI backend](../02-fastapi/22-ai-backend.mdx).
+:::
+
+---
+
+## astream_events: Intermediate Steps
+
+`stream` gives you final-output tokens; `astream_events` gives you a live feed of
+*everything* happening inside the chain — retriever start/end, model start,
+each token, chain completion. This is how you show a UI "Searching..." then
+stream the answer.
+
+```python
+async def run():
+    async for event in rag_chain.astream_events(
+        {"input": "What does RAG reduce?"},
+        version="v2",
+    ):
+        kind = event["event"]
+        if kind == "on_retriever_end":
+            docs = event["data"]["output"]
+            print(f"\n[retrieved {len(docs)} documents]")
+        elif kind == "on_chat_model_stream":
+            print(event["data"]["chunk"].content, end="", flush=True)
+```
+
+Common event kinds:
+
+| Event | Fires when |
+| --- | --- |
+| `on_retriever_start` / `on_retriever_end` | Retrieval begins / returns docs |
+| `on_chat_model_start` | The model call begins |
+| `on_chat_model_stream` | Each generated token |
+| `on_chain_end` | The whole chain finishes |
+
+:::note[Highlight: events power rich RAG UIs]
+`astream_events` lets you narrate a RAG pipeline in real time: show a "searching
+your documents" indicator on `on_retriever_end`, then stream the answer on each
+`on_chat_model_stream`. That staged feedback feels far faster than a single
+spinner. Pass `version="v2"` — it is the current event schema.
+:::
+
+---
+
+## batch() / abatch(): Many Inputs
+
+To run the same chain over a list of inputs, `batch` is more efficient than a
+Python loop — and `max_concurrency` caps how many run in parallel so you do not
+overwhelm the model server.
+
+```python
+questions = [
+    {"topic": "embeddings"},
+    {"topic": "chunking"},
+    {"topic": "reranking"},
+    {"topic": "vector databases"},
+]
+
+# run up to 2 at a time
+answers = chain.batch(questions, config={"max_concurrency": 2})
+for a in answers:
+    print(a)
+
+# async version for use inside an event loop
+async def run():
+    answers = await chain.abatch(questions, config={"max_concurrency": 2})
+```
+
+:::caution[Cap concurrency against a local model]
+A single Ollama instance has finite capacity. Firing 100 requests at once will
+queue them and can exhaust memory. Set `max_concurrency` to a value your machine
+handles — see the throughput notes in
+[Ollama API Usage](../03-local-llms-ollama/02-ollama-api-usage.mdx). Batching is
+for offline jobs (bulk summarization, evaluation runs), not per-user latency.
+:::
+
+---
+
+## Streaming in a FastAPI Endpoint
+
+Put it together: an async FastAPI route that streams a chain's tokens to the
+client using `StreamingResponse` over `chain.astream`.
+
+```python
+from fastapi import FastAPI
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
+from langchain_ollama import ChatOllama
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+
+app = FastAPI()
+
+chain = (
+    ChatPromptTemplate.from_template("Answer concisely: {question}")
+    | ChatOllama(model="llama3.2", temperature=0.1)
+    | StrOutputParser()
+)
+
+class Query(BaseModel):
+    question: str
+
+@app.post("/chat")
+async def chat(query: Query):
+    async def token_stream():
+        async for chunk in chain.astream({"question": query.question}):
+            yield chunk           # each token flushed to the client
+
+    return StreamingResponse(token_stream(), media_type="text/plain")
+```
+
+The `async def` route plus `astream` inside `StreamingResponse` means tokens
+reach the browser as the model produces them, and the server stays free to
+handle other requests. For production you would typically emit Server-Sent
+Events (SSE) so the frontend can consume a token stream cleanly — the backend
+patterns are in [AI backend](../02-fastapi/22-ai-backend.mdx).
+
+:::warning[The generator must be async for true streaming]
+If you build the full string first and then return it, you have not streamed —
+the client waits for the whole answer. The response only streams when the
+generator `yield`s chunks from `astream` (or `stream`) as they arrive.
+:::
+
+---
+
+## Choosing an Execution Mode
+
+| Mode | Use when |
+| --- | --- |
+| `invoke` | Simple scripts, tests, non-interactive calls |
+| `stream` | Interactive UI, one request, want low TTFT |
+| `ainvoke` / `astream` | Inside an async server handling concurrent users |
+| `astream_events` | You need to surface intermediate steps (retrieval, tools) |
+| `batch` / `abatch` | Offline processing of many inputs |
+
+---
+
+## Common Mistakes
+
+- Building the full answer, then returning it, and calling it "streaming."
+- Using blocking `invoke` inside an async FastAPI route, blocking the event loop.
+- Firing unbounded `batch` at a local model with no `max_concurrency`.
+- Expecting a whole-output parser (strict JSON) to stream partial tokens.
+- Forgetting `version="v2"` on `astream_events`.
+- Using `batch` for per-user latency when you actually need `stream`.
+
+## Interview Questions
+
+- Why does streaming improve perceived latency if total time is unchanged?
+- What is time-to-first-token and why does it matter?
+- When should a chain method be async, and why does it help a web server?
+- What does `astream_events` give you that `stream` does not?
+- How does `max_concurrency` protect a batched workload?
+- How do you stream a chain's output from a FastAPI endpoint?
+
+## Things to Remember
+
+- Same chain, four execution modes: invoke, stream, async, batch.
+- Streaming slashes time-to-first-token; total time is unchanged.
+- Async (`ainvoke`/`astream`) lets one server handle concurrent LLM calls.
+- `astream_events` surfaces retrieval and token events for rich UIs.
+- `batch`/`abatch` with `max_concurrency` for offline throughput.
+- Stream in FastAPI with `StreamingResponse` over an async generator.
+
+## Mini Exercise
+
+Take your RAG chain and run it three ways: stream the answer to the console
+token by token; use `astream_events` to print "[retrieved N docs]" before the
+tokens; and expose it from a FastAPI `/chat` route with `StreamingResponse`.
+Confirm words appear in the browser as they are generated.
+
+## Done When
+
+- [ ] You can stream a chain's tokens with `stream` and `astream`.
+- [ ] You can explain when and why to use the async methods.
+- [ ] You can surface intermediate steps with `astream_events`.
+- [ ] You can stream a chain from a FastAPI endpoint.
+
+Next: [Memory & Agents](./09-memory-agents.mdx).

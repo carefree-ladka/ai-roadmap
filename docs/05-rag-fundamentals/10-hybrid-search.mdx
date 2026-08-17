@@ -1,0 +1,339 @@
+---
+title: Hybrid Search
+description: Combining keyword (sparse) and semantic (dense) retrieval, BM25/TF-IDF basics, dense vs sparse comparison, Reciprocal Rank Fusion and weighted score fusion, and when hybrid search wins.
+---
+
+import TOCInline from '@theme/TOCInline';
+
+# Hybrid Search
+
+<TOCInline toc={toc} minHeadingLevel={2} maxHeadingLevel={2} />
+
+:::tip[In this guide]
+Vector search is great at meaning but blind to exact tokens like product codes
+or rare jargon. Hybrid search runs a keyword retriever and a semantic retriever
+side by side, then fuses the two ranked lists. This guide covers BM25 basics,
+dense vs sparse retrieval, and fusion methods like Reciprocal Rank Fusion. For
+the hands-on build, see
+[Reranking & Hybrid Search](../06-advanced-rag/02-reranking-hybrid-search.mdx),
+and pair this with [Reranking](./11-reranking.mdx).
+:::
+
+## What Is It?
+
+**Hybrid search** combines two different retrieval methods for the same query and
+merges their results:
+
+- **Keyword / lexical search** (sparse): matches the actual words and tokens,
+  ranking by term overlap. Think BM25 or TF-IDF.
+- **Semantic / vector search** (dense): matches meaning by comparing embeddings,
+  as covered in [similarity search](./07-similarity-search.mdx).
+
+Each retriever returns a ranked list; a **fusion** step blends them into one final
+ranking that you pass to the prompt.
+
+```text
+query ──▶ keyword retriever ──▶ ranked list A
+     └───▶ vector retriever  ──▶ ranked list B
+                                     │
+                                     ▼
+                              fuse (RRF / weighted) ──▶ final top-k
+```
+
+## Why Does It Matter?
+
+Neither method alone is complete:
+
+- **Vector search misses exact terms.** Ask for error code `ERR_4021` or a part
+  number like `SKU-99823` and the embedding may land near "similar-looking"
+  errors rather than the exact one. Rare tokens, IDs, and acronyms are exactly
+  where dense retrieval is weakest.
+- **Keyword search misses meaning.** A user asking "how do I recover my account"
+  won't match a doc titled "password reset steps" if they share no words, even
+  though they mean the same thing.
+
+Hybrid search covers both failure modes: the keyword side nails exact tokens, the
+vector side catches paraphrases.
+
+:::info[Theory: precision of tokens vs recall of meaning]
+Lexical retrieval gives you high precision on exact matches — if the token is in
+the doc, it will be found. Dense retrieval gives you high recall on meaning — it
+finds relevant docs that don't share vocabulary. Fusing them lets each cover the
+other's blind spot, which is why hybrid consistently beats either alone on mixed
+real-world queries.
+:::
+
+---
+
+## Keyword Search Basics: TF-IDF and BM25
+
+Classic keyword retrieval scores a document by how well its terms match the query.
+Two ideas drive it:
+
+- **Term Frequency (TF):** the more often a query term appears in a document, the
+  more relevant that document probably is.
+- **Inverse Document Frequency (IDF):** rare terms are more informative than
+  common ones. The word "the" appears everywhere and tells you nothing; the token
+  `ERR_4021` appears in few docs and is highly discriminating.
+
+**TF-IDF** multiplies these: a term that is frequent in *this* document but rare
+across the *whole corpus* gets a high weight.
+
+**BM25** is the modern, industry-standard refinement of TF-IDF. It adds two
+corrections:
+
+- **Saturation:** the 20th occurrence of a word adds little over the 5th, so term
+  frequency has diminishing returns instead of growing linearly.
+- **Length normalization:** long documents naturally contain more words, so BM25
+  discounts them to avoid unfairly favoring long text.
+
+```python
+# Sketch of BM25 with the rank-bm25 library (a small pure-Python option)
+from rank_bm25 import BM25Okapi
+
+corpus = [
+    "Reset your password from the account settings page.",
+    "Error ERR_4021 occurs when the token has expired.",
+    "Quarterly revenue rose across all product lines.",
+]
+tokenized = [doc.lower().split() for doc in corpus]   # naive whitespace tokenizer
+bm25 = BM25Okapi(tokenized)
+
+query = "err_4021 token".split()
+scores = bm25.get_scores(query)      # one score per document
+print(scores)                        # doc 2 scores highest — it contains the exact tokens
+```
+
+:::note[Highlight: sparse vectors]
+Keyword methods are called **sparse** because each document is represented by a
+vector over the entire vocabulary, mostly zeros with a few non-zero weights for
+the words it actually contains. Dense embeddings, by contrast, are short vectors
+(e.g. 384 numbers) where every dimension is non-zero.
+:::
+
+---
+
+## Dense vs Sparse Retrieval
+
+| Aspect | Dense (vector) | Sparse (keyword / BM25) |
+| --- | --- | --- |
+| Matches on | Meaning / semantics | Exact tokens and terms |
+| Handles paraphrases | Yes — "recover account" ≈ "reset password" | No — needs shared words |
+| Handles rare IDs / codes | Weak — may drift to lookalikes | Strong — exact token match |
+| Handles typos | Somewhat (embedding is fuzzy) | Poorly (token must match) |
+| Needs an embedding model | Yes | No |
+| Interpretability | Low (opaque vectors) | High (you see which terms hit) |
+| Out-of-domain jargon | Weak if model never saw it | Strong — still matches the string |
+| Index type | ANN index (e.g. HNSW) | Inverted index |
+
+:::caution[Domain jargon is a classic dense failure]
+If your embedding model was never trained on your internal product names,
+chemical formulas, or legal citations, those tokens sit in poorly-learned regions
+of the vector space. Keyword search doesn't care whether the model "understands"
+the token — it matches the literal string — which is why hybrid is so valuable in
+specialized domains.
+:::
+
+---
+
+## Combining Results: Reciprocal Rank Fusion (RRF)
+
+The hard part of hybrid search is merging two ranked lists whose scores are **not
+comparable** — a BM25 score of 8.3 and a cosine distance of 0.24 live on totally
+different scales. **Reciprocal Rank Fusion (RRF)** sidesteps this by ignoring the
+raw scores and using only the **rank** (position) of each document in each list.
+
+The RRF score for a document is the sum over every list of `1 / (k + rank)`,
+where `rank` is that document's position (1-based) in the list and `k` is a small
+constant (commonly 60) that dampens the influence of top ranks.
+
+:::info[Theory: why rank, not score]
+Because ranks are always `1, 2, 3, ...` regardless of the retriever, RRF fuses
+apples and oranges without any score normalization or tuning. A document that
+ranks high in *both* lists accumulates contributions from both and rises to the
+top; a document that ranks high in only one still gets a fair boost. It is simple,
+robust, and hard to beat as a default.
+:::
+
+Here is a complete, self-contained RRF implementation:
+
+```python
+def reciprocal_rank_fusion(
+    ranked_lists: list[list[str]],
+    k: int = 60,
+) -> list[tuple[str, float]]:
+    """Fuse multiple ranked lists of document ids into one.
+
+    Each inner list is ordered best-first, e.g. ["doc3", "doc1", "doc7"].
+    Returns (doc_id, fused_score) pairs sorted best-first.
+    """
+    scores: dict[str, float] = {}
+    for ranked in ranked_lists:
+        for rank, doc_id in enumerate(ranked, start=1):   # rank is 1-based
+            scores[doc_id] = scores.get(doc_id, 0.0) + 1.0 / (k + rank)
+    return sorted(scores.items(), key=lambda pair: pair[1], reverse=True)
+
+
+# Two retrievers return their own orderings of document ids:
+vector_hits = ["doc3", "doc1", "doc7", "doc4"]   # semantic ranking
+keyword_hits = ["doc7", "doc9", "doc3", "doc1"]  # BM25 ranking
+
+fused = reciprocal_rank_fusion([vector_hits, keyword_hits])
+for doc_id, score in fused:
+    print(f"{doc_id}: {score:.5f}")
+# doc3 and doc7 rise to the top because they rank well in BOTH lists.
+```
+
+Walking the math for `doc3` with `k = 60`: it is rank 1 in the vector list
+(`1 / 61`) and rank 3 in the keyword list (`1 / 63`), summing to about `0.01626`.
+`doc7` is rank 3 (`1 / 63`) and rank 1 (`1 / 61`) for the same total — both
+appear strongly in both lists, so they win.
+
+:::note[Highlight: the constant k]
+The `k` value (default 60) controls how much a top rank dominates. A small `k`
+makes the #1 position hugely influential; a larger `k` flattens the curve so
+lower ranks still contribute meaningfully. 60 is the widely used default from the
+original RRF paper — start there and only tune if evaluation tells you to.
+:::
+
+---
+
+## Combining Results: Weighted Score Fusion
+
+If you *do* want to use the raw scores, first normalize each list to a common
+range (e.g. 0–1 via min-max scaling), then take a weighted sum. This lets you
+express "trust the vector retriever a bit more than keyword" with a single knob.
+
+```python
+def min_max_normalize(scored: dict[str, float]) -> dict[str, float]:
+    if not scored:
+        return {}
+    values = scored.values()
+    lo, hi = min(values), max(values)
+    if hi == lo:                       # avoid divide-by-zero when all equal
+        return {doc: 1.0 for doc in scored}
+    return {doc: (s - lo) / (hi - lo) for doc, s in scored.items()}
+
+
+def weighted_fusion(
+    vector_scores: dict[str, float],
+    keyword_scores: dict[str, float],
+    alpha: float = 0.5,               # weight on the vector side, 0..1
+) -> list[tuple[str, float]]:
+    v = min_max_normalize(vector_scores)
+    kw = min_max_normalize(keyword_scores)
+    all_ids = set(v) | set(kw)
+    fused = {
+        doc: alpha * v.get(doc, 0.0) + (1 - alpha) * kw.get(doc, 0.0)
+        for doc in all_ids
+    }
+    return sorted(fused.items(), key=lambda pair: pair[1], reverse=True)
+
+
+vector_scores = {"doc3": 0.91, "doc1": 0.74, "doc7": 0.66}
+keyword_scores = {"doc7": 9.2, "doc9": 7.1, "doc3": 4.4}
+print(weighted_fusion(vector_scores, keyword_scores, alpha=0.6))
+```
+
+:::warning[Normalize before you weight]
+Never add a BM25 score directly to a cosine similarity — the scales differ by
+orders of magnitude and the larger-scaled retriever silently dominates. Always
+normalize each list to the same range first. RRF avoids this trap entirely by
+using ranks, which is why it is the safer default.
+:::
+
+Weighted fusion is more tunable than RRF but needs per-corpus calibration of
+`alpha` and reliable normalization. A common recipe: prototype with RRF, and only
+move to weighted fusion if an [eval set](./14-rag-evaluation.mdx) shows a gain.
+
+---
+
+## When Hybrid Helps Most
+
+Hybrid search pays off when queries mix meaning with exact tokens:
+
+- **Mixed queries:** "why does `ERR_4021` happen after login" needs both the exact
+  code and the semantic "after login" context.
+- **Jargon and acronyms:** internal product names, medical/legal terms, or codes
+  the embedding model never learned.
+- **Product / part codes and IDs:** `SKU-99823`, order numbers, config keys.
+- **Short queries:** one or two words give the vector model little to work with,
+  so lexical matching carries more weight.
+
+For broad conceptual questions ("summarize our refund policy"), plain vector
+search is often enough — hybrid adds the most value on the exact-token cases.
+
+---
+
+## Practical Note: Chroma Is Vector-Only
+
+Chroma stores and searches **dense vectors** only — it has no built-in BM25
+keyword index. To do hybrid search with a Chroma-based stack you have options:
+
+- **Pair Chroma with a keyword index yourself.** Keep a parallel lexical index
+  using a library like `rank-bm25`, or a SQL `LIKE` / full-text search over the
+  same chunk ids, then fuse the two result lists with the RRF function above.
+- **Use metadata filtering to pre-narrow** the candidate set (see
+  [metadata filtering](./09-metadata-filtering.mdx)) before semantic ranking —
+  this isn't full hybrid, but it recovers some exact-match precision cheaply.
+- **Adopt a store with hybrid built in.** Engines such as Weaviate, Qdrant,
+  OpenSearch, or Elasticsearch expose combined dense + sparse queries and do the
+  fusion for you.
+
+```python
+# Pattern: retrieve from both, fuse, then pass the fused top-k to the prompt.
+def hybrid_retrieve(question: str, top_k: int = 4) -> list[str]:
+    vector_ids = vector_retriever(question, n=20)    # Chroma, returns doc ids
+    keyword_ids = bm25_retriever(question, n=20)     # rank-bm25 / SQL LIKE
+    fused = reciprocal_rank_fusion([vector_ids, keyword_ids])
+    return [doc_id for doc_id, _ in fused[:top_k]]
+```
+
+:::note[Highlight: over-fetch, then fuse]
+Ask each retriever for more than your final `top_k` (say 20 each) so fusion has
+enough overlap to work with, then trim to `top_k` after fusing. This is the same
+"over-fetch then narrow" idea you'll use in [reranking](./11-reranking.mdx).
+:::
+
+---
+
+## Common Mistakes
+
+- Adding BM25 scores to cosine scores without normalizing (one scale dominates).
+- Fetching only `top_k` from each retriever, leaving fusion nothing to overlap.
+- Using hybrid everywhere when plain vector search already suffices — extra cost
+  for no measurable gain.
+- Assuming Chroma does keyword search; it doesn't — you must add a lexical index.
+- Tuning `alpha` or `k` by feel instead of against an eval set.
+
+## Interview Questions
+
+- Why does semantic vector search struggle with product codes and rare tokens?
+- Explain BM25 and how it improves on plain TF-IDF.
+- What problem does Reciprocal Rank Fusion solve, and why use rank over score?
+- How would you add hybrid search to a vector-only store like Chroma?
+- When is plain vector search preferable to hybrid?
+
+## Things to Remember
+
+- Hybrid = keyword (sparse) + semantic (dense), then fuse the ranked lists.
+- Dense finds meaning; sparse finds exact tokens — each covers the other's gap.
+- RRF fuses using ranks, so it needs no score normalization; weighted fusion does.
+- Over-fetch from both retrievers before fusing down to `top_k`.
+- Chroma is vector-only — pair it with a BM25/`LIKE` index or use a hybrid store.
+
+## Mini Exercise
+
+Build a tiny corpus of five chunks where one contains a made-up code like
+`ZX-7781`. Retrieve for the query "how to fix ZX-7781 timeout" with both a vector
+retriever and a `rank-bm25` retriever, fuse the two lists with the
+`reciprocal_rank_fusion` function above, and confirm the code-bearing chunk ranks
+higher after fusion than with vector search alone.
+
+## Done When
+
+- [ ] You can explain dense vs sparse retrieval and when each fails.
+- [ ] You can implement Reciprocal Rank Fusion over two ranked lists.
+- [ ] You know how to add hybrid search on top of a vector-only store.
+
+Next: [Reranking](./11-reranking.mdx).

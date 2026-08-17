@@ -1,0 +1,238 @@
+---
+title: LangChain vs LlamaIndex
+description: A balanced, practical comparison — philosophy, where each shines, a feature table, overlap and convergence, combining them, and how to choose based on your primary need.
+---
+
+import TOCInline from '@theme/TOCInline';
+
+# LangChain vs LlamaIndex
+
+<TOCInline toc={toc} minHeadingLevel={2} maxHeadingLevel={2} />
+
+:::tip[In this guide]
+Two great frameworks, two different centers of gravity. This guide compares
+[LangChain](./01-langchain-basics.mdx) and
+[LlamaIndex](./11-llamaindex-basics.mdx) on philosophy, strengths, and fit, then
+gives you a decision rule — including the course's view that hand-rolling is
+fine for simple flows. Next stop after this is
+[Agents & Agentic AI](../08-agentic-ai/index.mdx).
+:::
+
+## What Is It?
+
+A side-by-side look at the two most popular Python frameworks for building LLM
+applications, aimed at helping you pick the right tool rather than crowning a
+winner.
+
+## Why Does It Matter?
+
+Choosing a framework shapes your whole codebase — its abstractions, its ceiling,
+and how much you fight it later. The good news: the choice is rarely
+catastrophic, because both do RAG and both have agents. The better news: a clear
+sense of each one's focus makes the decision quick.
+
+---
+
+## The One-Line Summary
+
+- **LangChain** is a general-purpose LLM application orchestration framework. It composes prompts, models, tools, and control flow into pipelines and agents.
+- **LlamaIndex** is a data- and RAG-first framework. It specializes in connecting LLMs to your data with high-quality indexing and retrieval.
+
+Everything below elaborates these two sentences.
+
+---
+
+## Philosophy and Focus
+
+The frameworks were born from different questions.
+
+LangChain asks: *how do I orchestrate an LLM application?* Its answer is
+composability — everything is a Runnable, piped together with LCEL, from a simple
+prompt chain to a multi-tool agent. Breadth is the point.
+
+LlamaIndex asks: *how do I connect an LLM to my data?* Its answer is opinionated
+data structures — Documents, Nodes, indices, query engines — tuned so retrieval
+is short to write and high quality by default. Depth on the data path is the
+point.
+
+:::info[Theory: breadth-first vs depth-first design]
+LangChain optimizes for *breadth*: a large surface of components and integrations
+so you can assemble almost any LLM workflow. LlamaIndex optimizes for *depth* on
+one workflow — RAG — so the common case is excellent out of the box. Neither is
+better in the abstract; the right one depends on whether your app is mostly
+"retrieve and answer over my data" or "orchestrate many steps, tools, and
+decisions."
+:::
+
+---
+
+## Where Each Shines
+
+**LlamaIndex shines when the app is about your data.**
+
+- Baseline RAG in a handful of lines with strong defaults.
+- Advanced indexing and retrieval: sentence-window, semantic splitting, rerankers, structured retrieval.
+- Rich `Response` objects with source Nodes for citations, and built-in evaluators.
+
+**LangChain shines when the app is about orchestration.**
+
+- LCEL pipelines with streaming, batching, and async as first-class features.
+- Agents, tools, and control flow for multi-step workflows.
+- A very large integration ecosystem across models, stores, and services.
+
+---
+
+## Comparison Table
+
+| Dimension | LangChain | LlamaIndex |
+| --- | --- | --- |
+| RAG defaults | Assemble it yourself with LCEL | Excellent, minimal code |
+| Core abstractions | Runnables, LCEL, chains | Documents, Nodes, indices, query engines |
+| Agents | Mature, central to the framework | Present and growing |
+| Ecosystem | Very broad integrations | Broad, data/retrieval focused |
+| Learning curve | Steeper — many concepts | Gentle for RAG, deeper for advanced features |
+| Composability | Very high (pipe anything) | High within the data/query model |
+| Best fit | General orchestration, agents | Data-centric RAG |
+
+:::note[Highlight: read this as "focus," not "capability"]
+The table shows where each framework leans, not hard limits. LangChain can do
+great RAG and LlamaIndex can run agents. Pick based on which column matches your
+*primary* need, because that is the path each framework makes smoothest.
+:::
+
+---
+
+## Overlap and Convergence
+
+These two started far apart and have grown toward each other.
+
+- **Both do RAG.** LangChain via LCEL retriever chains; LlamaIndex via query engines. Either can build a solid pipeline.
+- **Both have agents.** Tool-using, multi-step agents exist in each.
+- **Both are local-first friendly.** Everything in these docs runs on Ollama and Chroma in either framework.
+
+So the decision is less "which can do the job" and more "which makes *my* job
+pleasant."
+
+---
+
+## Can You Combine Them?
+
+Yes — they are not mutually exclusive, and mixing is common. A frequent pattern
+is using LlamaIndex for its strong retrieval inside a LangChain orchestration.
+
+```python
+# LlamaIndex builds a high-quality retriever...
+from llama_index.core import VectorStoreIndex
+llama_retriever = index.as_retriever(similarity_top_k=4)
+
+# ...wrapped so a LangChain LCEL chain can call it as one step.
+def retrieve(question: str) -> str:
+    nodes = llama_retriever.retrieve(question)
+    return "\n\n".join(n.node.text for n in nodes)
+```
+
+```python
+from langchain_ollama import ChatOllama
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.runnables import RunnablePassthrough
+
+prompt = ChatPromptTemplate.from_template(
+    "Answer using ONLY the context.\n\nContext:\n{context}\n\nQuestion: {question}"
+)
+model = ChatOllama(model="llama3.2", temperature=0.1)
+
+chain = (
+    {"context": RunnablePassthrough() | retrieve, "question": RunnablePassthrough()}
+    | prompt | model | StrOutputParser()
+)
+chain.invoke("What does RAG reduce?")
+```
+
+:::caution[Combine deliberately, not by default]
+Mixing frameworks means two dependency trees, two mental models, and more
+version drift to manage. Do it when each earns its place — for example,
+LlamaIndex's retrieval quality plus LangChain's agent orchestration. For a
+single simple pipeline, one framework (or none) is cleaner.
+:::
+
+---
+
+## Decision Guidance
+
+Choose by your **primary** need:
+
+- **Data-centric RAG** — reach for [LlamaIndex](./11-llamaindex-basics.mdx). You will write less code and get better retrieval sooner.
+- **General orchestration or agents** — reach for [LangChain](./01-langchain-basics.mdx). Its composability and tool ecosystem are the draw.
+- **A simple, well-understood flow** — it is completely fine to hand-roll with the model API directly. A clear 40-line function can beat a framework you are fighting.
+
+```text
+Is the app mostly "retrieve over my data and answer"?
+  -> yes: LlamaIndex
+Is the app mostly "many steps / tools / decisions"?
+  -> yes: LangChain
+Is the flow small and fixed?
+  -> either, or just call the model API directly
+```
+
+:::info[Theory: frameworks trade control for speed]
+Any framework buys you speed and built-in integrations at the cost of some
+transparency and a learning curve — the same tradeoff called out in
+[LangChain Basics](./01-langchain-basics.mdx). The balanced view this course
+takes: use the framework whose defaults match your problem, and do not be afraid
+to drop to plain API calls when the abstraction earns you nothing.
+:::
+
+---
+
+## Interview Framing
+
+When asked to compare them, lead with focus, not features: LangChain is a
+general orchestration framework, LlamaIndex is a data/RAG-first framework.
+Acknowledge the convergence (both do RAG, both have agents), then land on a
+decision rule tied to the primary need. Bonus points for noting they can be
+combined — LlamaIndex retrieval inside a LangChain chain — and for saying that a
+simple flow may need neither. That answer signals you have used both and think in
+tradeoffs rather than hype.
+
+---
+
+## Common Mistakes
+
+- Framing it as "which is better" instead of "which fits this app."
+- Assuming only one can do RAG or only one has agents — both do.
+- Reaching for a framework when a small direct-API function would be clearer.
+- Combining both without a concrete reason, doubling complexity.
+- Picking based on popularity rather than your primary need.
+
+## Interview Questions
+
+- Summarize LangChain vs LlamaIndex in one sentence each.
+- Which would you pick for a data-heavy RAG product, and why?
+- How can the two be combined in one application?
+- When would you use neither framework?
+- What tradeoff does adopting any LLM framework introduce?
+
+## Things to Remember
+
+- LangChain = orchestration-first; LlamaIndex = data/RAG-first.
+- They have converged: both do RAG, both have agents.
+- Choose by primary need; combining is possible but adds complexity.
+- Hand-rolling is a legitimate choice for simple, fixed flows.
+- Discuss it in tradeoffs, not winners.
+
+## Mini Exercise
+
+Take one RAG feature you have built and sketch it three ways: pure LangChain
+LCEL, pure LlamaIndex query engine, and a hybrid (LlamaIndex retriever inside a
+LangChain chain). Note which was least code, which gave the most control, and
+which you would ship.
+
+## Done When
+
+- [ ] You can state each framework's focus in one sentence.
+- [ ] You can justify a choice from a project's primary need.
+- [ ] You can explain how and why to combine them.
+- [ ] You can argue when to use neither.
+
+Next: [08 · Agents & Agentic AI](../08-agentic-ai/index.mdx).

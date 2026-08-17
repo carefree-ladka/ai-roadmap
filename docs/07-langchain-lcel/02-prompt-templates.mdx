@@ -1,0 +1,285 @@
+---
+title: Prompt Templates
+description: LangChain prompt templates in depth — PromptTemplate vs ChatPromptTemplate, message roles, variables and partials, MessagesPlaceholder for history, few-shot prompting, and composing prompts into LCEL chains.
+---
+
+import TOCInline from '@theme/TOCInline';
+
+# Prompt Templates
+
+<TOCInline toc={toc} minHeadingLevel={2} maxHeadingLevel={2} />
+
+:::tip[In this guide]
+Prompts are the first link in every chain. This deep dive covers string vs chat
+templates, message roles, variable substitution and partials,
+`MessagesPlaceholder` for conversation history, and few-shot prompting — then
+pipes a template into a model the LCEL way from
+[LangChain Basics](./01-langchain-basics.mdx).
+:::
+
+## What Is It?
+
+A prompt template is a reusable, parameterized recipe for building the text (or
+messages) you send to a model. Instead of hand-formatting strings, you declare
+placeholders and fill them at call time, and the template produces a value the
+model step can consume.
+
+## Why Does It Matter?
+
+Prompts are where most of your app's behavior lives. Templating them makes
+prompts consistent, testable, and swappable, keeps variable substitution safe,
+and — crucially for chat models — lets you assemble the right **message roles**
+(system, human, AI) that steer the model far better than one flat string.
+
+---
+
+## PromptTemplate vs ChatPromptTemplate
+
+LangChain has two families. `PromptTemplate` builds a single **string** (for
+older completion models). `ChatPromptTemplate` builds a **list of messages**
+with roles — the right choice for modern chat models like `ChatOllama`.
+
+```python
+from langchain_core.prompts import PromptTemplate, ChatPromptTemplate
+
+# string prompt -> one blob of text
+string_prompt = PromptTemplate.from_template("Summarize: {text}")
+string_prompt.format(text="RAG grounds answers in your data.")
+# 'Summarize: RAG grounds answers in your data.'
+
+# chat prompt -> a list of role-tagged messages
+chat_prompt = ChatPromptTemplate.from_template("Summarize: {text}")
+chat_prompt.format_messages(text="RAG grounds answers in your data.")
+# [HumanMessage(content='Summarize: RAG grounds answers in your data.')]
+```
+
+:::note[Highlight: default to ChatPromptTemplate]
+Almost every model you'll use is a chat model, so prefer `ChatPromptTemplate`.
+It lets you set a **system** message (persona and rules) separately from the
+**human** turn, which is far more effective than cramming instructions into a
+single string.
+:::
+
+---
+
+## Message Roles
+
+Chat prompts are built from role-tagged messages. The three you'll use most:
+
+| Role | Purpose |
+| --- | --- |
+| `system` | Persona, rules, output format — the model's standing instructions |
+| `human` | The user's input for this turn |
+| `ai` | A prior assistant reply (for few-shot examples or history) |
+
+```python
+from langchain_core.prompts import ChatPromptTemplate
+
+prompt = ChatPromptTemplate.from_messages([
+    ("system", "You are a concise assistant. Answer in one sentence."),
+    ("human", "{question}"),
+])
+
+messages = prompt.format_messages(question="What is LCEL?")
+# [SystemMessage(...), HumanMessage(content='What is LCEL?')]
+```
+
+:::info[Theory: why the system message matters]
+Chat models are trained to treat the system message as higher-priority, standing
+guidance for the whole conversation. Putting "answer only from the context, say
+you don't know otherwise" in the **system** role (rather than the human turn)
+makes the instruction stick across turns and resist being overridden by user
+text — the foundation of grounded RAG prompts.
+:::
+
+---
+
+## Variables and Input
+
+Templates declare variables with `{braces}`. LangChain validates that you supply
+every required variable, catching typos before they reach the model.
+
+```python
+from langchain_core.prompts import ChatPromptTemplate
+
+prompt = ChatPromptTemplate.from_messages([
+    ("system", "Translate to {language}."),
+    ("human", "{text}"),
+])
+
+prompt.input_variables            # ['language', 'text']
+prompt.format_messages(language="French", text="hello")
+```
+
+:::warning[Escape literal braces]
+Because `{name}` marks a variable, a literal curly brace in your prompt (like a
+JSON example) must be **doubled**: write `{{` and `}}`. Forgetting this raises a
+`KeyError` for a "missing variable" that is really just literal text. This bites
+people who paste JSON schemas into prompts.
+:::
+
+---
+
+## Partial Prompts
+
+`partial()` pre-fills some variables now and leaves the rest for later — handy
+for injecting values like the current date or a fixed persona once, then reusing
+the template.
+
+```python
+from datetime import date
+from langchain_core.prompts import ChatPromptTemplate
+
+prompt = ChatPromptTemplate.from_messages([
+    ("system", "Today is {today}. You are a helpful assistant."),
+    ("human", "{question}"),
+])
+
+# fix `today` now; only `question` remains to fill per call
+dated = prompt.partial(today=str(date.today()))
+dated.format_messages(question="What day is it?")
+
+# a partial can also be a function, evaluated each time
+live = prompt.partial(today=lambda: str(date.today()))
+```
+
+---
+
+## MessagesPlaceholder (History)
+
+To slot a variable-length list of prior messages (conversation history) into a
+prompt, use `MessagesPlaceholder`. It reserves a spot that you fill with a list
+of message objects.
+
+```python
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.messages import HumanMessage, AIMessage
+
+prompt = ChatPromptTemplate.from_messages([
+    ("system", "You are a concise assistant."),
+    MessagesPlaceholder("history"),     # a list of past messages goes here
+    ("human", "{input}"),
+])
+
+history = [HumanMessage("My name is Ada."), AIMessage("Nice to meet you, Ada.")]
+prompt.format_messages(history=history, input="What's my name?")
+```
+
+:::note[Highlight: this powers chat memory]
+`MessagesPlaceholder` is the mechanism behind conversational apps — you keep a
+list of past turns and drop it into the prompt each call. The full memory
+patterns (windowing, summarizing, per-session stores) live in
+[Memory & Agents](./09-memory-agents.mdx).
+:::
+
+---
+
+## Few-Shot Prompting
+
+Show the model examples of the input-output behavior you want. For chat models,
+encode examples as alternating human/ai message pairs.
+
+```python
+from langchain_core.prompts import (
+    ChatPromptTemplate, FewShotChatMessagePromptTemplate,
+)
+
+examples = [
+    {"input": "2 + 2", "output": "4"},
+    {"input": "3 * 5", "output": "15"},
+]
+
+example_prompt = ChatPromptTemplate.from_messages([
+    ("human", "{input}"),
+    ("ai", "{output}"),
+])
+
+few_shot = FewShotChatMessagePromptTemplate(
+    example_prompt=example_prompt,
+    examples=examples,
+)
+
+final_prompt = ChatPromptTemplate.from_messages([
+    ("system", "You are a calculator. Reply with only the number."),
+    few_shot,                          # the examples get injected here
+    ("human", "{input}"),
+])
+
+final_prompt.format_messages(input="10 - 3")
+```
+
+:::info[Theory: few-shot vs fine-tuning]
+Few-shot prompting teaches format and behavior **at inference time** by example —
+no training, instant to change, but it consumes context-window tokens on every
+call. Fine-tuning bakes behavior into the model weights — cheaper per call and no
+token cost, but slow and expensive to update. Reach for few-shot first; consider
+fine-tuning only when examples are stable and token cost is significant.
+:::
+
+---
+
+## Piping a Prompt into a Chain
+
+A prompt template is a Runnable, so it composes with `|` straight into a model
+and parser — the LCEL pattern from [LangChain Basics](./01-langchain-basics.mdx).
+
+```python
+from langchain_ollama import ChatOllama
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+
+prompt = ChatPromptTemplate.from_messages([
+    ("system", "You are a concise assistant."),
+    ("human", "Explain {topic} in one sentence."),
+])
+model = ChatOllama(model="llama3.2", temperature=0.1)
+
+chain = prompt | model | StrOutputParser()
+chain.invoke({"topic": "prompt templates"})
+```
+
+Output parsers (shaping the model's reply into strings, JSON, or Pydantic
+objects) are covered next in
+[Models & Output Parsers](./03-models-output-parsers.mdx).
+
+---
+
+## Common Mistakes
+
+- Using a single string when role-separated messages would steer the model better.
+- Forgetting to double literal braces (`{{`, `}}`), causing false "missing variable" errors.
+- Putting standing rules in the human turn instead of the system message.
+- Building history by string concatenation instead of `MessagesPlaceholder`.
+- Overstuffing few-shot examples, burning context-window tokens.
+
+## Interview Questions
+
+- `PromptTemplate` vs `ChatPromptTemplate` — when each?
+- Why does the system message matter for chat models?
+- What is `MessagesPlaceholder` for?
+- How do you include literal braces in a template?
+- Few-shot prompting vs fine-tuning — tradeoffs?
+
+## Things to Remember
+
+- Prefer `ChatPromptTemplate` with explicit system/human/ai roles.
+- Variables use `{name}`; literal braces must be doubled.
+- `partial()` pre-fills fixed values; `MessagesPlaceholder` slots in history.
+- Few-shot teaches by example at the cost of tokens.
+- A prompt is a Runnable — pipe it with `|` into model and parser.
+
+## Mini Exercise
+
+Build a `ChatPromptTemplate` with a system message that fixes a persona, a
+`MessagesPlaceholder` for history, and a human turn. Pipe it into `ChatOllama`
+and confirm a follow-up question uses the injected history. Then add two
+few-shot examples and observe how the output format changes.
+
+## Done When
+
+- [ ] You can build string and chat prompt templates with roles.
+- [ ] You can use variables, partials, and escape literal braces.
+- [ ] You can inject history with `MessagesPlaceholder` and add few-shot examples.
+- [ ] You can pipe a prompt into an LCEL chain.
+
+Next: [Models & Output Parsers](./03-models-output-parsers.mdx).

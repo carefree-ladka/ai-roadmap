@@ -1,0 +1,285 @@
+---
+title: LlamaIndex Basics
+description: LlamaIndex as a data framework for LLMs — Documents and Nodes, VectorStoreIndex, query engines, global Settings, and the 5-line local RAG with Ollama and a HuggingFace embedding.
+---
+
+import TOCInline from '@theme/TOCInline';
+
+# LlamaIndex Basics
+
+<TOCInline toc={toc} minHeadingLevel={2} maxHeadingLevel={2} />
+
+:::tip[In this guide]
+LlamaIndex is a data framework built around one job: connecting LLMs to your
+data. This guide covers Documents and Nodes, the `VectorStoreIndex`, query
+engines and retrievers, global `Settings`, and the famous 5-line RAG — all
+local with Ollama, mirroring the LangChain stack from
+[LangChain Basics](./01-langchain-basics.mdx) and the concepts in
+[RAG Fundamentals](../05-rag-fundamentals/index.mdx).
+:::
+
+## What Is It?
+
+LlamaIndex is a data framework for LLM applications. Where LangChain centers on
+general orchestration, LlamaIndex centers on the **data path**: ingest your
+documents, index them, and query them with an LLM. It ships opinionated,
+batteries-included abstractions so a baseline RAG pipeline is a handful of
+lines instead of a page of glue code.
+
+## Why Does It Matter?
+
+RAG is the most common LLM use case, and LlamaIndex makes the RAG happy-path
+short and high quality. It handles loading, chunking, embedding, storage, and
+retrieval behind clean objects, then lets you swap in advanced indexing and
+retrieval strategies when you outgrow the defaults. Because it is local-first
+friendly, you can run the whole stack on Ollama and Chroma with no cloud keys.
+
+## Install
+
+```bash
+pip install llama-index llama-index-llms-ollama llama-index-embeddings-huggingface llama-index-vector-stores-chroma
+```
+
+- `llama-index` — the core framework (Documents, Nodes, indices, query engines).
+- `llama-index-llms-ollama` — the local LLM integration (`Ollama`).
+- `llama-index-embeddings-huggingface` — local embeddings via `HuggingFaceEmbedding`.
+- `llama-index-vector-stores-chroma` — persist vectors to Chroma.
+
+:::note[Highlight: local-first, no keys]
+LlamaIndex defaults to OpenAI if you do not configure it. We override that with
+`Settings` (below) so every step runs against your local Ollama server and a
+local embedding model — the same posture as
+[Ollama API Usage](../03-local-llms-ollama/02-ollama-api-usage.mdx).
+:::
+
+---
+
+## Core Concepts
+
+A few objects carry most of the framework. Learn these names and the rest falls
+into place.
+
+| Concept | What it is |
+| --- | --- |
+| `Document` | A raw unit of source data (a file, a page) plus metadata |
+| `Node` | A chunk of a Document, with metadata and relationships to siblings/parents |
+| Index | A structure over Nodes that makes them queryable (usually `VectorStoreIndex`) |
+| Retriever | Fetches the most relevant Nodes for a query |
+| Query engine | Retriever plus LLM synthesis — turns a question into an answer |
+| `Response` | The result object: the answer text plus the source Nodes used |
+
+:::info[Theory: why Nodes, not just chunks]
+A `Node` is more than a text chunk. It stores metadata (source file, page,
+custom tags) and **relationships** — links to the previous/next node and to its
+parent document. These relationships power advanced retrieval later (for
+example, fetching neighboring context around a matched chunk). Thinking in
+Nodes rather than flat strings is what lets LlamaIndex do the fancy stuff
+without you re-plumbing everything.
+:::
+
+---
+
+## Documents and Nodes
+
+You rarely build Nodes by hand. A reader produces `Document` objects, and a node
+parser splits them into `Node` objects. But it helps to see them directly.
+
+```python
+from llama_index.core import Document
+from llama_index.core.node_parser import SentenceSplitter
+
+doc = Document(
+    text="RAG grounds answers in retrieved context. It reduces hallucination.",
+    metadata={"source": "notes.md", "topic": "rag"},
+)
+
+splitter = SentenceSplitter(chunk_size=256, chunk_overlap=20)
+nodes = splitter.get_nodes_from_documents([doc])
+
+for node in nodes:
+    print(node.node_id, node.metadata, node.text[:40])
+```
+
+Each `Node` inherits the document metadata and gains relationships to its
+neighbors. Chunking strategy matters here exactly as it did in
+[Chunking Strategies](../05-rag-fundamentals/05-chunking-strategies.mdx).
+
+---
+
+## Global Settings
+
+`Settings` is a global config object. Set the LLM and embedding model once and
+every index, retriever, and query engine uses them — no need to pass them
+around.
+
+```python
+from llama_index.core import Settings
+from llama_index.llms.ollama import Ollama
+from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+
+Settings.llm = Ollama(model="llama3.2", request_timeout=120.0)
+Settings.embed_model = HuggingFaceEmbedding(model_name="BAAI/bge-small-en-v1.5")
+```
+
+If you prefer Ollama for embeddings too, swap the embed model:
+
+```python
+from llama_index.embeddings.ollama import OllamaEmbedding
+
+Settings.embed_model = OllamaEmbedding(model_name="nomic-embed-text")
+```
+
+:::warning[Set Settings before you build an index]
+Configure `Settings.llm` and `Settings.embed_model` **before** you call
+`VectorStoreIndex.from_documents`. The index embeds your Nodes at build time
+using whatever `Settings.embed_model` is active. If you leave the default, it
+will try to reach OpenAI and fail without an API key.
+:::
+
+---
+
+## The 5-Line RAG
+
+This is the pitch: a working retrieval-augmented pipeline in almost no code.
+Point a reader at a folder, build an index, ask a question.
+
+```python
+from llama_index.core import Settings, SimpleDirectoryReader, VectorStoreIndex
+from llama_index.llms.ollama import Ollama
+from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+
+# 1. global local config
+Settings.llm = Ollama(model="llama3.2", request_timeout=120.0)
+Settings.embed_model = HuggingFaceEmbedding(model_name="BAAI/bge-small-en-v1.5")
+
+# 2. load -> index -> query
+documents = SimpleDirectoryReader("./data").load_data()
+index = VectorStoreIndex.from_documents(documents)
+query_engine = index.as_query_engine()
+
+response = query_engine.query("What does RAG reduce?")
+print(response)
+```
+
+What just happened, step by step:
+
+```text
+SimpleDirectoryReader("./data")   -> reads every file into Documents
+VectorStoreIndex.from_documents   -> splits into Nodes, embeds, stores in memory
+index.as_query_engine()           -> retriever + LLM synthesizer
+query_engine.query("...")         -> retrieve top Nodes, stuff into a prompt, answer
+```
+
+Compare this to the hand-built LCEL RAG chain in
+[LangChain Basics](./01-langchain-basics.mdx): same idea, far fewer moving parts
+because LlamaIndex bakes the defaults in.
+
+:::note[Highlight: sensible defaults everywhere]
+`as_query_engine()` with no arguments already picks a retriever, a top-k, a
+prompt template, and a response synthesizer. You get a working RAG immediately,
+then override any piece when you need to — covered in
+[LlamaIndex RAG](./12-llamaindex-rag.mdx).
+:::
+
+---
+
+## Retriever, Query Engine, Response
+
+The query engine bundles two responsibilities you can also use separately: a
+**retriever** that finds Nodes, and a **synthesizer** that writes the answer.
+
+```python
+# just the retrieval step — returns scored Nodes, no LLM call
+retriever = index.as_retriever(similarity_top_k=4)
+hits = retriever.retrieve("What does RAG reduce?")
+for hit in hits:
+    print(round(hit.score, 3), hit.node.text[:60])
+
+# the full engine — retrieve + synthesize an answer
+query_engine = index.as_query_engine()
+response = query_engine.query("What does RAG reduce?")
+
+print(response.response)          # the answer text
+for src in response.source_nodes: # what the answer was grounded in
+    print(src.score, src.node.metadata.get("source"))
+```
+
+:::info[Theory: query engine = retriever + synthesizer]
+A query engine is a thin orchestration over two swappable parts. The retriever
+decides *which* Nodes are relevant (this is the top-k retrieval problem). The
+response synthesizer decides *how* to turn those Nodes plus the question into an
+answer (stuff them all in one prompt, or refine across several calls). Keeping
+them separate is why you can tune retrieval quality and answer quality
+independently.
+:::
+
+---
+
+## Node Parsers and Chunking
+
+`SentenceSplitter` is the default node parser. It splits on sentence boundaries
+so chunks do not cut mid-thought, with an overlap window for continuity.
+
+```python
+from llama_index.core import Settings
+from llama_index.core.node_parser import SentenceSplitter
+
+# apply chunking globally
+Settings.node_parser = SentenceSplitter(chunk_size=512, chunk_overlap=50)
+
+# or per-index at build time
+from llama_index.core import VectorStoreIndex
+index = VectorStoreIndex.from_documents(
+    documents,
+    transformations=[SentenceSplitter(chunk_size=512, chunk_overlap=50)],
+)
+```
+
+- `chunk_size` — target tokens per Node. Smaller means more precise retrieval but more Nodes.
+- `chunk_overlap` — tokens shared between neighbors, so context is not lost at the boundary.
+
+The tradeoffs here are the same ones from
+[Chunking Strategies](../05-rag-fundamentals/05-chunking-strategies.mdx): too
+big and retrieval gets noisy, too small and answers lose context.
+
+---
+
+## Common Mistakes
+
+- Forgetting to set `Settings` first, so LlamaIndex tries OpenAI and fails without a key.
+- Rebuilding the in-memory index on every run instead of persisting it (see [LlamaIndex RAG](./12-llamaindex-rag.mdx)).
+- Leaving `chunk_size` at a default that does not fit your content, hurting retrieval.
+- Ignoring `response.source_nodes`, losing the ability to cite and debug answers.
+- Mixing embedding models between build and query time, which breaks similarity scores.
+
+## Interview Questions
+
+- What problem does LlamaIndex focus on compared to a general orchestration framework?
+- What is the difference between a `Document` and a `Node`?
+- What does `VectorStoreIndex.from_documents` do under the hood?
+- What is the role of a query engine versus a retriever?
+- Why does LlamaIndex use a global `Settings` object?
+
+## Things to Remember
+
+- LlamaIndex is data-first: ingest, index, query.
+- `Document` is raw source; a `Node` is a chunk with metadata and relationships.
+- Set `Settings.llm` and `Settings.embed_model` once, before building an index.
+- `SimpleDirectoryReader` to `VectorStoreIndex` to `as_query_engine()` is the whole baseline RAG.
+- A query engine is a retriever plus a response synthesizer.
+
+## Mini Exercise
+
+Drop a few `.md` or `.txt` files into a `./data` folder. Configure `Settings`
+for local Ollama plus `BAAI/bge-small-en-v1.5`, build a `VectorStoreIndex`, and
+answer a question about your files. Then print `response.source_nodes` and
+confirm the answer is grounded in the right chunks.
+
+## Done When
+
+- [ ] You can explain Documents, Nodes, indices, retrievers, and query engines.
+- [ ] You can configure local Ollama and HuggingFace embeddings via `Settings`.
+- [ ] You can build the 5-line RAG and query it.
+- [ ] You can inspect `response.source_nodes` to see what grounded an answer.
+
+Next: [LlamaIndex RAG](./12-llamaindex-rag.mdx).
