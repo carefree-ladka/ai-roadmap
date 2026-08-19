@@ -1,0 +1,1975 @@
+---
+title: "Python Interview Guide"
+description: "A complete, interview-style walkthrough of Python core concepts, data structures, OOP, internals, async, and 150+ coding questions."
+---
+
+# Python Interview Guide
+
+> Answers are written the way you'd actually say them out loud in an interview — short, precise, and backed by a "why," not just a definition. Code snippets are included wherever they clarify the answer.
+
+---
+
+## Table of Contents
+
+1. [Python Fundamentals](#1-python-fundamentals)
+2. [Data Structures](#2-data-structures)
+   - [Lists](#lists)
+   - [Dictionaries](#dictionaries)
+   - [Sets](#sets)
+3. [Python OOP](#3-python-oop)
+4. [Functions & Advanced Python](#4-functions--advanced-python)
+5. [Memory & Python Internals](#5-memory--python-internals)
+6. [Iterators & Generators](#6-iterators--generators)
+7. [Exception Handling](#7-exception-handling)
+8. [Async / Concurrency](#8-async--concurrency)
+9. [Coding Questions](#9-coding-questions)
+   - [Arrays / Lists](#arrays--lists)
+   - [Strings](#strings)
+   - [HashMap / Set](#hashmap--set)
+   - [Stack / Queue](#stack--queue)
+   - [Linked List](#linked-list)
+   - [Trees](#trees)
+   - [Graphs](#graphs)
+10. [Python-Specific Coding Questions](#10-python-specific-coding-questions)
+11. [Output-Based Python Questions](#11-output-based-python-questions)
+12. [If You Have Limited Time — Top 30](#12-if-you-have-limited-time--top-30)
+
+---
+
+## 1. Python Fundamentals
+
+### What is Python? Why is it dynamically typed?
+
+Python is a high-level, interpreted, general-purpose language. It's "dynamically typed" because the **type is attached to the value, not the variable name** — a variable is just a label that can be re-bound to any object at any time. The interpreter checks types at runtime (when the line actually executes), not before running the program like a statically typed compiled language would.
+
+```python
+x = 5        # x -> int
+x = "hello"  # same name, now -> str. Totally legal.
+```
+
+### Difference between list, tuple, set, dict
+
+| Type | Ordered | Mutable | Duplicates | Syntax |
+|---|---|---|---|---|
+| `list` | Yes | Yes | Yes | `[1, 2, 3]` |
+| `tuple` | Yes | No | Yes | `(1, 2, 3)` |
+| `set` | No (insertion order not guaranteed) | Yes | No | `{1, 2, 3}` |
+| `dict` | Yes (insertion order, 3.7+) | Yes | Keys unique | `{"a": 1}` |
+
+Interview soundbite: *"Use a tuple when the data shouldn't change and you want it hashable (e.g., a dict key); use a list for an ordered mutable collection; a set when you only care about membership/uniqueness; a dict when you need key-value lookup."*
+
+### Mutable vs immutable objects
+
+- **Mutable**: contents can change after creation without changing identity — `list`, `dict`, `set`, custom objects by default.
+- **Immutable**: cannot be changed in place — `int`, `float`, `str`, `tuple`, `frozenset`, `bool`.
+
+```python
+s = "abc"
+s += "d"       # creates a NEW string object, s now points to it
+lst = [1, 2]
+lst.append(3)  # mutates the SAME object in place
+```
+
+This matters for function defaults, hashing (only immutables can be dict keys), and reasoning about aliasing bugs.
+
+### `is` vs `==`
+
+- `==` compares **value equality** (calls `__eq__`).
+- `is` compares **identity** — whether both names point to the exact same object in memory (equivalent to `id(a) == id(b)`).
+
+```python
+a = [1, 2, 3]
+b = [1, 2, 3]
+a == b   # True  (same contents)
+a is b   # False (different objects)
+```
+
+Gotcha: small integers (-5 to 256) and short strings are cached/interned by CPython, so `is` can *appear* to work on them — never rely on that.
+
+### Shallow copy vs deep copy
+
+- **Shallow copy** (`copy.copy()`, `list.copy()`, slicing `[:]`) creates a new outer container but the **nested objects are still shared references**.
+- **Deep copy** (`copy.deepcopy()`) recursively copies everything, so nested objects are independent.
+
+```python
+import copy
+a = [[1, 2], [3, 4]]
+b = copy.copy(a)      # shallow
+b[0].append(99)
+print(a)               # [[1, 2, 99], [3, 4]]  <- a changed too!
+
+c = copy.deepcopy(a)
+c[0].append(100)
+print(a)               # unaffected
+```
+
+### `*args` vs `**kwargs`
+
+- `*args` collects extra **positional** arguments into a tuple.
+- `**kwargs` collects extra **keyword** arguments into a dict.
+
+```python
+def f(*args, **kwargs):
+    print(args)    # (1, 2, 3)
+    print(kwargs)  # {'x': 10}
+
+f(1, 2, 3, x=10)
+```
+
+Used heavily for wrapper/decorator functions that need to forward arbitrary calls.
+
+### List comprehension vs generator expression
+
+Both use similar syntax, but:
+- List comprehension `[x for x in range(10)]` builds the **entire list in memory immediately**.
+- Generator expression `(x for x in range(10))` is **lazy** — produces values one at a time on demand, using O(1) memory regardless of size.
+
+Use generators for large/streaming data where you don't need random access or the full list at once.
+
+### What are iterators and iterables?
+
+- An **iterable** is anything you can call `iter()` on — it implements `__iter__()`. Lists, strings, dicts, files are iterables.
+- An **iterator** is the object that actually does the iterating — it implements `__next__()` (and `__iter__()` returning itself) and raises `StopIteration` when exhausted.
+
+`for x in some_list` internally calls `iter(some_list)` to get an iterator, then repeatedly calls `next()` on it.
+
+### What are generators?
+
+A generator is a special kind of iterator created automatically by a function containing `yield`, or by a generator expression. It pauses its execution state at each `yield` and resumes exactly there on the next `next()` call, which is what makes it memory-efficient for large/infinite sequences.
+
+### `yield` vs `return`
+
+- `return` exits the function completely and hands back one value.
+- `yield` **suspends** the function, returns a value to the caller, and preserves all local state so execution can resume from that exact point on the next call. A function with `yield` anywhere in it becomes a generator function — calling it doesn't run the body, it returns a generator object.
+
+### What are decorators?
+
+A decorator is a function that takes another function (or class) and returns a modified/wrapped version of it, without changing its source code. It's syntactic sugar over `func = decorator(func)`.
+
+```python
+def timer(func):
+    def wrapper(*args, **kwargs):
+        start = time.time()
+        result = func(*args, **kwargs)
+        print(time.time() - start)
+        return result
+    return wrapper
+
+@timer
+def slow_function():
+    ...
+```
+
+Common uses: logging, timing, access control/auth, caching (`functools.lru_cache`), retry logic.
+
+### What are lambda functions?
+
+Anonymous, single-expression functions defined inline: `lambda x, y: x + y`. No `return` keyword, no statements — just one expression whose value is returned. Used for short throwaway functions, often as arguments to `sorted()`, `map()`, `filter()`.
+
+### `map()`, `filter()`, `reduce()`
+
+```python
+list(map(lambda x: x*2, [1,2,3]))          # [2, 4, 6]  - transform each element
+list(filter(lambda x: x % 2 == 0, [1,2,3]))# [2]         - keep elements matching predicate
+from functools import reduce
+reduce(lambda a, b: a + b, [1,2,3,4])      # 10          - fold into a single value
+```
+
+In modern Python, list comprehensions are usually preferred over `map`/`filter` for readability, but `reduce` still has no direct comprehension equivalent.
+
+### `zip()` and `enumerate()`
+
+- `zip(a, b)` pairs up elements from multiple iterables positionally, stopping at the shortest one.
+- `enumerate(a)` gives `(index, value)` pairs — avoids manual index tracking.
+
+```python
+for i, (name, score) in enumerate(zip(names, scores)):
+    print(i, name, score)
+```
+
+### `any()` vs `all()`
+
+- `any(iterable)` → `True` if **at least one** element is truthy.
+- `all(iterable)` → `True` if **every** element is truthy (also `True` for an empty iterable).
+
+### `sorted()` vs `.sort()`
+
+- `sorted(iterable)` returns a **new** list, works on any iterable, original untouched.
+- `list.sort()` sorts the list **in place**, returns `None`, only works on lists.
+
+### `pass` vs `continue` vs `break`
+
+- `pass` — a no-op placeholder; does nothing, just satisfies syntax requirements (e.g., an empty function body).
+- `continue` — skips the rest of the current loop iteration, moves to the next one.
+- `break` — exits the loop entirely.
+
+### `None` vs `False` vs `0`
+
+All are falsy in a boolean context, but they're distinct objects with distinct meanings:
+- `None` — the singleton representing "no value" / absence of data.
+- `False` — a boolean value.
+- `0` — a numeric value.
+
+`None == False` is `False`. Use `is None` to explicitly check for absence rather than relying on falsy-checks, since `0`, `""`, `[]` are also falsy but not "None."
+
+### Python variable scope: LEGB
+
+Name resolution order: **L**ocal → **E**nclosing (closures) → **G**lobal (module level) → **B**uilt-in. Python looks up a name in that order and stops at the first match. `global` and `nonlocal` keywords let you explicitly modify outer-scope variables from within a nested scope.
+
+### What is duck typing?
+
+"If it walks like a duck and quacks like a duck, it's a duck." Python cares about whether an object **supports the operations/methods you call on it**, not its declared type. You don't check `isinstance(x, Duck)` — you just call `x.quack()` and let it fail if it can't. This underlies iterables, context managers, and much of Python's flexibility.
+
+---
+
+## 2. Data Structures
+
+### Lists
+
+#### How does a Python list work internally?
+
+CPython implements `list` as a **dynamic array** (contiguous block of pointers to objects), not a linked list. It over-allocates extra capacity so that appends don't require a resize every single time.
+
+#### Why is list `append` O(1) amortized?
+
+Because of over-allocation: when the underlying array is full, Python allocates a new, larger array (roughly growing by ~1.125x) and copies existing elements over. That resize is O(n) but happens infrequently — averaged ("amortized") across many appends, each append costs O(1).
+
+#### `append()` vs `extend()`
+
+- `append(x)` adds `x` as a single element at the end.
+- `extend(iterable)` adds each element of the iterable individually.
+
+```python
+a = [1, 2]
+a.append([3, 4])   # [1, 2, [3, 4]]
+a.extend([3, 4])   # [1, 2, 3, 4]
+```
+
+#### `remove()` vs `pop()` vs `del`
+
+- `list.remove(value)` — removes the **first occurrence** of a value; raises `ValueError` if not found.
+- `list.pop(index)` — removes and **returns** the element at index (default: last); raises `IndexError` if out of range.
+- `del list[index]` — removes by index, returns nothing; can also delete slices (`del a[1:3]`) or the whole variable.
+
+#### How do you reverse a list?
+
+```python
+a[::-1]             # new reversed list (doesn't mutate a)
+a.reverse()          # reverses in place, returns None
+list(reversed(a))    # returns an iterator, then materialize
+```
+
+#### How do you remove duplicates from a list?
+
+```python
+list(dict.fromkeys(a))   # preserves order (Python 3.7+)
+list(set(a))              # doesn't preserve order
+```
+
+#### How do you flatten a nested list?
+
+```python
+nested = [[1, 2], [3, 4]]
+flat = [x for sublist in nested for x in sublist]
+```
+
+For arbitrarily deep nesting, you need recursion (see [Python-Specific Coding Questions](#10-python-specific-coding-questions)).
+
+### Dictionaries
+
+#### How does a Python dictionary work internally?
+
+A dict is implemented as a **hash table**. Each key is passed through `hash()` to compute a slot index into an internal array; that slot stores the key, value, and hash. Since Python 3.7, dicts also maintain a separate compact array that preserves insertion order.
+
+#### Why are dictionary lookups approximately O(1)?
+
+Because the hash function maps a key directly to (approximately) the slot where it lives, so lookup doesn't need to scan the whole structure — it jumps almost straight to the answer. Worst case (many hash collisions) can degrade to O(n), but in practice this is rare because of how collisions are resolved (open addressing).
+
+#### Why must dictionary keys be hashable?
+
+The hash table relies on `hash(key)` being consistent every time to find the right slot. If a key's hash could change over its lifetime, it might be stored in a slot the table would never look in again — the dict would become internally inconsistent. That's why only **immutable-by-convention, hashable** objects (numbers, strings, tuples of hashables) can be keys; lists and dicts can't.
+
+#### What is hashability?
+
+An object is hashable if it implements `__hash__()` (returns a consistent integer for its lifetime) and typically `__eq__()`, such that equal objects always produce equal hashes. Built-in immutables are hashable by default; mutable types (`list`, `dict`, `set`) are not.
+
+#### `dict.get()` vs `dict[key]`
+
+- `d[key]` raises `KeyError` if the key is missing.
+- `d.get(key, default)` returns `default` (or `None`) instead of raising — safer for optional lookups.
+
+#### `defaultdict` vs normal dictionary
+
+`collections.defaultdict(factory)` auto-creates a default value (via the factory function) the first time a missing key is accessed, instead of raising `KeyError`. Great for grouping/counting patterns without manual `if key not in d` checks.
+
+```python
+from collections import defaultdict
+groups = defaultdict(list)
+groups["a"].append(1)  # no KeyError, auto-creates []
+```
+
+#### `Counter` — when would you use it?
+
+`collections.Counter` is a dict subclass specialized for counting hashable items. Use it for frequency counts, `most_common(n)`, and set-like arithmetic on counts (`+`, `-`, `&`, `|`).
+
+#### How do you sort a dictionary by value?
+
+```python
+sorted(d.items(), key=lambda kv: kv[1])
+```
+
+#### How do you merge two dictionaries?
+
+```python
+merged = {**dict1, **dict2}   # dict2 wins on key conflicts
+merged = dict1 | dict2        # Python 3.9+, same semantics
+```
+
+### Sets
+
+#### How does a set work?
+
+Also a hash table internally, but it stores only keys (no associated values) — essentially a dict with dummy values. Membership testing (`in`) is what it's optimized for.
+
+#### Set vs dictionary
+
+Structurally similar (both hash tables), but a set only stores unique elements with no associated value, while a dict maps keys to values.
+
+#### Why are set operations generally O(1)?
+
+Same reasoning as dict lookups — hashing gets you close to the right bucket directly rather than scanning linearly.
+
+#### Union, intersection, difference
+
+```python
+a | b   # union — all elements in either
+a & b   # intersection — elements in both
+a - b   # difference — in a but not in b
+a ^ b   # symmetric difference — in exactly one of them
+```
+
+---
+
+## 3. Python OOP
+
+### What is a class and object?
+
+A **class** is a blueprint that defines attributes and behavior (methods). An **object** (instance) is a concrete thing created from that blueprint, with its own state.
+
+### Instance variable vs class variable
+
+- **Instance variable**: defined on `self`, unique to each object (`self.name = name`).
+- **Class variable**: defined directly in the class body, shared across all instances unless an instance shadows it with its own attribute of the same name.
+
+```python
+class Dog:
+    species = "Canis familiaris"   # class variable, shared
+    def __init__(self, name):
+        self.name = name           # instance variable, per-object
+```
+
+### `__init__()` vs `__new__()`
+
+- `__new__(cls, ...)` is the **object creator** — a static method that actually allocates and returns a new (uninitialized) instance. Called first.
+- `__init__(self, ...)` is the **initializer** — runs after the object exists, sets up its attributes. Returns `None`.
+
+You rarely override `__new__`, mostly seen in singletons, metaclasses, or immutable-type subclassing (like subclassing `tuple`).
+
+### What is `self`?
+
+The conventional name for the first parameter of an instance method — a reference to the instance the method was called on. Python passes it automatically (`obj.method(args)` is really `Class.method(obj, args)`).
+
+### Instance method vs class method vs static method
+
+```python
+class Example:
+    def instance_method(self):        # needs an instance, accesses self
+        return self
+
+    @classmethod
+    def class_method(cls):            # receives the class, not an instance
+        return cls
+
+    @staticmethod
+    def static_method():              # receives neither — just a namespaced function
+        return "no access to self or cls"
+```
+
+Use `classmethod` for alternative constructors (`from_json`, etc.), `staticmethod` for utility functions logically grouped with the class but not needing instance/class data.
+
+### What is inheritance?
+
+A mechanism where a class (subclass) derives attributes and methods from another class (superclass), enabling code reuse and polymorphism: `class Dog(Animal): ...`
+
+### Multiple inheritance in Python
+
+Python allows a class to inherit from more than one base class: `class C(A, B): ...`. Method/attribute resolution then follows the MRO.
+
+### What is MRO?
+
+**Method Resolution Order** — the order Python searches base classes when resolving an attribute/method call, computed with the **C3 linearization** algorithm. You can inspect it with `ClassName.__mro__` or `ClassName.mro()`. It guarantees a consistent, monotonic order even in diamond-inheritance hierarchies.
+
+### What is `super()`?
+
+Returns a proxy object that lets you call a method from the **next class in the MRO**, typically the parent — used most often in `__init__` to ensure the parent gets properly initialized without hardcoding the parent's name (important for cooperative multiple inheritance).
+
+```python
+class Dog(Animal):
+    def __init__(self, name, breed):
+        super().__init__(name)
+        self.breed = breed
+```
+
+### Method overriding
+
+A subclass redefines a method that exists in its parent, replacing (or extending, via `super()`) that behavior — this is how polymorphism is implemented in Python.
+
+### Encapsulation in Python
+
+Python doesn't have true private members — it uses **naming conventions**: `_protected` (single underscore, "internal use, but accessible") and `__private` (double underscore, triggers **name mangling** to `_ClassName__private` to avoid accidental override in subclasses). It's convention-enforced, not compiler-enforced.
+
+### Abstract classes
+
+A class that can't be instantiated directly and is meant to be subclassed — it defines a required interface that subclasses must implement.
+
+### `ABC` and `abstractmethod`
+
+```python
+from abc import ABC, abstractmethod
+
+class Shape(ABC):
+    @abstractmethod
+    def area(self):
+        ...
+
+class Circle(Shape):
+    def __init__(self, r): self.r = r
+    def area(self): return 3.14159 * self.r ** 2
+```
+
+`Shape()` would raise `TypeError` because it has an unimplemented abstract method; `Circle()` works because it implements `area()`.
+
+### `@property`
+
+Turns a method into something accessed like an attribute (no parentheses), letting you add validation/computed logic while keeping a clean attribute-style API. Often paired with a `.setter`.
+
+```python
+class Circle:
+    def __init__(self, r): self._r = r
+
+    @property
+    def area(self):
+        return 3.14159 * self._r ** 2
+
+    @property
+    def radius(self):
+        return self._r
+
+    @radius.setter
+    def radius(self, value):
+        if value < 0:
+            raise ValueError("radius can't be negative")
+        self._r = value
+```
+
+### Magic/dunder methods
+
+Methods surrounded by double underscores (`__init__`, `__str__`, `__len__`, `__add__`, etc.) that let your objects hook into Python's built-in syntax and protocols (printing, operators, iteration, context managers, etc.) — this is how Python achieves operator overloading.
+
+### `__str__()` vs `__repr__()`
+
+- `__str__` — a **readable**, user-facing string (used by `print()`, `str()`).
+- `__repr__` — an **unambiguous**, developer-facing string, ideally one that could recreate the object (used by the REPL, debuggers, and as fallback if `__str__` isn't defined).
+
+```python
+class Point:
+    def __repr__(self):
+        return f"Point(x={self.x}, y={self.y})"
+```
+
+### `__eq__()` and `__hash__()`
+
+- `__eq__(self, other)` defines what `==` means for your objects (default is identity comparison).
+- `__hash__(self)` defines the hash value used when the object is put in a set/dict key.
+
+Rule: if you override `__eq__`, you should also override `__hash__` (or explicitly set it to `None` if the object should be unhashable) — because Python requires that **equal objects must have equal hashes**, or dict/set lookups silently break.
+
+---
+
+## 4. Functions & Advanced Python
+
+### First-class functions
+
+Functions are objects in Python — they can be assigned to variables, stored in data structures, passed as arguments, and returned from other functions, just like any other value.
+
+### Higher-order functions
+
+A function that takes another function as an argument and/or returns a function — e.g., `map`, `filter`, decorators.
+
+### Closures
+
+A closure is an inner function that **remembers** variables from its enclosing scope even after the outer function has finished executing.
+
+```python
+def make_multiplier(n):
+    def multiplier(x):
+        return x * n     # n is "closed over"
+    return multiplier
+
+times3 = make_multiplier(3)
+times3(10)   # 30, remembers n=3 even though make_multiplier already returned
+```
+
+### Decorators
+
+(Covered in Section 1.) Worth restating in the OOP/advanced context: decorators are closures applied at function-definition time via the `@decorator` syntax.
+
+### Nested functions
+
+Functions defined inside another function — used to encapsulate helper logic or to create closures.
+
+### Late binding in closures
+
+A classic gotcha: closures in a loop capture the **variable**, not its value at the time the closure was created. By the time the closures run, the loop variable holds its final value.
+
+```python
+funcs = [lambda: i for i in range(3)]
+[f() for f in funcs]   # [2, 2, 2]  <- NOT [0, 1, 2]!
+
+# Fix: capture the value via a default argument
+funcs = [lambda i=i: i for i in range(3)]
+[f() for f in funcs]   # [0, 1, 2]
+```
+
+### Default mutable arguments
+
+```python
+def add_item(item, items=[]):
+    items.append(item)
+    return items
+```
+
+**Why this is dangerous:** default argument values are evaluated **once**, at function definition time, and that same list object is reused across every call that doesn't pass its own `items`. So the list silently accumulates state between unrelated calls:
+
+```python
+add_item(1)  # [1]
+add_item(2)  # [1, 2]   <- surprise! not [2]
+```
+
+Fix: use `None` as the sentinel default and create a new list inside the function.
+
+```python
+def add_item(item, items=None):
+    if items is None:
+        items = []
+    items.append(item)
+    return items
+```
+
+### Positional-only arguments
+
+Defined using `/` in the signature — arguments before `/` can **only** be passed positionally, not by keyword.
+
+```python
+def f(a, b, /, c):
+    ...
+f(1, 2, c=3)   # OK
+f(a=1, b=2, c=3)  # TypeError
+```
+
+### Keyword-only arguments
+
+Defined using `*` — arguments after `*` must be passed by keyword.
+
+```python
+def f(a, *, b):
+    ...
+f(1, b=2)   # OK
+f(1, 2)     # TypeError
+```
+
+### Function annotations
+
+Optional metadata attached to parameters/return values using `:` and `->`, stored in `__annotations__`. They're hints only — Python doesn't enforce them at runtime.
+
+```python
+def add(a: int, b: int) -> int:
+    return a + b
+```
+
+### Type hints
+
+The broader system built on annotations (via the `typing` module) that lets static tools (mypy, IDEs) catch type errors before runtime, without changing runtime behavior.
+
+### `Optional`, `Union`, `Any`
+
+```python
+from typing import Optional, Union, Any
+
+def f(x: Optional[int] = None): ...      # x: int | None
+def g(x: Union[int, str]): ...           # x: int OR str  (or `int | str` in 3.10+)
+def h(x: Any): ...                       # opt out of type checking for x
+```
+
+### `dataclass`
+
+A decorator that auto-generates boilerplate (`__init__`, `__repr__`, `__eq__`) for classes that are primarily data containers.
+
+```python
+from dataclasses import dataclass
+
+@dataclass
+class Point:
+    x: int
+    y: int
+```
+
+Equivalent to manually writing `__init__`, `__repr__`, and `__eq__` yourself — much less code for simple data-holding classes.
+
+---
+
+## 5. Memory & Python Internals
+
+### How does Python manage memory?
+
+CPython uses a **private heap** for all objects, managed automatically. Small objects are handled by an internal allocator (`pymalloc`) that pools memory in fixed-size blocks to reduce fragmentation and allocation overhead. Memory is reclaimed via **reference counting**, backed up by a **generational garbage collector** for cyclic references.
+
+### What is reference counting?
+
+Every object keeps a count of how many references point to it. When you do `a = SomeObject()`, the refcount is 1. When the count drops to 0 (no names/containers reference it anymore), CPython **immediately** deallocates it — this is why Python's memory cleanup often feels deterministic, unlike GC-only languages.
+
+### What is garbage collection?
+
+Beyond refcounting, Python has a separate generational garbage collector (in the `gc` module) that specifically detects and cleans up **reference cycles** — objects that reference each other so their count never naturally reaches 0. It periodically scans objects in three generations (younger objects collected more frequently, on the assumption most objects die young).
+
+### What is cyclic garbage?
+
+Objects that reference each other in a loop, so their reference counts never hit zero even though nothing outside the cycle refers to them.
+
+```python
+a = {}
+b = {}
+a["b"] = b
+b["a"] = a
+del a, b   # refcounts don't reach 0 — the generational GC has to catch this
+```
+
+### What is the GIL?
+
+The **Global Interpreter Lock** — a mutex in CPython that allows only **one thread to execute Python bytecode at a time**, even on multi-core machines. It exists to make reference counting (and other interpreter internals) thread-safe without needing fine-grained locking everywhere. It's why CPU-bound multithreading doesn't give real parallelism in Python, while I/O-bound work (which releases the GIL during blocking calls) still benefits from threads.
+
+### How does Python allocate objects?
+
+Small objects (< 512 bytes) go through `pymalloc`, an allocator optimized for many small, short-lived allocations — it groups memory into pools and arenas to minimize fragmentation/overhead. Larger allocations fall back to the system's `malloc`.
+
+### Why are strings immutable?
+
+A few reasons interviewers like to hear: (1) **hashability** — strings are used as dict keys constantly, and mutable objects can't safely be hashed; (2) **safety/predictability** — you can pass a string around without worrying someone else mutates it under you; (3) **performance/interning** — since strings can't change, Python can safely cache and reuse identical string literals (interning).
+
+### Integer caching in Python
+
+CPython pre-creates and caches small integers from **-5 to 256** as singletons. Any reference to, say, `100` reuses the same object, so `is` can (misleadingly) appear `True` for cached ints. Beyond that range, each integer literal is normally a distinct object.
+
+```python
+a = 100; b = 100
+a is b   # True (cached)
+a = 1000; b = 1000
+a is b   # False (or True — CPython/optimizer-dependent, never rely on this)
+```
+
+### Object identity
+
+Every object has a unique identity for its lifetime, exposed via `id()` — in CPython this is typically its memory address. Identity is what `is` compares.
+
+### `id()`
+
+Returns an integer that uniquely identifies an object during its lifetime.
+
+### Reference vs copy
+
+Assignment (`b = a`) creates a new **name bound to the same object** — no copy happens. To actually duplicate data you need `.copy()` / `copy.deepcopy()`.
+
+### Shallow vs deep copy (memory example)
+
+```python
+a = [[1, 2], [3, 4]]
+b = a.copy()      # shallow: new outer list, same inner lists
+b[0].append(5)
+print(a)           # [[1, 2, 5], [3, 4]]
+```
+
+`a` changes because `a[0]` and `b[0]` are literally the same inner list object — the shallow copy only duplicated the outer container, not the nested lists inside it.
+
+---
+
+## 6. Iterators & Generators
+
+### What is an iterable?
+
+Any object implementing `__iter__()`, which returns an iterator. Lists, tuples, strings, dicts, sets, files are all iterables.
+
+### What is an iterator?
+
+An object implementing both `__iter__()` (returning itself) and `__next__()` (producing the next value or raising `StopIteration`). It maintains internal state of "where it is" in the sequence.
+
+### What does `iter()` do?
+
+Calls `__iter__()` on an object to obtain an iterator from it.
+
+### What does `next()` do?
+
+Calls `__next__()` on an iterator to get the next value, raising `StopIteration` when exhausted.
+
+### What is `StopIteration`?
+
+The exception an iterator raises to signal it has no more values. A `for` loop catches this automatically and exits cleanly — you rarely see it unless calling `next()` manually.
+
+### Generator vs list
+
+A list is fully materialized in memory; a generator computes and yields values **lazily**, one at a time, and can't be indexed/re-iterated once exhausted.
+
+### Generator memory advantages
+
+Since values are produced on demand rather than all at once, memory usage stays O(1) regardless of how large (or infinite) the sequence is — critical for streaming large files, infinite sequences, or pipelines.
+
+### Generator pipeline
+
+Chaining generators together so each stage lazily pulls from the previous one, processing data one item at a time through the whole pipeline instead of materializing intermediate lists.
+
+```python
+lines = (line.strip() for line in open("file.txt"))
+non_empty = (line for line in lines if line)
+upper = (line.upper() for line in non_empty)
+```
+
+### `yield`
+
+Pauses a generator function and sends a value out to the caller, resuming exactly where it left off on the next `next()` call.
+
+```python
+def numbers():
+    for i in range(5):
+        yield i
+
+gen = numbers()
+next(gen)  # 0
+next(gen)  # 1
+```
+
+### Generator expression
+
+The lazy analog of a list comprehension, using parentheses: `(x*x for x in range(10))`.
+
+---
+
+## 7. Exception Handling
+
+### `try` / `except` / `else` / `finally`
+
+```python
+try:
+    result = risky_call()
+except ValueError as e:
+    print("bad value:", e)
+except (TypeError, KeyError) as e:
+    print("type or key issue:", e)
+else:
+    print("ran only if no exception occurred:", result)
+finally:
+    print("always runs, exception or not — used for cleanup")
+```
+
+- `try` — code that might raise.
+- `except` — handles a specific exception type (or tuple of types).
+- `else` — runs only if the `try` block succeeded (no exception).
+- `finally` — always runs, used for guaranteed cleanup (closing files/connections).
+
+### `raise`
+
+Triggers an exception, either a new one (`raise ValueError("bad input")`) or re-raising the currently handled one (`raise`, bare, inside an `except` block — preserves the original traceback).
+
+### Custom exceptions
+
+Define your own exception types by subclassing `Exception` (or a more specific built-in) to give callers a precise, catchable signal about what went wrong in your domain.
+
+```python
+class InsufficientFundsError(Exception):
+    pass
+
+def withdraw(balance, amount):
+    if amount > balance:
+        raise InsufficientFundsError(f"Cannot withdraw {amount}, balance is {balance}")
+```
+
+### Exception hierarchy
+
+All exceptions inherit from `BaseException`. Most user code deals with `Exception` (and its subclasses like `ValueError`, `TypeError`, `KeyError`, `IndexError`). System-exiting exceptions like `SystemExit` and `KeyboardInterrupt` inherit directly from `BaseException`, **not** `Exception`, specifically so a broad `except Exception` won't accidentally swallow a `Ctrl+C` or `sys.exit()`.
+
+### When should you catch exceptions?
+
+Catch exceptions you can **meaningfully handle or recover from** — retry, fall back to a default, log and continue. Avoid blanket `except:` (or `except Exception:`) that silently swallows errors you didn't anticipate; it hides bugs and makes debugging painful. Prefer catching the most specific exception type possible.
+
+### `Exception` vs `BaseException`
+
+`BaseException` is the root of the entire hierarchy; `Exception` is a subclass of it covering "normal" application errors. Catching `Exception` deliberately excludes system-level control-flow exceptions like `SystemExit`, `KeyboardInterrupt`, and `GeneratorExit`.
+
+---
+
+## 8. Async / Concurrency
+
+### What is synchronous programming?
+
+Code executes strictly one statement at a time, in order — each operation (including blocking I/O like a network call) must finish before the next line runs.
+
+### What is asynchronous programming?
+
+A style where a program can **start** a long-running operation (usually I/O) and switch to doing other useful work while it waits, instead of blocking — resuming the original task once its result is ready.
+
+### `async` / `await`
+
+- `async def` defines a **coroutine function** — calling it returns a coroutine object, it doesn't run immediately.
+- `await` pauses the current coroutine until the awaited coroutine/future completes, **yielding control back to the event loop** in the meantime so other tasks can run.
+
+```python
+async def fetch_data():
+    result = await some_io_call()
+    return result
+```
+
+### What is an event loop?
+
+The core scheduler in `asyncio` — it runs coroutines, and whenever one hits an `await` on something not yet ready (like network I/O), the loop parks that coroutine and runs another one, switching back once the awaited thing completes. This is how a single thread juggles many concurrent I/O-bound tasks.
+
+### Coroutine vs thread
+
+A coroutine is cooperative — it only yields control at explicit `await` points, all running on a single thread, no preemption, no locking overhead. A thread is managed by the OS and can be preempted at any instruction; multiple threads genuinely need synchronization (locks) to protect shared state.
+
+### AsyncIO
+
+Python's standard library framework for writing single-threaded concurrent code using coroutines, an event loop, and non-blocking I/O.
+
+### Threading vs multiprocessing
+
+- **Threading**: multiple threads within one process, share memory — good for I/O-bound work; limited by the GIL for CPU-bound work.
+- **Multiprocessing**: multiple separate processes, each with its own Python interpreter and memory space (no GIL contention between them) — good for CPU-bound work; communication between processes is more expensive (pickling/IPC).
+
+### CPU-bound vs I/O-bound
+
+- **CPU-bound**: bottlenecked by computation (number crunching) — benefits from true parallelism (multiprocessing).
+- **I/O-bound**: bottlenecked by waiting on external things (network, disk, database) — benefits from concurrency, even on a single thread (asyncio or threading), since the program mostly waits rather than computes.
+
+### Why doesn't async Python make CPU-heavy code faster?
+
+Async concurrency works by yielding control **while waiting on I/O**. A CPU-bound task never voluntarily hits an `await` and never actually waits for anything external — it just keeps the single thread (and the GIL) busy computing, so nothing else can run alongside it. Async gives you *concurrency*, not *parallelism*.
+
+### What is the GIL? (async context)
+
+Same lock described in Section 5 — it's the reason async's benefits are scoped to I/O-bound work: only one thread runs Python bytecode at a time regardless of how many coroutines/threads exist.
+
+### When would you use multiprocessing?
+
+When the workload is CPU-bound (heavy computation — image processing, numeric simulation, data crunching) and you need to actually use multiple CPU cores in parallel, sidestepping the GIL entirely by using separate processes.
+
+### `asyncio.gather()`
+
+Runs multiple coroutines **concurrently** and waits for all of them to finish, returning their results in the same order they were passed in.
+
+```python
+results = await asyncio.gather(
+    fetch_user(),
+    fetch_orders(),
+    fetch_products()
+)
+```
+
+This is much faster than `await`-ing each one sequentially when they're independent I/O calls, since they all get to be "in flight" waiting at the same time.
+
+---
+
+## 9. Coding Questions
+
+> For each problem: the interview-style approach first, then working Python code. Time/space complexity noted.
+
+### Arrays / Lists
+
+#### Two Sum
+
+**Approach:** Hash map storing `value -> index` as you scan; for each number check if its complement was already seen. O(n) time, O(n) space.
+
+```python
+def two_sum(nums, target):
+    seen = {}
+    for i, n in enumerate(nums):
+        if target - n in seen:
+            return [seen[target - n], i]
+        seen[n] = i
+```
+
+#### Best Time to Buy and Sell Stock
+
+**Approach:** Track the minimum price seen so far; at each step compute profit if sold today. One pass, O(n) time, O(1) space.
+
+```python
+def max_profit(prices):
+    min_price = float("inf")
+    best = 0
+    for p in prices:
+        min_price = min(min_price, p)
+        best = max(best, p - min_price)
+    return best
+```
+
+#### Move Zeroes
+
+**Approach:** Two-pointer — `write` index tracks where the next non-zero should go; swap as you scan. In-place, O(n).
+
+```python
+def move_zeroes(nums):
+    write = 0
+    for read in range(len(nums)):
+        if nums[read] != 0:
+            nums[write], nums[read] = nums[read], nums[write]
+            write += 1
+```
+
+#### Remove Duplicates (from sorted array, in place)
+
+**Approach:** Two-pointer; only advance the write pointer when a new distinct value is found.
+
+```python
+def remove_duplicates(nums):
+    if not nums: return 0
+    write = 1
+    for read in range(1, len(nums)):
+        if nums[read] != nums[write - 1]:
+            nums[write] = nums[read]
+            write += 1
+    return write
+```
+
+#### Rotate Array
+
+**Approach:** Reverse the whole array, then reverse each of the two segments — a clean O(n) time, O(1) space trick.
+
+```python
+def rotate(nums, k):
+    k %= len(nums)
+    nums.reverse()
+    nums[:k] = reversed(nums[:k])
+    nums[k:] = reversed(nums[k:])
+```
+
+#### Merge Sorted Arrays
+
+**Approach:** Merge from the **back** of `nums1` (which has extra space) to avoid overwriting unread elements.
+
+```python
+def merge(nums1, m, nums2, n):
+    i, j, k = m - 1, n - 1, m + n - 1
+    while j >= 0:
+        if i >= 0 and nums1[i] > nums2[j]:
+            nums1[k] = nums1[i]; i -= 1
+        else:
+            nums1[k] = nums2[j]; j -= 1
+        k -= 1
+```
+
+#### Product of Array Except Self
+
+**Approach:** Two passes — prefix products, then multiply in suffix products. No division used. O(n) time, O(1) extra space (excluding output).
+
+```python
+def product_except_self(nums):
+    n = len(nums)
+    res = [1] * n
+    prefix = 1
+    for i in range(n):
+        res[i] = prefix
+        prefix *= nums[i]
+    suffix = 1
+    for i in range(n - 1, -1, -1):
+        res[i] *= suffix
+        suffix *= nums[i]
+    return res
+```
+
+#### Maximum Subarray (Kadane's Algorithm)
+
+**Approach:** At each element, decide whether to extend the current subarray or start fresh — keep a running max.
+
+```python
+def max_subarray(nums):
+    cur = best = nums[0]
+    for n in nums[1:]:
+        cur = max(n, cur + n)
+        best = max(best, cur)
+    return best
+```
+
+#### Find Missing Number
+
+**Approach:** Use the formula for sum of 0..n and subtract the actual sum (or XOR trick).
+
+```python
+def missing_number(nums):
+    n = len(nums)
+    return n * (n + 1) // 2 - sum(nums)
+```
+
+#### Find Duplicate Number
+
+**Approach:** Floyd's cycle detection (treat array values as a linked list via indices) for O(1) space, or a simple set for O(n) space.
+
+```python
+def find_duplicate(nums):
+    slow = fast = nums[0]
+    while True:
+        slow = nums[slow]
+        fast = nums[nums[fast]]
+        if slow == fast:
+            break
+    slow2 = nums[0]
+    while slow != slow2:
+        slow = nums[slow]
+        slow2 = nums[slow2]
+    return slow
+```
+
+### Strings
+
+#### Reverse a string
+
+```python
+def reverse_string(s):
+    return s[::-1]
+```
+
+#### Check palindrome
+
+```python
+def is_palindrome(s):
+    s = [c.lower() for c in s if c.isalnum()]
+    return s == s[::-1]
+```
+
+#### Valid Anagram
+
+**Approach:** Sort both and compare, or compare character-frequency counters. Counter approach is O(n).
+
+```python
+from collections import Counter
+def is_anagram(s, t):
+    return Counter(s) == Counter(t)
+```
+
+#### First Non-Repeating Character
+
+```python
+from collections import Counter
+def first_unique_char(s):
+    counts = Counter(s)
+    for i, c in enumerate(s):
+        if counts[c] == 1:
+            return i
+    return -1
+```
+
+#### Longest Substring Without Repeating Characters
+
+**Approach:** Sliding window with a set/dict tracking characters currently in the window; shrink from the left on a repeat.
+
+```python
+def length_of_longest_substring(s):
+    seen = {}
+    left = best = 0
+    for right, c in enumerate(s):
+        if c in seen and seen[c] >= left:
+            left = seen[c] + 1
+        seen[c] = right
+        best = max(best, right - left + 1)
+    return best
+```
+
+#### Valid Parentheses
+
+**Approach:** Stack — push opening brackets, pop and match on closing brackets.
+
+```python
+def is_valid(s):
+    pairs = {')': '(', ']': '[', '}': '{'}
+    stack = []
+    for c in s:
+        if c in pairs:
+            if not stack or stack.pop() != pairs[c]:
+                return False
+        else:
+            stack.append(c)
+    return not stack
+```
+
+#### Group Anagrams
+
+**Approach:** Group by the sorted-letters signature of each word.
+
+```python
+from collections import defaultdict
+def group_anagrams(strs):
+    groups = defaultdict(list)
+    for s in strs:
+        groups[tuple(sorted(s))].append(s)
+    return list(groups.values())
+```
+
+#### Longest Palindromic Substring
+
+**Approach:** Expand-around-center — try every index (and every gap, for even-length palindromes) as a potential center.
+
+```python
+def longest_palindrome(s):
+    def expand(l, r):
+        while l >= 0 and r < len(s) and s[l] == s[r]:
+            l -= 1; r += 1
+        return s[l+1:r]
+    result = ""
+    for i in range(len(s)):
+        odd = expand(i, i)
+        even = expand(i, i + 1)
+        result = max(result, odd, even, key=len)
+    return result
+```
+
+#### String compression
+
+```python
+def compress(s):
+    result = []
+    i = 0
+    while i < len(s):
+        j = i
+        while j < len(s) and s[j] == s[i]:
+            j += 1
+        result.append(s[i] + (str(j - i) if j - i > 1 else ""))
+        i = j
+    return "".join(result)
+```
+
+#### Reverse words in a string
+
+```python
+def reverse_words(s):
+    return " ".join(reversed(s.split()))
+```
+
+### HashMap / Set
+
+#### Frequency counter (pattern)
+
+```python
+from collections import Counter
+freq = Counter(nums)
+```
+
+#### Two Sum / Group Anagrams
+
+See above.
+
+#### Longest Consecutive Sequence
+
+**Approach:** Put all numbers in a set; only start counting a sequence from a number whose `n-1` is NOT in the set (i.e., a true sequence start) — avoids O(n²).
+
+```python
+def longest_consecutive(nums):
+    num_set = set(nums)
+    best = 0
+    for n in num_set:
+        if n - 1 not in num_set:
+            length = 1
+            while n + length in num_set:
+                length += 1
+            best = max(best, length)
+    return best
+```
+
+#### Top K Frequent Elements
+
+**Approach:** Count frequencies, then use a heap (or `Counter.most_common`) to grab the top K. O(n log k) with a heap.
+
+```python
+from collections import Counter
+import heapq
+def top_k_frequent(nums, k):
+    counts = Counter(nums)
+    return heapq.nlargest(k, counts.keys(), key=counts.get)
+```
+
+#### Subarray Sum Equals K
+
+**Approach:** Running prefix sum + hashmap of prefix-sum frequencies; `count += freq[running_sum - k]`.
+
+```python
+from collections import defaultdict
+def subarray_sum(nums, k):
+    counts = defaultdict(int)
+    counts[0] = 1
+    total = result = 0
+    for n in nums:
+        total += n
+        result += counts[total - k]
+        counts[total] += 1
+    return result
+```
+
+### Stack / Queue
+
+#### Min Stack
+
+**Approach:** Maintain a second stack tracking the running minimum alongside the main stack.
+
+```python
+class MinStack:
+    def __init__(self):
+        self.stack = []
+        self.min_stack = []
+
+    def push(self, val):
+        self.stack.append(val)
+        m = min(val, self.min_stack[-1]) if self.min_stack else val
+        self.min_stack.append(m)
+
+    def pop(self):
+        self.stack.pop()
+        self.min_stack.pop()
+
+    def top(self):
+        return self.stack[-1]
+
+    def get_min(self):
+        return self.min_stack[-1]
+```
+
+#### Implement Stack using Queues / Queue using Stacks
+
+**Approach:** With two queues, push by enqueueing then rotating the queue so the new element ends up at the front (making it behave LIFO). With two stacks, use one for enqueueing and transfer to a second (reversing order) when you need to dequeue.
+
+```python
+# Queue using two stacks
+class MyQueue:
+    def __init__(self):
+        self.in_stack = []
+        self.out_stack = []
+
+    def push(self, x):
+        self.in_stack.append(x)
+
+    def pop(self):
+        self.peek()
+        return self.out_stack.pop()
+
+    def peek(self):
+        if not self.out_stack:
+            while self.in_stack:
+                self.out_stack.append(self.in_stack.pop())
+        return self.out_stack[-1]
+```
+
+#### Daily Temperatures
+
+**Approach:** Monotonic decreasing stack of indices; pop and resolve when a warmer day is found.
+
+```python
+def daily_temperatures(temps):
+    result = [0] * len(temps)
+    stack = []
+    for i, t in enumerate(temps):
+        while stack and temps[stack[-1]] < t:
+            j = stack.pop()
+            result[j] = i - j
+        stack.append(i)
+    return result
+```
+
+#### Next Greater Element
+
+**Approach:** Same monotonic-stack pattern as Daily Temperatures, just recording the value instead of the distance.
+
+#### Sliding Window Maximum
+
+**Approach:** Monotonic decreasing deque of indices — front always holds the index of the current window's max.
+
+```python
+from collections import deque
+def max_sliding_window(nums, k):
+    dq = deque()  # stores indices, values decreasing
+    result = []
+    for i, n in enumerate(nums):
+        while dq and nums[dq[-1]] < n:
+            dq.pop()
+        dq.append(i)
+        if dq[0] <= i - k:
+            dq.popleft()
+        if i >= k - 1:
+            result.append(nums[dq[0]])
+    return result
+```
+
+#### Evaluate Reverse Polish Notation
+
+**Approach:** Stack — push numbers, on an operator pop two operands, apply it, push result back.
+
+```python
+def eval_rpn(tokens):
+    stack = []
+    ops = {'+', '-', '*', '/'}
+    for t in tokens:
+        if t in ops:
+            b, a = stack.pop(), stack.pop()
+            if t == '+': stack.append(a + b)
+            elif t == '-': stack.append(a - b)
+            elif t == '*': stack.append(a * b)
+            else: stack.append(int(a / b))  # truncate toward zero
+        else:
+            stack.append(int(t))
+    return stack[0]
+```
+
+**Know the pattern:**
+
+```python
+from collections import deque
+queue = deque()
+queue.append(1)
+queue.append(2)
+queue.popleft()
+```
+
+`deque` gives O(1) appends/pops from both ends, unlike `list.pop(0)` which is O(n).
+
+### Linked List
+
+```python
+class ListNode:
+    def __init__(self, val=0, next=None):
+        self.val = val
+        self.next = next
+```
+
+#### Reverse Linked List
+
+**Approach:** Iteratively re-point each node's `next` to the previous node.
+
+```python
+def reverse_list(head):
+    prev = None
+    while head:
+        nxt = head.next
+        head.next = prev
+        prev = head
+        head = nxt
+    return prev
+```
+
+#### Detect Cycle
+
+**Approach:** Floyd's tortoise and hare — slow/fast pointers; they meet if there's a cycle.
+
+```python
+def has_cycle(head):
+    slow = fast = head
+    while fast and fast.next:
+        slow = slow.next
+        fast = fast.next.next
+        if slow is fast:
+            return True
+    return False
+```
+
+#### Merge Two Sorted Lists
+
+**Approach:** Dummy head + two pointers, always attach the smaller current node.
+
+```python
+def merge_two_lists(l1, l2):
+    dummy = ListNode()
+    tail = dummy
+    while l1 and l2:
+        if l1.val <= l2.val:
+            tail.next, l1 = l1, l1.next
+        else:
+            tail.next, l2 = l2, l2.next
+        tail = tail.next
+    tail.next = l1 or l2
+    return dummy.next
+```
+
+#### Middle of Linked List
+
+**Approach:** Slow/fast pointers — when fast reaches the end, slow is at the middle.
+
+```python
+def middle_node(head):
+    slow = fast = head
+    while fast and fast.next:
+        slow = slow.next
+        fast = fast.next.next
+    return slow
+```
+
+#### Remove Nth Node From End
+
+**Approach:** Two pointers with a gap of `n`; when the leading one hits the end, the trailing one is right before the node to remove.
+
+```python
+def remove_nth_from_end(head, n):
+    dummy = ListNode(next=head)
+    fast = slow = dummy
+    for _ in range(n):
+        fast = fast.next
+    while fast.next:
+        fast = fast.next
+        slow = slow.next
+    slow.next = slow.next.next
+    return dummy.next
+```
+
+#### Intersection of Two Linked Lists
+
+**Approach:** Two pointers, each walking their own list then switching to the other list's head — they meet at the intersection (or both hit `None` together if no intersection). Elegant because it equalizes the total distance walked.
+
+```python
+def get_intersection_node(headA, headB):
+    a, b = headA, headB
+    while a is not b:
+        a = a.next if a else headB
+        b = b.next if b else headA
+    return a
+```
+
+#### LRU Cache
+
+**Approach:** `OrderedDict` (or a dict + doubly linked list) — move an accessed key to the end; evict from the front when over capacity. O(1) get/put.
+
+```python
+from collections import OrderedDict
+class LRUCache:
+    def __init__(self, capacity):
+        self.cache = OrderedDict()
+        self.capacity = capacity
+
+    def get(self, key):
+        if key not in self.cache:
+            return -1
+        self.cache.move_to_end(key)
+        return self.cache[key]
+
+    def put(self, key, value):
+        if key in self.cache:
+            self.cache.move_to_end(key)
+        self.cache[key] = value
+        if len(self.cache) > self.capacity:
+            self.cache.popitem(last=False)
+```
+
+### Trees
+
+```python
+class TreeNode:
+    def __init__(self, val=0, left=None, right=None):
+        self.val = val
+        self.left = left
+        self.right = right
+```
+
+#### Binary Tree Traversals
+
+```python
+def preorder(root):
+    return [root.val] + preorder(root.left) + preorder(root.right) if root else []
+
+def inorder(root):
+    return inorder(root.left) + [root.val] + inorder(root.right) if root else []
+
+def postorder(root):
+    return postorder(root.left) + postorder(root.right) + [root.val] if root else []
+```
+
+Know both mentally:
+
+```
+DFS
+├── Preorder  (root, left, right)
+├── Inorder   (left, root, right)
+└── Postorder (left, right, root)
+
+BFS
+└── Level Order (queue-based, level by level)
+```
+
+#### Maximum Depth
+
+```python
+def max_depth(root):
+    if not root:
+        return 0
+    return 1 + max(max_depth(root.left), max_depth(root.right))
+```
+
+#### Same Tree
+
+```python
+def is_same_tree(p, q):
+    if not p and not q:
+        return True
+    if not p or not q or p.val != q.val:
+        return False
+    return is_same_tree(p.left, q.left) and is_same_tree(p.right, q.right)
+```
+
+#### Invert Binary Tree
+
+```python
+def invert_tree(root):
+    if root:
+        root.left, root.right = invert_tree(root.right), invert_tree(root.left)
+    return root
+```
+
+#### Level Order Traversal
+
+**Approach:** BFS with a queue, processing one full level at a time.
+
+```python
+from collections import deque
+def level_order(root):
+    if not root: return []
+    result, queue = [], deque([root])
+    while queue:
+        level = []
+        for _ in range(len(queue)):
+            node = queue.popleft()
+            level.append(node.val)
+            if node.left: queue.append(node.left)
+            if node.right: queue.append(node.right)
+        result.append(level)
+    return result
+```
+
+#### Validate BST
+
+**Approach:** Recurse while tracking a valid `(low, high)` range for each subtree.
+
+```python
+def is_valid_bst(root, low=float("-inf"), high=float("inf")):
+    if not root:
+        return True
+    if not (low < root.val < high):
+        return False
+    return (is_valid_bst(root.left, low, root.val) and
+            is_valid_bst(root.right, root.val, high))
+```
+
+#### Lowest Common Ancestor
+
+**Approach (BST):** Walk down from the root; branch left/right based on where the two values fall relative to the current node's value.
+
+```python
+def lowest_common_ancestor(root, p, q):
+    while root:
+        if p.val < root.val and q.val < root.val:
+            root = root.left
+        elif p.val > root.val and q.val > root.val:
+            root = root.right
+        else:
+            return root
+```
+
+#### Diameter of Binary Tree
+
+**Approach:** For each node, the longest path through it is `left_height + right_height`; track the max across all nodes while computing height recursively.
+
+```python
+def diameter_of_binary_tree(root):
+    best = 0
+    def height(node):
+        nonlocal best
+        if not node:
+            return 0
+        l, r = height(node.left), height(node.right)
+        best = max(best, l + r)
+        return 1 + max(l, r)
+    height(root)
+    return best
+```
+
+#### Serialize / Deserialize Binary Tree
+
+**Approach:** Preorder traversal with explicit "null" markers so the structure can be reconstructed unambiguously.
+
+```python
+def serialize(root):
+    vals = []
+    def dfs(node):
+        if not node:
+            vals.append("#")
+            return
+        vals.append(str(node.val))
+        dfs(node.left)
+        dfs(node.right)
+    dfs(root)
+    return ",".join(vals)
+
+def deserialize(data):
+    vals = iter(data.split(","))
+    def build():
+        val = next(vals)
+        if val == "#":
+            return None
+        node = TreeNode(int(val))
+        node.left = build()
+        node.right = build()
+        return node
+    return build()
+```
+
+### Graphs
+
+#### BFS
+
+```python
+from collections import deque
+def bfs(graph, start):
+    visited, queue, order = {start}, deque([start]), []
+    while queue:
+        node = queue.popleft()
+        order.append(node)
+        for neighbor in graph[node]:
+            if neighbor not in visited:
+                visited.add(neighbor)
+                queue.append(neighbor)
+    return order
+```
+
+#### DFS
+
+```python
+def dfs(graph, start, visited=None):
+    if visited is None:
+        visited = set()
+    visited.add(start)
+    for neighbor in graph[start]:
+        if neighbor not in visited:
+            dfs(graph, neighbor, visited)
+    return visited
+```
+
+#### Number of Islands
+
+**Approach:** DFS/BFS flood-fill from every unvisited land cell, sinking (marking visited) the whole connected island each time; count how many times you start a new flood-fill.
+
+```python
+def num_islands(grid):
+    if not grid: return 0
+    rows, cols = len(grid), len(grid[0])
+    def sink(r, c):
+        if r < 0 or c < 0 or r >= rows or c >= cols or grid[r][c] != "1":
+            return
+        grid[r][c] = "0"
+        sink(r+1, c); sink(r-1, c); sink(r, c+1); sink(r, c-1)
+    count = 0
+    for r in range(rows):
+        for c in range(cols):
+            if grid[r][c] == "1":
+                sink(r, c)
+                count += 1
+    return count
+```
+
+#### Clone Graph
+
+**Approach:** DFS/BFS with a hashmap from original node → cloned node to avoid infinite loops on cycles and to reuse already-cloned nodes.
+
+```python
+def clone_graph(node, visited=None):
+    if not node:
+        return None
+    if visited is None:
+        visited = {}
+    if node in visited:
+        return visited[node]
+    clone = Node(node.val)
+    visited[node] = clone
+    clone.neighbors = [clone_graph(n, visited) for n in node.neighbors]
+    return clone
+```
+
+#### Course Schedule / Course Schedule II
+
+**Approach:** This is cycle detection in a directed graph — if there's a cycle in the prerequisite graph, it's impossible to finish. Solve with topological sort (Kahn's algorithm / BFS on in-degrees), or DFS with a "currently visiting" state to catch back-edges.
+
+```python
+from collections import deque, defaultdict
+def can_finish(num_courses, prerequisites):
+    graph = defaultdict(list)
+    in_degree = [0] * num_courses
+    for course, pre in prerequisites:
+        graph[pre].append(course)
+        in_degree[course] += 1
+    queue = deque([c for c in range(num_courses) if in_degree[c] == 0])
+    taken = 0
+    while queue:
+        node = queue.popleft()
+        taken += 1
+        for nxt in graph[node]:
+            in_degree[nxt] -= 1
+            if in_degree[nxt] == 0:
+                queue.append(nxt)
+    return taken == num_courses
+```
+
+("Course Schedule II" is the same algorithm, just returning the actual order instead of a boolean.)
+
+#### Detect Cycle (directed graph)
+
+**Approach:** DFS with three states per node — unvisited, in current recursion stack ("visiting"), fully done. A back-edge to a "visiting" node means a cycle.
+
+#### Number of Connected Components
+
+**Approach:** Union-Find (or plain DFS) — count how many disjoint groups exist among `n` nodes given a list of edges.
+
+```python
+def count_components(n, edges):
+    parent = list(range(n))
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+    def union(x, y):
+        parent[find(x)] = find(y)
+    for a, b in edges:
+        union(a, b)
+    return len({find(x) for x in range(n)})
+```
+
+#### Shortest Path
+
+**Approach:** Unweighted graph → BFS gives shortest path in number of edges. Weighted, non-negative → Dijkstra's algorithm (priority queue / heap). Weighted with negative edges → Bellman-Ford.
+
+#### Topological Sort
+
+**Approach:** Kahn's algorithm (BFS using in-degree counts, shown above) or DFS with a stack of finish times, reversed at the end. Only valid on a **DAG** (directed acyclic graph).
+
+#### Union Find / DSU (Disjoint Set Union)
+
+**Approach:** Two core operations — `find` (with path compression) and `union` (ideally with union by rank/size) — giving near-O(1) amortized operations. Used for connectivity questions, Kruskal's MST, cycle detection in undirected graphs.
+
+```python
+class UnionFind:
+    def __init__(self, n):
+        self.parent = list(range(n))
+        self.rank = [0] * n
+
+    def find(self, x):
+        if self.parent[x] != x:
+            self.parent[x] = self.find(self.parent[x])  # path compression
+        return self.parent[x]
+
+    def union(self, x, y):
+        rx, ry = self.find(x), self.find(y)
+        if rx == ry:
+            return False  # already connected -> would form a cycle
+        if self.rank[rx] < self.rank[ry]:
+            rx, ry = ry, rx
+        self.parent[ry] = rx
+        if self.rank[rx] == self.rank[ry]:
+            self.rank[rx] += 1
+        return True
+```
+
+---
+
+## 10. Python-Specific Coding Questions
+
+#### Flatten nested list (arbitrary depth)
+
+**Approach:** Recursion — if an item is itself a list, recurse into it; otherwise append it.
+
+```python
+def flatten(arr):
+    result = []
+    for item in arr:
+        if isinstance(item, list):
+            result.extend(flatten(item))
+        else:
+            result.append(item)
+    return result
+```
+
+#### Find duplicates
+
+**Approach:** Track what's been `seen`; anything seen a second time goes into the `result` set.
+
+```python
+def duplicates(nums):
+    seen = set()
+    result = set()
+    for n in nums:
+        if n in seen:
+            result.add(n)
+        seen.add(n)
+    return list(result)
+```
+
+#### Character frequency
+
+```python
+from collections import Counter
+def frequency(s):
+    return Counter(s)
+```
+
+#### Find most frequent element
+
+```python
+from collections import Counter
+def most_frequent(nums):
+    return Counter(nums).most_common(1)[0][0]
+```
+
+#### Group values by key
+
+```python
+from collections import defaultdict
+result = defaultdict(list)
+for key, value in pairs:
+    result[key].append(value)
+```
+
+#### Merge intervals
+
+**Approach:** Sort by start time, then walk through — merge into the last interval if it overlaps, otherwise start a new one.
+
+```python
+def merge(intervals):
+    intervals.sort()
+    result = []
+    for start, end in intervals:
+        if not result or start > result[-1][1]:
+            result.append([start, end])
+        else:
+            result[-1][1] = max(result[-1][1], end)
+    return result
+```
+
+---
+
+## 11. Output-Based Python Questions
+
+These test whether you actually understand reference semantics, slicing, and Python's evaluation model — very common as quick screening questions.
+
+#### Question 1
+
+```python
+a = [1, 2, 3]
+b = a
+b.append(4)
+print(a)
+```
+
+**Output:** `[1, 2, 3, 4]`
+**Why:** `b = a` doesn't copy — `b` is just another name for the *same* list object, so mutating through `b` is visible through `a`.
+
+#### Question 2
+
+```python
+a = [1, 2, 3]
+b = a.copy()
+b.append(4)
+print(a)
+print(b)
+```
+
+**Output:**
+```
+[1, 2, 3]
+[1, 2, 3, 4]
+```
+**Why:** `.copy()` makes a new list object, so mutating `b` no longer affects `a`.
+
+#### Question 3
+
+```python
+x = [1, 2, 3]
+print(x[::-1])
+```
+
+**Output:** `[3, 2, 1]`
+**Why:** Extended slice with step `-1` walks the list backward, producing a new reversed list.
+
+#### Question 4
+
+```python
+a = [1, 2]
+b = [3, 4]
+print(a + b)
+```
+
+**Output:** `[1, 2, 3, 4]`
+**Why:** `+` on lists concatenates, producing a brand-new list — doesn't mutate either operand.
+
+#### Question 5 — Mutable default argument
+
+```python
+def test(x=[]):
+    x.append(1)
+    return x
+
+print(test())
+print(test())
+print(test())
+```
+
+**Output:**
+```
+[1]
+[1, 1]
+[1, 1, 1]
+```
+**Why:** The default list `[]` is created **once**, at function-definition time, and every call that omits `x` reuses that same list object — so it keeps accumulating across calls. (See the full explanation and fix in [Section 4](#default-mutable-arguments).) **This is one of the single most-asked Python interview questions — make sure you can explain it fluently, not just recite the output.**
+
+---
+
+## 12. If You Have Limited Time — Top 30
+
+If you can only prep a subset before the interview, prioritize being able to explain and demo these fluently — they show up disproportionately often and tend to be springboards into follow-up questions:
+
+1. List vs tuple vs set vs dict
+2. Mutable vs immutable
+3. `is` vs `==`
+4. Shallow vs deep copy
+5. List comprehension
+6. Dict comprehension
+7. `*args` / `**kwargs`
+8. Iterables vs iterators
+9. Generators / `yield`
+10. Decorators
+11. Closures
+12. Lambda / `map` / `filter`
+13. `defaultdict`
+14. `Counter`
+15. `deque`
+16. Hashing / hashable objects
+17. Dictionary internals
+18. List internals
+19. Exception handling
+20. OOP / inheritance / MRO
+21. `staticmethod` / `classmethod`
+22. `__init__` / `__new__`
+23. GIL
+24. Async / `await`
+25. Threading vs multiprocessing
+
+> Pair each of these with the ability to write 2–3 lines of code live — interviewers almost always follow a definition question with "can you show me?"
+
+---
+
+*End of guide. Good luck — remember to narrate your thought process out loud during coding rounds; interviewers weigh your reasoning as much as the final answer.*

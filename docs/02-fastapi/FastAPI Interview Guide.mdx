@@ -1,0 +1,773 @@
+---
+title: "FastAPI Interview Guide"
+description: "A categorized, interview-ready FastAPI Q&A guide with a Top 30 fast-track list."
+---
+
+# FastAPI Interview Guide
+
+A complete, categorized set of FastAPI interview questions with concise, interview-style answers. Use the **Top 30** list if you're short on time, or work through the full guide category by category.
+
+---
+
+## 📑 Table of Contents
+
+- [⭐ Top 30 — Prepare First](#-top-30--prepare-first)
+1. [FastAPI Fundamentals](#1-fastapi-fundamentals)
+2. [Routing](#2-routing)
+3. [Pydantic](#3-pydantic)
+4. [Request & Response](#4-request--response)
+5. [Dependency Injection](#5-dependency-injection)
+6. [Authentication & Authorization](#6-authentication--authorization)
+7. [Database + SQLAlchemy](#7-database--sqlalchemy)
+8. [Async FastAPI](#8-async-fastapi)
+9. [Middleware](#9-middleware)
+10. [Error Handling](#10-error-handling)
+11. [File Uploads](#11-file-uploads)
+12. [Background Tasks](#12-background-tasks)
+13. [CORS](#13-cors)
+14. [Pagination / Filtering / Search](#14-pagination--filtering--search)
+15. [Testing](#15-testing)
+16. [Production / Deployment](#16-production--deployment)
+
+---
+
+## ⭐ Top 30 — Prepare First
+
+If you only have limited time, master these 30 first — they cover ~80% of what interviewers actually ask.
+
+1. **FastAPI vs Flask** — see [§1](#what-is-fastapi)
+2. **ASGI vs WSGI** — see [§1](#asgi-vs-wsgi)
+3. **Uvicorn** — see [§1](#what-is-uvicorn)
+4. **Pydantic** — see [§3](#what-is-a-pydantic-model)
+5. **Request validation** — see [§3](#what-is-request-validation)
+6. **Response models** — see [§4](#response_model)
+7. **Path vs query parameters** — see [§2](#path-parameters-vs-query-parameters)
+8. **`Depends()`** — see [§5](#what-does-depends-do)
+9. **Dependency injection** — see [§5](#what-is-dependency-injection)
+10. **Database dependency** — see [§5](#database-session-dependency)
+11. **Middleware** — see [§9](#what-is-middleware)
+12. **Exception handling** — see [§10](#custom-exception-handlers)
+13. **`HTTPException`** — see [§10](#how-do-you-return-http-errors)
+14. **`async`/`await`** — see [§8](#what-does-async-def-mean)
+15. **Event loop** — see [§8](#what-is-an-event-loop)
+16. **Sync vs async endpoints** — see [§8](#async-vs-sync-endpoint)
+17. **Blocking code in async** — see [§8](#important-interview-question)
+18. **JWT authentication** — see [§6](#jwt-authentication)
+19. **Access vs refresh tokens** — see [§6](#access-token-vs-refresh-token)
+20. **HttpOnly cookies** — see [§6](#where-should-tokens-be-stored)
+21. **CSRF** — see [§6](#what-is-csrf)
+22. **OAuth2** — see [§6](#oauth2)
+23. **SQLAlchemy** — see [§7](#what-is-sqlalchemy)
+24. **Sessions / transactions** — see [§7](#what-is-a-database-session)
+25. **Alembic** — see [§7](#database-migrations)
+26. **Pagination** — see [§14](#how-do-you-implement-pagination)
+27. **File uploads** — see [§11](#how-do-you-upload-a-file)
+28. **CORS** — see [§13](#what-is-cors)
+29. **Background tasks** — see [§12](#what-are-background-tasks)
+30. **Testing with `TestClient`** — see [§15](#testclient)
+
+---
+
+## 1. FastAPI Fundamentals
+
+### What is FastAPI?
+FastAPI is a modern, high-performance Python web framework for building APIs, built on top of **Starlette** (for the web layer) and **Pydantic** (for data validation). It uses standard Python type hints to generate request validation, serialization, and interactive documentation automatically.
+
+### Why is FastAPI fast?
+Two reasons: it's built on **Starlette/ASGI**, giving it native async support and high concurrency, and it uses **Pydantic** (compiled with a Rust core in v2) for very fast data validation. It also avoids unnecessary runtime overhead by relying on Python type hints instead of manual parsing/validation code.
+
+### FastAPI vs Flask vs Django
+- **Flask**: WSGI, synchronous by default, minimal, very flexible, no built-in validation or docs.
+- **Django**: WSGI (with partial ASGI support), "batteries-included" (ORM, admin, auth), more opinionated, heavier for pure APIs.
+- **FastAPI**: ASGI-native, async-first, automatic validation via Pydantic, automatic OpenAPI docs, best suited for high-performance APIs and microservices.
+
+### What is ASGI?
+ASGI (Asynchronous Server Gateway Interface) is the successor to WSGI. It's a spec that lets Python web servers and applications communicate asynchronously, supporting HTTP, WebSockets, and long-lived connections.
+
+### ASGI vs WSGI
+WSGI is synchronous — one request is handled at a time per worker, blocking calls stall the whole worker. ASGI supports async I/O, so a single worker can handle many concurrent requests, including WebSockets and streaming, which WSGI cannot do natively.
+
+### What is Uvicorn?
+Uvicorn is a lightning-fast ASGI server implementation, built on `uvloop` and `httptools`. It's what actually runs a FastAPI application and handles incoming HTTP connections.
+
+### What is Starlette?
+Starlette is the lightweight ASGI framework that FastAPI is built on top of. It provides routing, middleware, WebSockets, sessions, and background tasks — FastAPI adds Pydantic-based validation and automatic docs on top of it.
+
+### What is Pydantic?
+Pydantic is a data validation and settings-management library that uses Python type annotations to validate, parse, and serialize data at runtime, raising clear errors when data doesn't match the expected shape.
+
+### How does FastAPI use Pydantic?
+FastAPI uses Pydantic models to define request bodies, response models, and settings. When a request comes in, FastAPI validates and parses it against the Pydantic model automatically, and does the same for outgoing responses via `response_model`.
+
+### How does automatic API documentation work?
+FastAPI inspects your path operations, type hints, and Pydantic models to build an OpenAPI schema at runtime. It then serves interactive documentation UIs (Swagger UI at `/docs`, ReDoc at `/redoc`) generated directly from that schema.
+
+### Swagger UI vs ReDoc
+Both render the same OpenAPI schema. Swagger UI (`/docs`) is interactive — you can execute requests directly from the browser. ReDoc (`/redoc`) is a cleaner, read-only reference-style documentation view, often preferred for public-facing API docs.
+
+### What is dependency injection in FastAPI?
+A pattern where reusable pieces of logic (DB sessions, auth checks, shared parameters) are declared as functions and "injected" into path operations via `Depends()`, rather than being instantiated manually inside each endpoint.
+
+### What is `Depends()`?
+`Depends()` tells FastAPI to call a given function (or class) before the endpoint runs, and pass its return value as an argument. It handles resolution, caching per-request, and even nested dependency chains automatically.
+
+### What is an `APIRouter`?
+A class that lets you group related path operations into their own module, with a shared prefix, tags, and dependencies, then include them into the main app with `app.include_router()`.
+
+### How do you structure a large FastAPI application?
+Split by responsibility rather than putting everything in `main.py`:
+```
+app/
+├── main.py
+├── routers/
+│   ├── users.py
+│   └── posts.py
+├── schemas/
+│   ├── user.py
+│   └── post.py
+├── models/
+├── services/
+├── repositories/
+├── dependencies/
+├── middleware/
+└── utils/
+```
+`routers/` hold path operations, `schemas/` hold Pydantic models, `models/` hold ORM models, `services/`/`repositories/` hold business logic and DB access, keeping endpoints thin.
+
+---
+
+## 2. Routing
+
+### How do you create a GET endpoint?
+```python
+@app.get("/users")
+def get_users():
+    return users
+```
+
+### Path parameters vs query parameters
+Path parameters are part of the URL path and are required by definition; query parameters come after `?` and are typically optional with defaults.
+```python
+@app.get("/users/{user_id}")
+def get_user(user_id: int):
+    ...
+```
+```python
+@app.get("/users")
+def get_users(page: int = 1, limit: int = 10):
+    ...
+```
+
+### How do you make query parameters optional?
+Give the parameter a default value, or type it as `Optional[str] = None` — FastAPI treats any parameter with a default as optional.
+
+### How do you validate path parameters?
+Use type hints (`user_id: int`) for basic validation, or `Path()` from FastAPI for constraints like `gt`, `le`, regex patterns, and descriptions.
+
+### How do you handle multiple query parameters?
+Just declare multiple function parameters with defaults — FastAPI parses each one from the query string independently, e.g. `def get_users(search: str = None, status: str = None, page: int = 1)`.
+
+### How do you define route prefixes?
+Pass `prefix="/users"` when creating an `APIRouter`, or when calling `app.include_router(router, prefix="/api/v1")`.
+
+### What is `APIRouter`?
+(See Fundamentals above.) It's the mechanism for modularizing routes, letting each domain (users, posts, etc.) live in its own file with its own prefix, tags, and dependencies.
+
+### How do route conflicts work?
+FastAPI matches routes in the order they're registered, so a specific static path (`/users/me`) must be declared **before** a dynamic path (`/users/{user_id}`), or the dynamic route will greedily capture the static one.
+
+---
+
+## 3. Pydantic
+
+### What is a Pydantic model?
+A class that inherits from `BaseModel` and defines fields with type annotations. Pydantic validates incoming data against those types and raises a `ValidationError` if it doesn't match.
+```python
+from pydantic import BaseModel
+
+class UserCreate(BaseModel):
+    name: str
+    email: str
+    age: int
+```
+
+### Request model vs response model
+A request model defines and validates the shape of incoming data (the request body). A response model (`response_model=`) defines and filters the shape of outgoing data, ensuring you never leak fields like password hashes.
+
+### What is request validation?
+FastAPI automatically validates incoming request data against the declared Pydantic model or type hints — type coercion, required fields, constraints — before your endpoint function even runs.
+
+### What happens if validation fails?
+FastAPI returns an HTTP **422 Unprocessable Entity** response automatically, with a JSON body detailing exactly which fields failed and why.
+
+### Optional fields
+Declared with `Optional[str] = None` (or `str | None = None` in modern syntax) — giving a field a default makes it optional in the request payload.
+
+### Default values
+Any field assigned a default value becomes optional; if omitted from the input, Pydantic fills in that default automatically.
+
+### Nested Pydantic models
+A model can contain another model as a field type, and Pydantic will validate the nested structure recursively, e.g. an `Order` model containing a list of `OrderItem` models.
+
+### Custom validation
+Use `@field_validator` (Pydantic v2) or `@validator` (v1) to write custom logic that runs during validation, letting you enforce rules beyond basic type checks (e.g. password strength, format checks).
+
+### Pydantic `Field()`
+`Field()` lets you add extra metadata and constraints to a model field — default values, `min_length`, `max_length`, `gt`/`lt`, regex patterns, and documentation strings shown in the OpenAPI schema.
+
+### `model_dump()`
+A Pydantic v2 method that converts a model instance into a plain Python dictionary (the v1 equivalent was `.dict()`), useful for serialization or passing data to ORM layers.
+
+### Pydantic v1 vs v2
+V2 rewrote the validation core in Rust for major performance gains, renamed several methods (`.dict()` → `.model_dump()`, `@validator` → `@field_validator`), and changed some default behaviors around validation strictness.
+
+### `BaseModel`
+The base class every Pydantic model inherits from — it's what enables automatic validation, serialization, and schema generation.
+```python
+class UserResponse(BaseModel):
+    id: int
+    name: str
+
+@app.get("/users/{id}", response_model=UserResponse)
+def get_user(id: int):
+    ...
+```
+
+---
+
+## 4. Request & Response
+
+### How do you read JSON request bodies?
+Declare a Pydantic model as a parameter — FastAPI parses the JSON body into it automatically.
+```python
+@app.post("/users")
+def create_user(user: UserCreate):
+    ...
+```
+
+### Path + query + body together
+FastAPI infers each parameter's source automatically: primitives that match a path segment become path params, other primitives become query params, and Pydantic models become the request body — all in the same function signature.
+
+### Headers
+Read with `Header()`, e.g. `def endpoint(user_agent: str = Header(None))`.
+
+### Cookies
+Read with `Cookie()`, e.g. `def endpoint(session_id: str = Cookie(None))`.
+
+### Form data
+Read with `Form()` for `application/x-www-form-urlencoded` payloads, e.g. `def login(username: str = Form(...), password: str = Form(...))`.
+
+### File uploads
+Read with `UploadFile`/`File()` (covered in detail in §11).
+
+### Multiple file uploads
+Accept `List[UploadFile] = File(...)` to receive several files in one request.
+
+### Returning JSON
+FastAPI automatically serializes returned dicts, lists, or Pydantic models into JSON responses.
+
+### Returning custom status codes
+Set `status_code=` in the path decorator (e.g. `@app.post("/users", status_code=201)`), or return a `Response`/`JSONResponse` object with an explicit status.
+
+### `JSONResponse`
+A Starlette response class for returning JSON with full control over status code, headers, and content, bypassing the default `response_model` serialization.
+
+### `Response`
+The base Starlette response class, used when you need to control raw content, media type, or headers directly (e.g. returning plain text, files, or custom content types).
+
+### `response_model`
+A parameter on the path decorator that defines the shape of the outgoing response, filtering/validating the return value against that schema — even if the returned object has extra fields.
+
+### Why use response models?
+They prevent leaking sensitive fields (like password hashes), guarantee a consistent API contract, and automatically document the response shape in OpenAPI.
+
+---
+
+## 5. Dependency Injection 🔥
+
+### What is dependency injection?
+A design pattern where a function declares what it needs (a DB session, the current user, shared query params) as parameters, and the framework supplies them — decoupling business logic from how those dependencies are constructed.
+
+### What does `Depends()` do?
+It tells FastAPI to call the given callable before running the endpoint, and inject its return value as an argument.
+```python
+def get_current_user():
+    return user
+
+@app.get("/profile")
+def profile(user = Depends(get_current_user)):
+    return user
+```
+
+### Can dependencies depend on other dependencies?
+Yes — dependencies can themselves declare `Depends()` on other dependencies, forming a resolution chain (e.g. an auth dependency that depends on a token-decoding dependency).
+
+### Dependency with parameters
+Use a class with `__init__` parameters, or a factory function that returns a configured dependency callable, letting you parameterize things like pagination defaults per route.
+
+### Dependency caching
+By default, FastAPI caches a dependency's result **per request** — if the same dependency is used multiple times in one request, it's only executed once, unless `use_cache=False` is passed to `Depends()`.
+
+### Router-level dependencies
+Pass `dependencies=[Depends(...)]` to an `APIRouter`, applying that dependency to every route in the router (useful for auth checks across a whole module).
+
+### Global dependencies
+Pass `dependencies=[Depends(...)]` to the `FastAPI()` app instance itself, applying it to every route in the application.
+
+### Authentication dependency
+A dependency function (commonly using `OAuth2PasswordBearer`) that extracts and validates a token, then returns the current user — reused across every protected endpoint via `Depends()`.
+
+### Database session dependency
+A generator-based dependency that yields a session and guarantees cleanup:
+```python
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+@app.get("/users")
+def get_users(db = Depends(get_db)):
+    ...
+```
+
+---
+
+## 6. Authentication & Authorization 🔥
+
+### How do you implement authentication?
+Typically via OAuth2 password flow: the client sends credentials, the server verifies them against hashed passwords, then issues a signed JWT access token (and often a refresh token) that the client sends on subsequent requests.
+
+### JWT authentication
+JSON Web Tokens are signed, self-contained tokens carrying claims (like user ID and expiry). The server verifies the signature on each request instead of doing a database lookup for session state, making auth stateless.
+
+### Access token vs refresh token
+The **access token** is short-lived and sent with every API request to prove identity. The **refresh token** is longer-lived and stored more securely; it's used solely to obtain a new access token once the old one expires, without forcing the user to log in again.
+
+### Where should tokens be stored?
+Access tokens are often kept in memory (or short-lived storage) on the client; refresh tokens are best stored in **HttpOnly, Secure cookies** so JavaScript can't access them, reducing XSS risk.
+
+### HttpOnly cookies
+Cookies marked `HttpOnly` can't be read or modified by client-side JavaScript, which protects tokens stored in them from being stolen via XSS attacks.
+
+### What is CSRF?
+Cross-Site Request Forgery — an attack where a malicious site tricks a logged-in user's browser into making unwanted requests to your API using their existing cookies. It's mitigated with CSRF tokens, `SameSite` cookie attributes, and checking request origins.
+
+### OAuth2
+An authorization framework/protocol defining standard flows (password, authorization code, client credentials) for obtaining access tokens on behalf of a user or application.
+
+### `OAuth2PasswordBearer`
+A FastAPI security utility that extracts a bearer token from the `Authorization` header and integrates with the interactive docs to show a login form, used as a dependency for protected routes.
+
+### Password hashing
+Never store plaintext passwords — hash them with a slow, salted algorithm before storing, and compare hashes (not plaintext) on login.
+
+### bcrypt / Argon2
+Both are adaptive, salted hashing algorithms designed to be computationally expensive (resisting brute-force attacks). Argon2 is newer and generally considered more resistant to GPU-based cracking; bcrypt remains widely used and battle-tested.
+
+### Authentication vs authorization
+Authentication verifies **who you are** (login/identity). Authorization verifies **what you're allowed to do** (permissions/roles) once identity is established.
+
+### Role-based access control
+An authorization model where users are assigned roles (admin, editor, viewer), and endpoints check the current user's role — often via a dependency — before allowing access.
+
+### How do you protect an endpoint?
+Add an auth dependency (e.g. `Depends(get_current_user)`) to the endpoint or router; FastAPI runs it before the endpoint body, rejecting the request with 401/403 if it fails.
+
+Typical flow:
+```
+Login → Validate credentials → Generate access token → Generate refresh token
+   → Set secure HttpOnly cookie → Request → JWT validation → Current user → Authorization
+```
+
+---
+
+## 7. Database + SQLAlchemy
+
+### How does FastAPI connect to a database?
+FastAPI itself is database-agnostic — you typically use an ORM like SQLAlchemy (or an async driver) inside a dependency (`get_db`) that provides a session per request.
+
+### What is SQLAlchemy?
+A Python SQL toolkit and ORM that lets you define database tables as Python classes (models), build queries with a Pythonic API, and manage sessions/transactions.
+
+### Engine vs Session
+The **Engine** manages the connection pool and low-level DB connectivity, created once at startup. A **Session** is a lightweight, per-request unit of work built from the engine, used to query and persist objects.
+
+### What is a database session?
+An object that tracks changes to Python model instances and manages the transaction lifecycle (flush, commit, rollback) for a unit of work, typically scoped to a single request.
+
+### ORM vs raw SQL
+The ORM lets you work with Python objects and relationships instead of writing SQL by hand, improving maintainability; raw SQL offers more control and can be more performant for complex queries, at the cost of portability and readability.
+
+### Models
+Python classes mapped to database tables via SQLAlchemy's declarative base, defining columns, types, and constraints.
+
+### Relationships
+SQLAlchemy's `relationship()` links two models together (e.g. a `User` having many `Post`s), letting you navigate between related objects in Python without writing joins manually.
+
+### One-to-many
+A single row in one table relates to multiple rows in another (e.g. one `User` has many `Post`s), implemented via a foreign key on the "many" side.
+
+### Many-to-many
+Two tables relate through an intermediate association table (e.g. `Student` and `Course`), since neither side can hold a single foreign key to the other.
+
+### Transactions
+A unit of work grouping multiple database operations so they either all succeed or all fail together, preserving data consistency.
+
+### Commit vs flush
+`flush()` sends pending changes to the database within the current transaction (so they're visible in queries) without making them permanent. `commit()` finalizes the transaction, making changes permanent.
+
+### Rollback
+Reverts all changes made in the current transaction, typically called when an error occurs, restoring the database to its state before the transaction began.
+
+### Lazy vs eager loading
+**Lazy loading** fetches related objects only when accessed (can cause the N+1 query problem). **Eager loading** (`joinedload`, `selectinload`) fetches related objects upfront in the same or a batched query.
+
+### `select()`
+SQLAlchemy 2.0's unified query construct for building SELECT statements, replacing the legacy `Query` API in favor of a more explicit, Core-aligned syntax.
+```python
+result = db.execute(select(User).where(User.email == email))
+user = result.scalar_one_or_none()
+```
+
+### Filtering
+Add `.where()` clauses to a `select()` statement to filter rows by column conditions.
+
+### Pagination
+Use `.offset()` and `.limit()` on a query to fetch a specific page of results.
+
+### Sorting
+Use `.order_by()` on a query, e.g. `.order_by(User.name.asc())`.
+
+### Database migrations
+Version-controlled, incremental changes to a database schema (adding columns, tables, indexes) that can be applied or rolled back in order, keeping schema and code in sync across environments.
+
+### Alembic
+The standard migration tool for SQLAlchemy — it auto-generates migration scripts from model changes and lets you upgrade/downgrade the schema version in a controlled, repeatable way.
+
+---
+
+## 8. Async FastAPI 🔥
+
+### What does `async def` mean?
+It declares a coroutine function — one that can be paused at `await` points to let other tasks run on the event loop, instead of blocking the thread while waiting.
+
+### What does `await` mean?
+It suspends the current coroutine until the awaited operation (an I/O call, a sleep, another coroutine) completes, yielding control back to the event loop in the meantime.
+
+### Why does FastAPI support async?
+Because it's built on Starlette/ASGI, which is designed around an event loop. Async support lets a single worker handle many concurrent I/O-bound requests (DB calls, HTTP calls) efficiently instead of blocking one request per thread.
+
+### Async vs sync endpoint
+An `async def` endpoint runs on the event loop directly and should only contain non-blocking, awaitable calls. A `def` (sync) endpoint is automatically run in a separate thread pool by FastAPI, so blocking code there doesn't stall the event loop.
+
+### What is an event loop?
+The core mechanism of async Python — it continuously schedules and runs coroutines, switching between them at `await` points, enabling concurrency within a single thread.
+
+### What happens when you call blocking code inside `async def`?
+It blocks the entire event loop, stalling every other concurrent request being handled by that worker — this is one of the most common FastAPI performance bugs.
+
+### Async database drivers
+Drivers built for non-blocking I/O with async/await support (e.g. `asyncpg`, SQLAlchemy's async engine, `motor` for MongoDB), allowing DB calls to be awaited instead of blocking the event loop.
+
+### Async HTTP requests
+Making outbound HTTP calls without blocking, typically using `httpx.AsyncClient` instead of the synchronous `requests` library, which would block the event loop.
+
+### `asyncio.gather()`
+Runs multiple coroutines concurrently and waits for all of them to complete, useful for firing off several independent async calls (e.g. multiple API requests) in parallel instead of sequentially.
+
+### Concurrency vs parallelism
+**Concurrency** is structuring code to handle multiple tasks by interleaving execution (what `async`/`await` gives you on a single thread). **Parallelism** is literally executing multiple tasks at the same time on multiple CPU cores/processes.
+
+### Example
+```python
+@app.get("/users")
+async def get_users():
+    result = await fetch_users()
+    return result
+```
+
+### Important interview question
+**Why is this dangerous?**
+```python
+@app.get("/")
+async def test():
+    time.sleep(10)
+```
+Because `time.sleep()` is a blocking call — inside an `async def`, it freezes the entire event loop for 10 seconds, stalling every other concurrent request on that worker. The correct fix is `await asyncio.sleep(10)`, which yields control back to the event loop instead of blocking it.
+
+---
+
+## 9. Middleware
+
+### What is middleware?
+Code that runs on every request/response, positioned between the client and your endpoint logic — used for cross-cutting concerns like logging, auth checks, CORS, or request timing.
+
+### How does middleware work?
+Each request passes through the middleware stack before reaching the endpoint, and the response passes back through it (often in reverse order) before returning to the client:
+```
+Request → middleware → endpoint → response
+```
+
+### Custom middleware
+Defined with the `@app.middleware("http")` decorator (or as an ASGI class), wrapping request handling with your own logic before and after calling the next handler.
+```python
+@app.middleware("http")
+async def log_requests(request, call_next):
+    print(request.method, request.url)
+    response = await call_next(request)
+    return response
+```
+
+### CORS middleware
+Built-in Starlette middleware (`CORSMiddleware`) that adds the correct CORS headers to responses based on configured allowed origins, methods, and headers.
+
+### Authentication middleware
+Middleware that inspects incoming requests (e.g. checking for a valid token) before they reach the endpoint — though in FastAPI, per-route auth is more commonly handled via dependencies rather than global middleware.
+
+### Logging middleware
+Middleware that logs details about each request/response — method, path, status code, duration — useful for observability.
+
+### Middleware vs dependency
+Middleware runs globally on every request regardless of route and doesn't participate in FastAPI's dependency injection or automatic docs. Dependencies are route-specific, composable, support caching, and are documented in the OpenAPI schema.
+
+---
+
+## 10. Error Handling
+
+### How do you return HTTP errors?
+Raise an `HTTPException` with a status code and detail message; FastAPI catches it and converts it into a proper JSON error response.
+```python
+from fastapi import HTTPException
+
+raise HTTPException(status_code=404, detail="User not found")
+```
+
+### Custom exception handlers
+Register a handler with `@app.exception_handler(SomeException)` to catch specific exception types anywhere in the app and convert them into custom, consistent error responses.
+
+### Global exception handling
+Combine a custom base exception class with an `@app.exception_handler` on that base class (or on `Exception` itself) to catch and format all unhandled errors consistently across the whole app.
+
+### Validation errors
+When request data fails Pydantic validation, FastAPI automatically raises a `RequestValidationError`, returning a 422 response with details on which fields failed and why — this can also be overridden with a custom handler.
+
+### 400 vs 401 vs 403 vs 404
+- **400**: malformed/invalid request.
+- **401**: not authenticated (missing/invalid credentials).
+- **403**: authenticated but not authorized for this resource.
+- **404**: resource doesn't exist.
+
+### 422 in FastAPI
+FastAPI's default status code for request validation failures — the request is well-formed but the data doesn't satisfy the declared schema/types.
+
+### 500 errors
+Indicates an unhandled server-side error/bug; well-designed apps catch and log these via a global exception handler rather than leaking stack traces to clients.
+
+Common status codes to know: `400`, `401`, `403`, `404`, `409` (Conflict), `422`, `500`.
+
+---
+
+## 11. File Uploads
+
+### How do you upload a file?
+Declare a parameter typed as `UploadFile` with `File(...)`.
+```python
+from fastapi import UploadFile, File
+
+@app.post("/upload")
+async def upload(file: UploadFile = File(...)):
+    return {"filename": file.filename, "content_type": file.content_type}
+```
+
+### `UploadFile` vs `bytes`
+`UploadFile` streams the file to disk/memory efficiently via a spooled temp file, works well for large files, and exposes metadata (filename, content type). Using raw `bytes` reads the entire file into memory at once, which is simpler but risky for large uploads.
+
+### Multiple files
+Accept `List[UploadFile] = File(...)` to receive several files in a single request field.
+
+### File size validation
+Check `file.size` (or read and measure the stream) against a maximum limit and reject oversized uploads with an `HTTPException`, since FastAPI doesn't enforce size limits by default.
+
+### MIME type validation
+Check `file.content_type` against an allow-list of acceptable types, though this can be spoofed — for stronger guarantees, inspect the actual file signature/bytes.
+
+### Uploading to S3
+Stream the `UploadFile`'s file object directly to an S3 client (e.g. `boto3`'s `upload_fileobj`) rather than buffering the whole file in memory first.
+
+### Presigned URLs
+Temporary, signed URLs generated by the storage provider (e.g. S3) that let a client upload or download a file directly, without routing the file bytes through your API server.
+
+### Streaming files
+Use `StreamingResponse` to send large files/data to the client in chunks instead of loading the entire payload into memory first.
+
+---
+
+## 12. Background Tasks
+
+### What are background tasks?
+A FastAPI mechanism for running a function **after** the response has already been sent to the client, useful for lightweight fire-and-forget work like sending a confirmation email.
+```python
+from fastapi import BackgroundTasks
+
+@app.post("/send")
+def send(background_tasks: BackgroundTasks):
+    background_tasks.add_task(send_email)
+    return {"message": "queued"}
+```
+
+### When should you use background tasks?
+For short, non-critical work that doesn't need retries, monitoring, or guaranteed delivery — e.g. sending a notification email or writing a log entry — where losing the task on a server crash is acceptable.
+
+### `BackgroundTasks` vs Celery
+`BackgroundTasks` runs in-process, in the same worker, with no persistence, retries, or scheduling — it disappears if the process crashes. Celery is a full distributed task queue with persistence, retries, scheduling, and horizontal scaling, suited for critical or long-running jobs.
+
+### `BackgroundTasks` vs message queues
+Similar distinction — a message queue (RabbitMQ, SQS, Kafka) decouples task producers from consumers, persists tasks, and supports multiple independent workers, whereas `BackgroundTasks` is tightly coupled to the same request/process with no durability guarantees.
+
+---
+
+## 13. CORS
+
+### What is CORS?
+Cross-Origin Resource Sharing — a browser security mechanism that restricts web pages from making requests to a different origin (domain/port/protocol) than the one that served the page, unless the server explicitly allows it via response headers.
+
+### Why do browsers enforce CORS?
+To prevent malicious sites from silently reading data from other origins the user is authenticated with (e.g. their bank) using the browser's ambient credentials — it's a client-side (browser) protection, not a server-side one.
+
+### How do you configure CORS?
+Add Starlette's `CORSMiddleware` with the allowed origins, methods, and headers.
+```python
+from fastapi.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+```
+
+### What is a preflight request?
+An automatic `OPTIONS` request the browser sends before certain cross-origin requests (e.g. those with custom headers or non-simple methods), asking the server whether the actual request is permitted.
+
+### What is an `OPTIONS` request?
+An HTTP method used to query what operations/headers a server supports for a given endpoint — browsers use it specifically as the CORS preflight check.
+
+---
+
+## 14. Pagination / Filtering / Search
+
+### How do you implement pagination?
+Accept `page` and `limit` query parameters and translate them into a database offset/limit.
+```python
+@app.get("/users")
+def get_users(page: int = 1, limit: int = 20):
+    offset = (page - 1) * limit
+```
+
+### Offset vs cursor pagination
+**Offset pagination** (`OFFSET`/`LIMIT`) is simple but gets slower on large tables and can skip/duplicate rows if data changes between pages. **Cursor pagination** uses a stable pointer (e.g. last seen ID) to fetch the next page, staying fast and consistent even as data changes.
+
+### Filtering
+Accept query parameters representing filter criteria (e.g. `status`, `category`) and translate each into a `.where()` clause on the query.
+
+### Sorting
+Accept a `sort` query parameter and map it to an `.order_by()` clause, validating it against an allow-list of sortable fields to avoid injection or errors.
+
+### Search
+Accept a `search` query parameter and apply it against relevant columns, typically with a `LIKE`/`ILIKE` clause or a dedicated full-text search index for larger datasets.
+
+### Multiple filters
+Combine several optional query parameters, each conditionally adding a `.where()` clause only if provided, so filters can be applied independently or together.
+
+### Pagination + filtering + sorting together
+All three combine into a single query pipeline: apply filters first, then sorting, then pagination (offset/limit) last.
+```
+GET /users?search=pawan&status=active&page=2&limit=20&sort=name
+```
+
+---
+
+## 15. Testing
+
+### How do you test FastAPI?
+Use `TestClient` (built on `httpx`) to send requests directly against your app in-process, without needing a running server, and assert on the response.
+
+### `TestClient`
+```python
+from fastapi.testclient import TestClient
+
+client = TestClient(app)
+response = client.get("/users")
+assert response.status_code == 200
+```
+
+### Unit vs integration tests
+**Unit tests** test a single function or component in isolation (e.g. a validator or service function), often with dependencies mocked out. **Integration tests** test multiple components together, such as a full request going through routing, dependencies, and the database.
+
+### Dependency overrides
+FastAPI lets you override any dependency during tests via `app.dependency_overrides[original] = override_function`, letting you swap a real DB session or auth check for a test/mock version.
+
+### Testing authenticated endpoints
+Either override the auth dependency to return a fake user directly, or generate a real test token and pass it in the `Authorization` header of test requests.
+
+### Mocking external APIs
+Use libraries like `unittest.mock` or `respx`/`pytest-httpx` to intercept outbound HTTP calls in tests, returning canned responses instead of hitting real third-party services.
+
+### Testing database operations
+Use a separate test database (often SQLite in-memory or a dedicated test Postgres instance), and override the `get_db` dependency to point at it, resetting/rolling back state between tests.
+
+---
+
+## 16. Production / Deployment
+
+### How do you deploy FastAPI?
+Run it behind an ASGI server (Uvicorn, often managed by Gunicorn), typically containerized with Docker, sitting behind a reverse proxy like Nginx and a load balancer, with environment-based configuration and health checks.
+
+### Uvicorn vs Gunicorn
+Uvicorn is the ASGI server that actually runs the async application. Gunicorn is a mature process manager that can supervise multiple Uvicorn worker processes (via `UvicornWorker`), handling restarts, worker scaling, and process-level reliability.
+
+### Workers
+Separate OS processes each running an instance of your app, letting you use multiple CPU cores (since Python's GIL limits a single process to one core for CPU-bound work) — typically set to roughly `2 x CPU cores + 1`.
+
+### Dockerizing FastAPI
+Package the app, its dependencies, and the Uvicorn/Gunicorn command into a container image, ensuring consistent behavior across dev, staging, and production environments.
+
+### Environment variables
+Used to configure the app per environment (DB URLs, secrets, feature flags) without hardcoding values — commonly loaded via Pydantic's `BaseSettings`/`pydantic-settings`.
+
+### Secrets management
+Sensitive values (API keys, DB passwords) should be injected at runtime via a secrets manager (AWS Secrets Manager, Vault, etc.) or environment variables — never committed to source control.
+
+### Health checks
+A lightweight endpoint (e.g. `/health`) that load balancers and orchestrators (Kubernetes, ECS) poll to determine whether an instance is alive and ready to receive traffic.
+
+### Logging
+Structured, centralized logging (often JSON logs shipped to a log aggregator) covering requests, errors, and key business events, essential for debugging production issues.
+
+### Monitoring
+Tracking metrics like request latency, error rates, and throughput (e.g. via Prometheus/Grafana or an APM tool) to observe application health and catch regressions.
+
+### Rate limiting
+Restricting how many requests a client can make in a given time window, protecting the API from abuse or overload — implemented via middleware, a dependency, or an API gateway.
+
+### Reverse proxy
+A server (like Nginx) that sits in front of your app, handling TLS termination, static file serving, request buffering, and forwarding requests to your app servers.
+
+### Nginx
+A common reverse proxy/load balancer used in front of Uvicorn/Gunicorn, handling SSL, compression, and routing to the ASGI application.
+
+### Load balancing
+Distributing incoming traffic across multiple app instances/workers to improve throughput and provide redundancy if one instance fails.
+
+Typical production flow:
+```
+Client → Load Balancer → Nginx → FastAPI → Service Layer → PostgreSQL → Redis
+```
+
+---
+
+*End of guide — good luck with your interview!*
