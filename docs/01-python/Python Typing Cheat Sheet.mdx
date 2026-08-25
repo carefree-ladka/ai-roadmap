@@ -1,0 +1,1107 @@
+
+---
+title: "Python Typing Cheat Sheet"
+---
+
+# Python Typing Cheat Sheet
+
+This covers ~95% of typed FastAPI + AI + backend development.
+
+## Recommended Style
+
+- Typed Python everywhere
+- Python 3.12+
+- FastAPI
+- Pydantic v2
+- mypy / pyright (strict mode)
+
+Write types for variables, function parameters, return values, classes, dictionaries, lists, async functions, decorators, and generics. This is the standard production style.
+
+---
+
+## Table of Contents
+
+1. [Variables](#1-variables)
+2. [Functions](#2-functions)
+3. [Optional Types](#3-optional-types)
+4. [Lists, Tuples, Sets, Dict](#4-lists-tuples-sets-dict)
+5. [Any vs Unknown vs object](#5-any-vs-unknown-vs-object)
+6. [Literal Types](#6-literal-types)
+7. [Union Types](#7-union-types)
+8. [Interfaces → TypedDict](#8-interfaces--typeddict)
+9. [Interface → Dataclass](#9-interface--dataclass-most-common)
+10. [Pydantic Models (FastAPI)](#10-pydantic-models-fastapi)
+11. [Generic Types](#11-generic-types)
+12. [Type Alias](#12-type-alias)
+13. [Callable (Function Type)](#13-callable-function-type)
+14. [Async Functions](#14-async-functions)
+15. [Enums](#15-enums)
+16. [Type Narrowing](#16-type-narrowing)
+17. [Typed Class Methods](#17-typed-class-methods)
+18. [Typed Decorators](#18-typed-decorators)
+19. [Typed Iterables](#19-typed-iterables)
+20. [Typed JSON Object](#20-typed-json-object)
+21. [Final (Readonly Variable)](#21-final-readonly-variable)
+22. [ClassVar (Static Property)](#22-classvar-static-property)
+23. [Annotated (Extra Metadata)](#23-annotated-extra-metadata)
+24. [NewType (Nominal Typing)](#24-newtype-nominal-typing)
+25. [Protocol (Structural Typing / Duck Typing)](#25-protocol-structural-typing--duck-typing)
+26. [NamedTuple](#26-namedtuple)
+27. [overload (Function Overloading)](#27-overload-function-overloading)
+28. [Self Type](#28-self-type)
+29. [TypeVar Bounds & Constraints](#29-typevar-bounds--constraints)
+30. [ParamSpec (Typed Decorators for Any Signature)](#30-paramspec-typed-decorators-for-any-signature)
+31. [Type[C] and cast()](#31-typec-and-cast)
+32. [TYPE_CHECKING (Avoiding Circular Imports)](#32-type_checking-avoiding-circular-imports)
+33. [Async Generators & Context Managers](#33-async-generators--context-managers)
+34. [Pydantic v2 Deep Dive](#34-pydantic-v2-deep-dive)
+35. [Complete Example (TypeScript-Style Python)](#35-complete-example-typescript-style-python)
+36. [Must-Know `typing` Module Reference](#36-must-know-typing-module-reference)
+37. [Recommended Linting (TypeScript-like Strictness)](#37-recommended-linting-typescript-like-strictness)
+38. [Learning Priority](#38-learning-priority)
+
+---
+
+## 1. Variables
+
+| TypeScript | Python |
+|---|---|
+| `let name: string = "Pawan"` | `name: str = "Pawan"` |
+| `let age: number = 25` | `age: int = 25` |
+| `let salary: number = 12.5` | `salary: float = 12.5` |
+| `let active: boolean = true` | `active: bool = True` |
+| `let value: null = null` | `value: None = None` |
+
+```python
+name: str = "Pawan"
+age: int = 26
+salary: float = 18.5
+is_active: bool = True
+```
+
+---
+
+## 2. Functions
+
+**TypeScript**
+```ts
+function add(a: number, b: number): number {
+  return a + b;
+}
+```
+
+**Python**
+```python
+def add(a: int, b: int) -> int:
+    return a + b
+```
+
+### Void
+
+**TypeScript**
+```ts
+function log(msg: string): void {}
+```
+
+**Python**
+```python
+def log(msg: str) -> None:
+    print(msg)
+```
+
+---
+
+## 3. Optional Types
+
+**TypeScript**
+```ts
+name?: string
+```
+
+**Python**
+```python
+from typing import Optional
+
+name: Optional[str] = None
+
+# Python 3.10+ (preferred)
+name: str | None = None
+```
+
+Prefer the pipe syntax:
+
+```python
+name: str | None = None
+```
+
+---
+
+## 4. Lists, Tuples, Sets, Dict
+
+| TypeScript | Python |
+|---|---|
+| `number[]` | `list[int]` |
+| `string[]` | `list[str]` |
+| `[string, number]` | `tuple[str, int]` |
+| `Set<number>` | `set[int]` |
+| `Record<string, number>` | `dict[str, int]` |
+
+```python
+scores: list[int] = [1, 2, 3]
+
+user: dict[str, str] = {
+    "name": "Pawan",
+    "city": "Lucknow",
+}
+
+pair: tuple[str, int] = ("Pawan", 26)
+
+ids: set[int] = {1, 2, 3}
+```
+
+> **Variable-length tuples:** `tuple[int, ...]` is the equivalent of a TS array with a fixed element type but unknown length, e.g. `number[]` when you specifically want tuple semantics.
+
+---
+
+## 5. Any vs Unknown vs object
+
+| TypeScript | Python |
+|---|---|
+| `any` | `Any` |
+| `unknown` | `object` |
+
+```python
+from typing import Any
+
+value: Any = "hello"
+
+unknown_value: object = 123
+```
+
+Use `Any` sparingly — it disables type checking entirely for that value, just like TS `any`. `object` behaves like `unknown`: you must narrow it (e.g. with `isinstance`) before using type-specific operations.
+
+---
+
+## 6. Literal Types
+
+Exactly like TS unions of string/number literals.
+
+**TypeScript**
+```ts
+type Role = "admin" | "user";
+```
+
+**Python**
+```python
+from typing import Literal
+
+Role = Literal["admin", "user"]
+
+role: Role = "admin"
+```
+
+Perfect for FastAPI request validation (query params, enums-as-strings, status filters).
+
+---
+
+## 7. Union Types
+
+**TypeScript**
+```ts
+string | number
+```
+
+**Python**
+```python
+str | int
+```
+
+```python
+def stringify(value: str | int) -> str:
+    return str(value)
+```
+
+---
+
+## 8. Interfaces → TypedDict
+
+**TypeScript**
+```ts
+interface User {
+  id: number;
+  name: string;
+}
+```
+
+**Python**
+```python
+from typing import TypedDict
+
+class User(TypedDict):
+    id: int
+    name: str
+
+user: User = {
+    "id": 1,
+    "name": "Pawan",
+}
+```
+
+Use `TypedDict` when the data is a plain dictionary (e.g. raw JSON) rather than an object with methods.
+
+### Optional keys in TypedDict
+
+```python
+from typing import TypedDict, NotRequired
+
+class User(TypedDict):
+    id: int
+    name: str
+    nickname: NotRequired[str]  # equivalent to TS `nickname?: string`
+```
+
+---
+
+## 9. Interface → Dataclass (Most Common)
+
+Like immutable-by-convention TS classes/models.
+
+```python
+from dataclasses import dataclass
+
+@dataclass(slots=True)
+class User:
+    id: int
+    name: str
+    age: int
+```
+
+Usage:
+
+```python
+user = User(1, "Pawan", 26)
+print(user.name)
+```
+
+### Frozen (Readonly)
+
+```python
+@dataclass(frozen=True, slots=True)
+class Config:
+    app_name: str
+    version: str
+```
+
+Equivalent to TS `readonly` fields.
+
+### Default values & factories
+
+```python
+from dataclasses import dataclass, field
+
+@dataclass(slots=True)
+class Team:
+    name: str
+    members: list[str] = field(default_factory=list)
+```
+
+> Never use a mutable default (`members: list[str] = []`) directly — Python shares that default across instances. Always use `field(default_factory=...)`.
+
+---
+
+## 10. Pydantic Models (FastAPI)
+
+The most common backend model — validated at runtime, not just statically.
+
+```python
+from pydantic import BaseModel, EmailStr
+
+class UserCreate(BaseModel):
+    name: str
+    email: EmailStr
+    age: int
+    is_active: bool = True
+```
+
+Exactly like a validated TS interface (think `zod` schema + TS type in one).
+
+---
+
+## 11. Generic Types
+
+**TypeScript**
+```ts
+type ApiResponse<T> = {
+  data: T;
+  success: boolean;
+};
+```
+
+**Python**
+```python
+from typing import Generic, TypeVar
+from pydantic import BaseModel
+
+T = TypeVar("T")
+
+class ApiResponse(BaseModel, Generic[T]):
+    data: T
+    success: bool
+```
+
+Usage:
+
+```python
+response: ApiResponse[list[int]]
+```
+
+Very useful for FastAPI response envelopes.
+
+### Python 3.12+ generic syntax
+
+```python
+class ApiResponse[T](BaseModel):
+    data: T
+    success: bool
+```
+
+This is the new native generic syntax — equivalent to the `TypeVar` version above, no import needed.
+
+---
+
+## 12. Type Alias
+
+**TypeScript**
+```ts
+type UserId = string;
+```
+
+**Python**
+```python
+type UserId = str
+
+user_id: UserId = "abc123"
+```
+
+Python 3.12 introduced the `type` statement. Before 3.12, use:
+
+```python
+from typing import TypeAlias
+
+UserId: TypeAlias = str
+```
+
+---
+
+## 13. Callable (Function Type)
+
+**TypeScript**
+```ts
+type Fn = (a: number) => string;
+```
+
+**Python**
+```python
+from collections.abc import Callable
+
+Fn = Callable[[int], str]
+
+def execute(fn: Fn) -> str:
+    return fn(10)
+```
+
+---
+
+## 14. Async Functions
+
+```python
+async def fetch_user(user_id: int) -> dict[str, str]:
+    return {"name": "Pawan"}
+```
+
+The return type annotation is the *awaited* value, not a `Promise`/`Awaitable` wrapper — Python infers the coroutine wrapper automatically from `async def`.
+
+If you need to type a variable that *holds* a coroutine (not call it yet):
+
+```python
+from collections.abc import Awaitable, Coroutine
+
+pending: Coroutine[None, None, dict[str, str]] = fetch_user(1)
+```
+
+---
+
+## 15. Enums
+
+**TypeScript**
+```ts
+enum Status {
+  OPEN,
+  CLOSED
+}
+```
+
+**Python**
+```python
+from enum import Enum
+
+class Status(str, Enum):
+    OPEN = "OPEN"
+    CLOSED = "CLOSED"
+```
+
+Perfect for APIs — inheriting from `str` makes the enum JSON-serializable and comparable to plain strings.
+
+### IntEnum (numeric enums, like TS default numeric enums)
+
+```python
+from enum import IntEnum
+
+class Priority(IntEnum):
+    LOW = 1
+    MEDIUM = 2
+    HIGH = 3
+```
+
+### StrEnum (Python 3.11+)
+
+```python
+from enum import StrEnum
+
+class Status(StrEnum):
+    OPEN = "OPEN"
+    CLOSED = "CLOSED"
+```
+
+---
+
+## 16. Type Narrowing
+
+**TypeScript**
+```ts
+if (typeof value === "string")
+```
+
+**Python**
+```python
+def print_value(value: str | int) -> None:
+    if isinstance(value, str):
+        print(value.upper())
+    else:
+        print(value + 1)
+```
+
+Type checkers narrow the type inside each branch automatically, just like TS control-flow analysis.
+
+---
+
+## 17. Typed Class Methods
+
+```python
+class Calculator:
+    name: str
+
+    def __init__(self, name: str):
+        self.name = name
+
+    def add(self, a: int, b: int) -> int:
+        return a + b
+```
+
+Always type `self` attributes, either inline in `__init__` or as class-level annotations.
+
+---
+
+## 18. Typed Decorators
+
+A very common interview question.
+
+```python
+from collections.abc import Callable
+from typing import TypeVar
+
+T = TypeVar("T")
+
+def logger(func: Callable[..., T]) -> Callable[..., T]:
+    def wrapper(*args, **kwargs) -> T:
+        print("Calling", func.__name__)
+        return func(*args, **kwargs)
+
+    return wrapper
+```
+
+See also [§30 ParamSpec](#30-paramspec-typed-decorators-for-any-signature) for preserving exact argument signatures.
+
+---
+
+## 19. Typed Iterables
+
+```python
+from collections.abc import Iterable, Iterator
+
+def total(nums: Iterable[int]) -> int:
+    return sum(nums)
+
+def countdown(n: int) -> Iterator[int]:
+    while n:
+        yield n
+        n -= 1
+```
+
+- `Iterable[T]` — accepts anything you can loop over (lists, sets, generators).
+- `Iterator[T]` — the return type for generator functions (has `__next__`).
+
+---
+
+## 20. Typed JSON Object
+
+```python
+JSON = dict[str, str | int | bool | None]
+
+response: JSON = {
+    "name": "Pawan",
+    "age": 26,
+    "active": True,
+}
+```
+
+For arbitrarily nested JSON, use a recursive alias:
+
+```python
+type JSONValue = str | int | float | bool | None | list["JSONValue"] | dict[str, "JSONValue"]
+```
+
+---
+
+## 21. Final (Readonly Variable)
+
+**TypeScript**
+```ts
+const API_URL = "...";
+```
+
+**Python**
+```python
+from typing import Final
+
+API_URL: Final = "https://example.com"
+```
+
+Static type checkers (mypy/pyright) flag reassignment — Python itself does not enforce it at runtime.
+
+---
+
+## 22. ClassVar (Static Property)
+
+```python
+from typing import ClassVar
+
+class User:
+    table_name: ClassVar[str] = "users"
+
+    def __init__(self, name: str):
+        self.name = name
+```
+
+`table_name` isn't an instance field — it belongs to the class, like a TS `static` property.
+
+---
+
+## 23. Annotated (Extra Metadata)
+
+Used heavily in FastAPI to attach validation rules to a type.
+
+```python
+from typing import Annotated
+from fastapi import Query
+
+async def get_books(
+    page: Annotated[int, Query(gt=0)] = 1,
+    limit: Annotated[int, Query(le=100)] = 10,
+):
+    ...
+```
+
+Type + validation metadata together — the type checker only sees `int`, but FastAPI reads the `Query(...)` metadata at runtime.
+
+`Annotated` is also used for dependency injection:
+
+```python
+from fastapi import Depends
+
+async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]):
+    ...
+```
+
+---
+
+## 24. NewType (Nominal Typing)
+
+TypeScript's structural typing means two types with the same shape are interchangeable. Sometimes you want to prevent that — e.g. don't let a raw `int` be passed where a `UserId` is expected, even though both are ints.
+
+```python
+from typing import NewType
+
+UserId = NewType("UserId", int)
+OrderId = NewType("OrderId", int)
+
+def get_user(user_id: UserId) -> None: ...
+
+uid = UserId(42)
+get_user(uid)          # OK
+get_user(42)           # type error: plain int is not UserId
+```
+
+`NewType` has zero runtime cost — it's purely a type-checker construct, closest to TS "branded types."
+
+---
+
+## 25. Protocol (Structural Typing / Duck Typing)
+
+TypeScript interfaces are structural by default — anything with the matching shape satisfies them. Python classes are nominal by default (must inherit), but `Protocol` gives you TS-style structural typing.
+
+**TypeScript**
+```ts
+interface HasName {
+  name: string;
+}
+
+function greet(x: HasName) {
+  console.log(x.name);
+}
+```
+
+**Python**
+```python
+from typing import Protocol
+
+class HasName(Protocol):
+    name: str
+
+def greet(x: HasName) -> None:
+    print(x.name)
+
+class Dog:
+    name: str = "Rex"
+
+greet(Dog())  # OK — Dog matches the shape, no inheritance needed
+```
+
+This is the idiomatic way to type "anything that quacks like X" — common for dependency injection and testing with fakes/mocks.
+
+---
+
+## 26. NamedTuple
+
+A lightweight, immutable, typed tuple — a common alternative to a small dataclass.
+
+```python
+from typing import NamedTuple
+
+class Point(NamedTuple):
+    x: float
+    y: float
+
+p = Point(1.0, 2.0)
+print(p.x, p.y)
+```
+
+Closest TS analogue: a readonly tuple type with named fields, or a small frozen interface.
+
+---
+
+## 27. overload (Function Overloading)
+
+**TypeScript**
+```ts
+function parse(value: string): number;
+function parse(value: number): string;
+function parse(value: string | number): string | number {
+  ...
+}
+```
+
+**Python**
+```python
+from typing import overload
+
+@overload
+def parse(value: str) -> int: ...
+@overload
+def parse(value: int) -> str: ...
+def parse(value: str | int) -> str | int:
+    if isinstance(value, str):
+        return int(value)
+    return str(value)
+```
+
+The `@overload` signatures are only seen by the type checker; the final implementation is what actually runs.
+
+---
+
+## 28. Self Type
+
+Useful for fluent/builder APIs and classmethod constructors, equivalent to TS `this` return types.
+
+```python
+from typing import Self
+
+class QueryBuilder:
+    def filter(self, condition: str) -> Self:
+        # ... mutate/copy state
+        return self
+
+    @classmethod
+    def create(cls) -> Self:
+        return cls()
+```
+
+Using `Self` instead of the literal class name means subclasses inherit the correct return type automatically.
+
+---
+
+## 29. TypeVar Bounds & Constraints
+
+TypeScript's `T extends SomeType` maps to a **bound** `TypeVar`.
+
+```python
+from typing import TypeVar
+
+# Bound: T must be a subtype of Comparable-ish object
+T = TypeVar("T", bound=int | float)
+
+def largest(items: list[T]) -> T:
+    return max(items)
+```
+
+Constrained (must be exactly one of a fixed set of types):
+
+```python
+S = TypeVar("S", str, bytes)
+
+def first_char(value: S) -> S:
+    return value[:1]
+```
+
+Python 3.12+ syntax:
+
+```python
+def largest[T: (int, float)](items: list[T]) -> T:
+    return max(items)
+```
+
+---
+
+## 30. ParamSpec (Typed Decorators for Any Signature)
+
+`Callable[..., T]` loses the original argument types. `ParamSpec` preserves them — the equivalent of TS's generic function wrapping with full parameter inference.
+
+```python
+from collections.abc import Callable
+from typing import ParamSpec, TypeVar
+
+P = ParamSpec("P")
+T = TypeVar("T")
+
+def logger(func: Callable[P, T]) -> Callable[P, T]:
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
+        print("Calling", func.__name__)
+        return func(*args, **kwargs)
+    return wrapper
+
+@logger
+def add(a: int, b: int) -> int:
+    return a + b
+
+add(1, 2)      # type checker still knows a, b are int
+```
+
+---
+
+## 31. Type[C] and cast()
+
+**`Type[C]`** — typing a class itself (a constructor), not an instance. TS equivalent: `typeof SomeClass`.
+
+```python
+class Animal: ...
+class Dog(Animal): ...
+
+def create(cls: type[Animal]) -> Animal:
+    return cls()
+
+create(Dog)  # OK — Dog is a subtype of Animal
+```
+
+**`cast()`** — tells the type checker "trust me," with zero runtime effect. TS equivalent: `as SomeType`.
+
+```python
+from typing import cast, Any
+
+data: Any = get_raw_data()
+user = cast(dict[str, str], data)
+```
+
+---
+
+## 32. TYPE_CHECKING (Avoiding Circular Imports)
+
+A common pattern when two modules need each other's types only for annotations, not at runtime — similar to TS `import type`.
+
+```python
+from __future__ import annotations
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from my_app.models import User  # only imported for type checkers
+
+def get_owner(user: "User") -> str:
+    return user.name
+```
+
+`from __future__ import annotations` makes all annotations lazily evaluated strings, so forward references and circular type-only imports never break at runtime.
+
+---
+
+## 33. Async Generators & Context Managers
+
+### Async generator
+
+```python
+from collections.abc import AsyncIterator
+
+async def stream_lines(path: str) -> AsyncIterator[str]:
+    async with open_async(path) as f:
+        async for line in f:
+            yield line
+```
+
+### Typed async context manager (common for DB sessions / FastAPI dependencies)
+
+```python
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def get_session() -> AsyncIterator["AsyncSession"]:
+    session = AsyncSession()
+    try:
+        yield session
+    finally:
+        await session.close()
+```
+
+### Sync context manager
+
+```python
+from collections.abc import Iterator
+from contextlib import contextmanager
+
+@contextmanager
+def timer() -> Iterator[None]:
+    start = time.time()
+    yield
+    print(time.time() - start)
+```
+
+---
+
+## 34. Pydantic v2 Deep Dive
+
+### Field metadata & validation (like `Annotated` + `Query`, but for models)
+
+```python
+from pydantic import BaseModel, Field
+
+class Product(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    price: float = Field(gt=0)
+    tags: list[str] = Field(default_factory=list)
+```
+
+### Custom validators
+
+```python
+from pydantic import BaseModel, field_validator
+
+class UserCreate(BaseModel):
+    email: str
+
+    @field_validator("email")
+    @classmethod
+    def lowercase_email(cls, v: str) -> str:
+        return v.lower()
+```
+
+### model_config (replaces `class Config` from v1)
+
+```python
+from pydantic import BaseModel, ConfigDict
+
+class User(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    id: int
+    name: str
+```
+
+### Computed fields
+
+```python
+from pydantic import BaseModel, computed_field
+
+class Rectangle(BaseModel):
+    width: float
+    height: float
+
+    @computed_field
+    @property
+    def area(self) -> float:
+        return self.width * self.height
+```
+
+### Nested & generic models
+
+```python
+from pydantic import BaseModel
+
+class Address(BaseModel):
+    city: str
+    zip_code: str
+
+class User(BaseModel):
+    name: str
+    address: Address
+```
+
+---
+
+## 35. Complete Example (TypeScript-Style Python)
+
+```python
+from dataclasses import dataclass
+from enum import Enum
+from typing import Literal, Final
+
+API_VERSION: Final = "v1"
+
+Role = Literal["admin", "user"]
+
+
+class Status(str, Enum):
+    ACTIVE = "ACTIVE"
+    INACTIVE = "INACTIVE"
+
+
+@dataclass(slots=True)
+class User:
+    id: int
+    name: str
+    email: str
+    role: Role
+    status: Status = Status.ACTIVE
+
+
+def get_user(user_id: int) -> User | None:
+    if user_id != 1:
+        return None
+
+    return User(
+        id=1,
+        name="Pawan",
+        email="pawan@example.com",
+        role="admin",
+    )
+
+
+def get_users() -> list[User]:
+    return [
+        User(1, "Pawan", "a@test.com", "admin"),
+        User(2, "Shruti", "b@test.com", "user"),
+    ]
+```
+
+This is production-quality typed Python.
+
+---
+
+## 36. Must-Know `typing` Module Reference
+
+| Type | Use |
+|---|---|
+| `list[T]` | Arrays |
+| `dict[K, V]` | Objects / Maps |
+| `tuple[T1, T2]` | Fixed tuples |
+| `tuple[T, ...]` | Variable-length homogeneous tuples |
+| `set[T]` | Unique values |
+| `str \| None` | Optional |
+| `Literal[...]` | String/number unions |
+| `TypedDict` | Typed JSON/dicts |
+| `NotRequired[T]` | Optional TypedDict key |
+| `TypeVar` | Generics |
+| `Generic[T]` | Generic models/classes |
+| `Callable` | Function types |
+| `ParamSpec` | Preserve full param signatures in decorators |
+| `Iterable` / `Iterator` | Generators and collections |
+| `AsyncIterator` | Async generators |
+| `Final` | Readonly constants |
+| `ClassVar` | Static class fields |
+| `Annotated` | FastAPI/Pydantic validation metadata |
+| `Any` | Escape hatch (like TS `any`) |
+| `object` | Safe unknown type (like TS `unknown`) |
+| `NewType` | Nominal/branded typing |
+| `Protocol` | Structural typing (duck typing) |
+| `NamedTuple` | Immutable typed tuple with named fields |
+| `overload` | Function overloading |
+| `Self` | Fluent APIs, classmethod constructors |
+| `cast()` | Type-checker override, no runtime effect |
+| `type[C]` | Typing a class/constructor itself |
+| `TYPE_CHECKING` | Avoid circular imports for type-only imports |
+
+---
+
+## 37. Recommended Linting (TypeScript-like Strictness)
+
+For a TypeScript developer, enable strict type checking.
+
+`pyproject.toml`
+```toml
+[tool.pyright]
+typeCheckingMode = "strict"
+
+[tool.mypy]
+strict = true
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+```
+
+This gives a development experience close to TypeScript's `strict: true`.
+
+---
+
+## 38. Learning Priority
+
+Learn these first (priority for FastAPI + AI backend work):
+
+- ✅ Basic types (`str`, `int`, `bool`, `list`, `dict`, `tuple`, `set`)
+- ✅ Function parameter and return types
+- ✅ `str | None` (optional)
+- ✅ `Literal`
+- ✅ `Enum`
+- ✅ `TypedDict`
+- ✅ `@dataclass(slots=True, frozen=True)`
+- ✅ `BaseModel` (Pydantic)
+- ✅ `Annotated` (FastAPI)
+- ✅ `TypeVar` + `Generic`
+- ✅ `Callable`
+
+Learn these next, once the basics are solid:
+
+- ✅ `Protocol` (structural typing)
+- ✅ `Self`
+- ✅ `NewType`
+- ✅ `overload`
+- ✅ `ParamSpec`
+- ✅ `TYPE_CHECKING`
+- ✅ Pydantic v2 validators, `model_config`, computed fields
