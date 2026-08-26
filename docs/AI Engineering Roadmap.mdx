@@ -1,0 +1,866 @@
+---
+title: "AI Engineering Roadmap: RAG, LangChain, LangGraph & Agents"
+description: "A topic-by-topic roadmap for building LLM applications — foundations, RAG, LangChain, LangGraph, agents, evaluation, and production concerns."
+---
+
+# AI Engineering Roadmap: RAG, LangChain, LangGraph & Agents
+
+Framework APIs move fast — treat code snippets here as illustrating the *concept*, and check current docs for exact syntax before shipping.
+
+## Table of Contents
+
+1. [Quick Reference Table](#1-quick-reference-table)
+2. [Foundations: How LLMs Actually Work](#2-foundations-how-llms-actually-work)
+3. [Embeddings](#3-embeddings)
+4. [Vector Databases](#4-vector-databases)
+5. [Prompt Engineering](#5-prompt-engineering)
+6. [Fine-Tuning vs RAG vs Prompting](#6-fine-tuning-vs-rag-vs-prompting)
+7. [LangChain Core Concepts](#7-langchain-core-concepts)
+8. [LCEL — LangChain Expression Language](#8-lcel-langchain-expression-language)
+9. [Output Parsers & Structured Output](#9-output-parsers-structured-output)
+10. [Memory](#10-memory)
+11. [Tools & Tool Calling](#11-tools-tool-calling)
+12. [RAG ⭐ Core Pipeline](#12-rag-core-pipeline)
+13. [Chunking Strategies](#13-chunking-strategies)
+14. [Retrieval Strategies](#14-retrieval-strategies)
+15. [Reranking](#15-reranking)
+16. [Advanced RAG Techniques](#16-advanced-rag-techniques)
+17. [Agents](#17-agents)
+18. [LangGraph ⭐ Core Concepts](#18-langgraph-core-concepts)
+19. [LangGraph: Cycles, Conditional Edges & Human-in-the-Loop](#19-langgraph-cycles-conditional-edges-human-in-the-loop)
+20. [Multi-Agent Systems](#20-multi-agent-systems)
+21. [Evaluation](#21-evaluation)
+22. [Observability (LangSmith / Tracing)](#22-observability-langsmith-tracing)
+23. [Guardrails & Safety](#23-guardrails-safety)
+24. [Multi-Modal RAG](#24-multi-modal-rag)
+25. [Caching & Cost Optimization](#25-caching-cost-optimization)
+26. [Streaming Responses](#26-streaming-responses)
+27. [Framework Comparison](#27-framework-comparison)
+28. [Full Example: RAG + Agent with LangGraph](#28-full-example-rag-agent-with-langgraph)
+29. [Learning Roadmap](#29-learning-roadmap)
+
+---
+
+## 1. Quick Reference Table
+
+| Concept | Used for |
+|---|---|
+| Embeddings | Turning text into vectors for similarity search |
+| Vector DB | Storing & searching embeddings at scale |
+| RAG | Grounding LLM answers in retrieved documents |
+| Chunking | Splitting documents into retrievable pieces |
+| Reranking | Reordering retrieved results by relevance |
+| LangChain | Composable building blocks for LLM apps (prompts, chains, retrievers) |
+| LCEL | Pipe-based syntax (`|`) for composing LangChain components |
+| LangGraph | Graph-based orchestration for stateful, cyclical agent workflows |
+| Agent | An LLM that decides which tools/actions to take, in a loop |
+| Tool calling | Letting the LLM invoke functions with structured arguments |
+| LangSmith | Tracing, debugging, and evaluating LLM pipelines |
+| Guardrails | Constraints/validation on LLM input & output |
+
+---
+
+## 2. Foundations: How LLMs Actually Work
+
+Before frameworks, understand what you're orchestrating:
+
+- **Tokens** — text is split into subword tokens; context windows and cost are measured in tokens, not characters.
+- **Context window** — the maximum number of tokens (input + output) a model can process at once. RAG exists largely *because* context windows are finite and expensive to fill.
+- **Autoregressive generation** — models predict one token at a time based on everything before it; this is why streaming works token-by-token.
+- **Temperature / top_p** — control randomness of sampling. Low temperature (0–0.3) for factual/deterministic tasks, higher (0.7+) for creative tasks.
+- **System vs user vs assistant messages** — the system message sets persistent behavior; conversation history alternates user/assistant turns.
+
+```python
+from openai import OpenAI
+
+client = OpenAI()
+response = client.chat.completions.create(
+    model="gpt-4o",
+    messages=[
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": "Explain RAG in one sentence."},
+    ],
+    temperature=0.3,
+)
+print(response.choices[0].message.content)
+```
+
+---
+
+## 3. Embeddings
+
+An embedding is a numeric vector representing the *meaning* of text — similar meanings produce similar (close) vectors.
+
+```python
+from langchain_openai import OpenAIEmbeddings
+
+embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
+vector = embeddings.embed_query("What is retrieval augmented generation?")
+print(len(vector))   # e.g. 1536 dimensions
+```
+
+**Similarity metrics:**
+
+| Metric | Notes |
+|---|---|
+| Cosine similarity | Most common; measures angle, ignores magnitude |
+| Dot product | Faster, but sensitive to vector magnitude |
+| Euclidean distance | Straight-line distance; less common for text embeddings |
+
+**Key trade-off:** larger embedding models are more accurate but slower and costlier to compute and store — dimension count directly affects vector DB storage and query latency.
+
+---
+
+## 4. Vector Databases
+
+Stores embeddings and supports fast approximate nearest-neighbor (ANN) search over millions/billions of vectors.
+
+| Option | Notes |
+|---|---|
+| **FAISS** | Local, in-memory/on-disk library — great for prototyping, no server needed |
+| **Chroma** | Lightweight, easy local dev, embeddable in-process |
+| **Pinecone** | Managed, serverless, scales easily, no infra to run |
+| **Weaviate** | Open-source, supports hybrid search out of the box |
+| **pgvector** | Postgres extension — good if you already run Postgres and don't want a separate system |
+| **Qdrant** | Open-source, fast, good filtering support |
+
+```python
+from langchain_chroma import Chroma
+from langchain_openai import OpenAIEmbeddings
+
+vectorstore = Chroma.from_texts(
+    texts=["Paris is the capital of France.", "The Eiffel Tower is in Paris."],
+    embedding=OpenAIEmbeddings(),
+)
+
+results = vectorstore.similarity_search("capital of France", k=1)
+print(results[0].page_content)
+```
+
+**Index types** (ANN algorithms): `HNSW` (fast, high recall, more memory) vs `IVF` (lower memory, needs training) — most managed vector DBs pick this for you, but it matters when self-hosting at scale.
+
+---
+
+## 5. Prompt Engineering
+
+- **Zero-shot** — just ask.
+- **Few-shot** — provide examples in the prompt.
+- **Chain-of-thought (CoT)** — ask the model to reason step by step before answering.
+- **Role prompting** — set persona/expertise via the system message.
+
+```python
+from langchain_core.prompts import ChatPromptTemplate
+
+prompt = ChatPromptTemplate.from_messages([
+    ("system", "You are an expert SQL developer."),
+    ("human", "Write a query to {task}."),
+])
+
+formatted = prompt.invoke({"task": "find the top 5 customers by revenue"})
+```
+
+Few-shot example:
+
+```python
+from langchain_core.prompts import FewShotChatMessagePromptTemplate
+
+examples = [
+    {"input": "happy", "output": "joyful"},
+    {"input": "sad", "output": "sorrowful"},
+]
+
+example_prompt = ChatPromptTemplate.from_messages([
+    ("human", "{input}"),
+    ("ai", "{output}"),
+])
+
+few_shot_prompt = FewShotChatMessagePromptTemplate(
+    examples=examples,
+    example_prompt=example_prompt,
+)
+```
+
+---
+
+## 6. Fine-Tuning vs RAG vs Prompting
+
+| Approach | Best for | Trade-offs |
+|---|---|---|
+| **Prompting** | Quick iteration, general tasks | Limited by context window, no new knowledge |
+| **RAG** | Grounding in current/proprietary data | Retrieval quality caps answer quality; added infra |
+| **Fine-tuning** | Consistent style/format, domain-specific behavior | Expensive, slow to update, doesn't reliably add new factual knowledge |
+
+**Rule of thumb:** start with prompting, add RAG when you need up-to-date or proprietary knowledge, and only fine-tune when prompting+RAG can't achieve the needed *style*, *format consistency*, or *latency* (smaller fine-tuned models can replace a larger prompted one for narrow tasks).
+
+---
+
+## 7. LangChain Core Concepts
+
+LangChain provides composable pieces so you don't hand-roll prompt formatting, API calls, and parsing every time.
+
+| Component | Role |
+|---|---|
+| `ChatModel` | Wraps an LLM provider (OpenAI, Anthropic, etc.) behind a common interface |
+| `PromptTemplate` | Parameterized prompt text |
+| `OutputParser` | Converts raw model output into structured data |
+| `Retriever` | Fetches relevant documents given a query |
+| `Chain` | A sequence of steps (prompt → model → parser, etc.) |
+| `Document` | A piece of text + metadata, the basic unit RAG works with |
+
+```python
+from langchain_anthropic import ChatAnthropic
+
+model = ChatAnthropic(model="claude-sonnet-4-6")
+response = model.invoke("What is LangChain used for?")
+print(response.content)
+```
+
+---
+
+## 8. LCEL — LangChain Expression Language
+
+The `|` (pipe) operator composes components into a runnable chain — each step's output becomes the next step's input.
+
+```python
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+from langchain_anthropic import ChatAnthropic
+
+prompt = ChatPromptTemplate.from_template("Summarize this in one sentence: {text}")
+model = ChatAnthropic(model="claude-sonnet-4-6")
+parser = StrOutputParser()
+
+chain = prompt | model | parser
+
+result = chain.invoke({"text": "Long article text here..."})
+```
+
+LCEL chains automatically support `.invoke()`, `.batch()`, `.stream()`, and async variants (`.ainvoke()`) without extra code — a major reason to prefer it over the older `Chain` classes.
+
+---
+
+## 9. Output Parsers & Structured Output
+
+Getting reliable, machine-readable output from an LLM instead of free-form text.
+
+```python
+from pydantic import BaseModel, Field
+from langchain_core.output_parsers import PydanticOutputParser
+
+class MovieReview(BaseModel):
+    title: str = Field(description="Movie title")
+    rating: int = Field(description="Rating out of 10")
+    summary: str
+
+parser = PydanticOutputParser(pydantic_object=MovieReview)
+
+prompt = ChatPromptTemplate.from_template(
+    "Review this movie: {movie}\n{format_instructions}"
+)
+chain = prompt | model | parser
+
+result = chain.invoke({
+    "movie": "Inception",
+    "format_instructions": parser.get_format_instructions(),
+})
+```
+
+Most modern providers also support native structured output / JSON mode (`with_structured_output(Schema)` in LangChain) — prefer that over parsing free text when the provider supports it, since it's more reliable than asking nicely for JSON.
+
+```python
+structured_model = model.with_structured_output(MovieReview)
+result = structured_model.invoke("Review Inception")
+```
+
+---
+
+## 10. Memory
+
+LLM APIs are stateless — memory is how you carry conversation context across turns.
+
+| Memory type | Behavior |
+|---|---|
+| Buffer memory | Keeps the full raw conversation history |
+| Window memory | Keeps only the last N turns |
+| Summary memory | Periodically summarizes older turns to save tokens |
+| Vector-store memory | Retrieves only *relevant* past turns, not all of them |
+
+```python
+from langchain_core.chat_history import InMemoryChatMessageHistory
+from langchain_core.runnables.history import RunnableWithMessageHistory
+
+store = {}
+
+def get_session_history(session_id: str):
+    if session_id not in store:
+        store[session_id] = InMemoryChatMessageHistory()
+    return store[session_id]
+
+chain_with_history = RunnableWithMessageHistory(
+    chain,
+    get_session_history,
+    input_messages_key="input",
+    history_messages_key="history",
+)
+
+chain_with_history.invoke(
+    {"input": "My name is Pawan"},
+    config={"configurable": {"session_id": "user-1"}},
+)
+```
+
+For production, back the history store with a real database (Redis, Postgres) instead of an in-memory dict.
+
+---
+
+## 11. Tools & Tool Calling
+
+Tool calling lets the model request a function call with structured arguments — the actual execution happens in your code, not the model.
+
+```python
+from langchain_core.tools import tool
+
+@tool
+def get_weather(city: str) -> str:
+    """Get the current weather for a city."""
+    return f"It's sunny in {city}."
+
+model_with_tools = model.bind_tools([get_weather])
+response = model_with_tools.invoke("What's the weather in Tokyo?")
+
+for call in response.tool_calls:
+    print(call["name"], call["args"])   # "get_weather" {"city": "Tokyo"}
+```
+
+The model never actually calls `get_weather` — it returns a *request* to call it with certain arguments; your code executes it and (usually) feeds the result back in a follow-up message.
+
+---
+
+## 12. RAG ⭐ Core Pipeline
+
+Retrieval-Augmented Generation grounds LLM answers in your own data instead of relying solely on what the model memorized during training.
+
+**Pipeline stages:**
+
+```
+Documents → Chunking → Embedding → Vector Store
+                                        ↓
+User Query → Embedding → Similarity Search → Retrieved Chunks
+                                        ↓
+                    Prompt (query + chunks) → LLM → Answer
+```
+
+```python
+from langchain_community.document_loaders import PyPDFLoader
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_chroma import Chroma
+from langchain_openai import OpenAIEmbeddings
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.runnables import RunnablePassthrough
+
+# 1. Load
+loader = PyPDFLoader("handbook.pdf")
+docs = loader.load()
+
+# 2. Split
+splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+chunks = splitter.split_documents(docs)
+
+# 3. Embed + store
+vectorstore = Chroma.from_documents(chunks, OpenAIEmbeddings())
+retriever = vectorstore.as_retriever(search_kwargs={"k": 4})
+
+# 4. Prompt + generate
+prompt = ChatPromptTemplate.from_template(
+    "Answer using only this context:\n{context}\n\nQuestion: {question}"
+)
+
+def format_docs(docs):
+    return "\n\n".join(d.page_content for d in docs)
+
+rag_chain = (
+    {"context": retriever | format_docs, "question": RunnablePassthrough()}
+    | prompt
+    | model
+    | StrOutputParser()
+)
+
+print(rag_chain.invoke("What is the vacation policy?"))
+```
+
+RAG solves two problems at once: it keeps answers grounded in facts (reducing hallucination) and lets you update knowledge by updating documents — no retraining required.
+
+---
+
+## 13. Chunking Strategies
+
+How you split documents dramatically affects retrieval quality.
+
+| Strategy | When to use |
+|---|---|
+| Fixed-size (character/token count) | Simple, fast baseline |
+| Recursive character splitting | Default good choice — tries paragraph → sentence → word boundaries |
+| Semantic chunking | Splits where meaning shifts (embedding-distance based) — better coherence, more expensive |
+| Document-structure-aware | Splits by markdown headers, HTML tags, or code function boundaries |
+| Parent-document chunking | Small chunks for retrieval accuracy, but returns their larger parent chunk for context |
+
+```python
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+splitter = RecursiveCharacterTextSplitter(
+    chunk_size=1000,
+    chunk_overlap=200,          # overlap preserves context across chunk boundaries
+    separators=["\n\n", "\n", ". ", " ", ""],
+)
+```
+
+**Overlap** matters: without it, a sentence split across two chunks can lose meaning in both.
+
+---
+
+## 14. Retrieval Strategies
+
+- **Dense retrieval** — embedding similarity search (the RAG default).
+- **Sparse retrieval (BM25 / keyword)** — great for exact terms, IDs, acronyms that embeddings can blur together.
+- **Hybrid search** — combine dense + sparse, then merge/rerank — often beats either alone.
+- **Metadata filtering** — narrow the search space first (e.g., `department = "HR"`) before similarity search.
+- **Maximal Marginal Relevance (MMR)** — reduces redundancy by penalizing results too similar to ones already selected.
+
+```python
+retriever = vectorstore.as_retriever(
+    search_type="mmr",
+    search_kwargs={"k": 4, "fetch_k": 20, "lambda_mult": 0.5},
+)
+```
+
+```python
+from langchain_community.retrievers import BM25Retriever
+from langchain.retrievers import EnsembleRetriever
+
+bm25_retriever = BM25Retriever.from_documents(chunks)
+dense_retriever = vectorstore.as_retriever()
+
+hybrid_retriever = EnsembleRetriever(
+    retrievers=[bm25_retriever, dense_retriever],
+    weights=[0.4, 0.6],
+)
+```
+
+---
+
+## 15. Reranking
+
+Retrieval casts a wide net (e.g., top 20 by embedding similarity); a reranker then reorders those by finer-grained relevance to the query before passing the top few to the LLM.
+
+```python
+from langchain.retrievers import ContextualCompressionRetriever
+from langchain_cohere import CohereRerank
+
+compressor = CohereRerank(model="rerank-english-v3.0", top_n=4)
+compression_retriever = ContextualCompressionRetriever(
+    base_compressor=compressor,
+    base_retriever=vectorstore.as_retriever(search_kwargs={"k": 20}),
+)
+```
+
+Rerankers are typically cross-encoders (score query+document together) rather than bi-encoders (score independently, like embeddings) — slower per-pair but much more accurate, which is why they're used on a small shortlist, not the whole corpus.
+
+---
+
+## 16. Advanced RAG Techniques
+
+- **Query rewriting/expansion** — use the LLM to rephrase a vague user query into a better search query before retrieval.
+- **HyDE (Hypothetical Document Embeddings)** — ask the LLM to generate a *hypothetical* answer first, then embed *that* to search — often matches document style better than the raw question.
+- **Multi-query retrieval** — generate several rephrasings of the query, retrieve for each, and merge results.
+- **Self-querying retriever** — LLM extracts structured metadata filters from a natural-language query (e.g., "papers from 2023 about transformers" → filter `year=2023` + search "transformers").
+- **Contextual compression** — trim retrieved chunks down to only the sentences relevant to the query before sending to the LLM, saving tokens.
+- **Corrective RAG (CRAG)** — grade retrieved documents for relevance; if poor, fall back to web search or query reformulation instead of feeding weak context to the LLM.
+
+```python
+from langchain.retrievers.multi_query import MultiQueryRetriever
+
+multi_query_retriever = MultiQueryRetriever.from_llm(
+    retriever=vectorstore.as_retriever(),
+    llm=model,
+)
+```
+
+---
+
+## 17. Agents
+
+An agent is an LLM in a loop: it observes, decides on an action (often a tool call), executes it, observes the result, and repeats until it has a final answer.
+
+**ReAct pattern** (Reason + Act):
+
+```
+Thought: I need to look up the weather.
+Action: get_weather(city="Tokyo")
+Observation: It's sunny in Tokyo.
+Thought: I now have enough information.
+Final Answer: It's sunny in Tokyo today.
+```
+
+```python
+from langchain.agents import create_react_agent, AgentExecutor
+from langchain import hub
+
+prompt = hub.pull("hwchase17/react")
+agent = create_react_agent(model, tools=[get_weather], prompt=prompt)
+executor = AgentExecutor(agent=agent, tools=[get_weather], verbose=True)
+
+executor.invoke({"input": "What's the weather in Tokyo?"})
+```
+
+Classic `AgentExecutor`-style agents are being superseded by **LangGraph** for anything beyond simple tool loops, because graphs give explicit control over branching, retries, and state — see the next section.
+
+---
+
+## 18. LangGraph ⭐ Core Concepts
+
+LangGraph models an LLM workflow as a **graph**: nodes are functions (often LLM calls or tool calls), edges define control flow, and a shared **state** object flows through the whole graph. Unlike a linear LCEL chain, graphs support loops, branches, and human checkpoints naturally.
+
+```python
+from typing import TypedDict
+from langgraph.graph import StateGraph, END
+
+class State(TypedDict):
+    question: str
+    answer: str
+
+def generate(state: State) -> State:
+    response = model.invoke(state["question"])
+    return {"answer": response.content}
+
+graph = StateGraph(State)
+graph.add_node("generate", generate)
+graph.set_entry_point("generate")
+graph.add_edge("generate", END)
+
+app = graph.compile()
+result = app.invoke({"question": "What is LangGraph?"})
+print(result["answer"])
+```
+
+**Core pieces:**
+
+| Piece | Role |
+|---|---|
+| `StateGraph` | The graph builder; typed by a state schema |
+| Node | A function that reads state and returns updates to it |
+| Edge | Connects nodes; defines execution order |
+| `START` / `END` | Special entry/exit markers |
+| Checkpointer | Persists state between runs (enables pause/resume, memory) |
+
+---
+
+## 19. LangGraph: Cycles, Conditional Edges & Human-in-the-Loop
+
+The real power over LCEL: graphs can loop and branch based on state.
+
+```python
+from langgraph.graph import StateGraph, END
+
+class State(TypedDict):
+    question: str
+    draft: str
+    revision_count: int
+
+def draft_answer(state: State) -> State:
+    response = model.invoke(state["question"])
+    return {"draft": response.content, "revision_count": state["revision_count"] + 1}
+
+def needs_revision(state: State) -> str:
+    if "unsure" in state["draft"].lower() and state["revision_count"] < 3:
+        return "draft_answer"   # loop back
+    return END
+
+graph = StateGraph(State)
+graph.add_node("draft_answer", draft_answer)
+graph.set_entry_point("draft_answer")
+graph.add_conditional_edges("draft_answer", needs_revision)
+
+app = graph.compile()
+```
+
+**Human-in-the-loop** — pause execution for approval before a sensitive action:
+
+```python
+from langgraph.checkpoint.memory import MemorySaver
+
+checkpointer = MemorySaver()
+app = graph.compile(checkpointer=checkpointer, interrupt_before=["send_email"])
+
+config = {"configurable": {"thread_id": "conversation-1"}}
+app.invoke({"question": "Draft an email to the team"}, config=config)
+# Execution pauses before "send_email" — inspect/approve state, then:
+app.invoke(None, config=config)   # resume
+```
+
+`interrupt_before` is what makes LangGraph practical for agents that take real-world actions (sending emails, making payments, deleting data) — a human reviews before the risky step executes.
+
+---
+
+## 20. Multi-Agent Systems
+
+Splitting work across specialized agents (researcher, writer, critic) rather than one agent doing everything, orchestrated as a graph.
+
+**Common patterns:**
+
+- **Supervisor** — a router/orchestrator agent decides which specialist agent handles each step.
+- **Sequential pipeline** — fixed order (e.g., researcher → writer → editor).
+- **Network / hand-off** — agents can pass control directly to each other based on need.
+
+```python
+def supervisor(state: State) -> str:
+    decision = model.invoke(
+        f"Given this task, should 'researcher' or 'writer' handle it next? Task: {state['task']}"
+    )
+    return decision.content.strip().lower()
+
+graph.add_conditional_edges("supervisor", supervisor, {
+    "researcher": "researcher_node",
+    "writer": "writer_node",
+})
+```
+
+Multi-agent setups add latency and cost (more LLM calls) — reach for them when a single agent's context/tool set genuinely gets unwieldy, not by default.
+
+---
+
+## 21. Evaluation
+
+"It looks good in a demo" doesn't scale — RAG and agent quality need measurable evaluation.
+
+**RAG-specific metrics (e.g., via RAGAS):**
+
+| Metric | Measures |
+|---|---|
+| Faithfulness | Does the answer only use facts present in retrieved context? |
+| Answer relevance | Does the answer actually address the question? |
+| Context precision | Are retrieved chunks actually relevant? |
+| Context recall | Did retrieval find all the necessary information? |
+
+```python
+from ragas import evaluate
+from ragas.metrics import faithfulness, answer_relevancy, context_precision
+from datasets import Dataset
+
+data = Dataset.from_dict({
+    "question": ["What is the vacation policy?"],
+    "answer": ["Employees get 20 days of paid vacation."],
+    "contexts": [["Employees are entitled to 20 days of paid vacation per year."]],
+})
+
+results = evaluate(data, metrics=[faithfulness, answer_relevancy, context_precision])
+```
+
+Build a **golden test set** (question, expected answer, expected source chunks) early — it's the only reliable way to detect regressions when you change chunking, prompts, or models.
+
+---
+
+## 22. Observability (LangSmith / Tracing)
+
+Once a chain has multiple steps (retrieve → rerank → prompt → generate → parse), debugging blind is painful — tracing shows exactly what each step received and returned.
+
+```python
+import os
+
+os.environ["LANGCHAIN_TRACING_V2"] = "true"
+os.environ["LANGCHAIN_API_KEY"] = "your-langsmith-key"
+os.environ["LANGCHAIN_PROJECT"] = "my-rag-app"
+
+# Any LangChain/LangGraph invocation is now automatically traced
+rag_chain.invoke("What is the vacation policy?")
+```
+
+What tracing gives you: latency per step, token usage/cost per call, the exact prompt sent to the model, and the ability to replay a failing run with modified inputs.
+
+---
+
+## 23. Guardrails & Safety
+
+- **Input validation** — reject or sanitize prompt injection attempts, especially when tool results or retrieved documents could contain adversarial instructions.
+- **Output validation** — check structured output against a schema (Pydantic) before using it downstream; retry on failure.
+- **Content filtering** — block disallowed topics/PII before they reach the user or get logged.
+- **Rate limiting & cost caps** — especially important for agent loops, which can spiral into many LLM calls if not bounded.
+
+```python
+class SafeOutput(BaseModel):
+    answer: str = Field(max_length=2000)
+
+try:
+    structured = model.with_structured_output(SafeOutput).invoke(query)
+except Exception:
+    structured = SafeOutput(answer="Sorry, I couldn't generate a valid response.")
+```
+
+For agent loops, always set a **max iteration count** — an unbounded ReAct/LangGraph loop that never reaches a satisfying answer will otherwise run (and bill) indefinitely.
+
+```python
+app.invoke(inputs, config={"recursion_limit": 10})
+```
+
+---
+
+## 24. Multi-Modal RAG
+
+Extending RAG beyond text — retrieving and reasoning over images, tables, and charts.
+
+- **Image embeddings** (e.g., CLIP-style models) let you search images by text query and vice versa.
+- **Table extraction** — parse tables into structured text (markdown/CSV) before chunking, since raw table text embeds poorly.
+- **Multi-modal LLMs** (vision-capable models) can be given retrieved images directly rather than only text descriptions of them.
+
+```python
+from langchain_core.messages import HumanMessage
+
+message = HumanMessage(content=[
+    {"type": "text", "text": "What does this chart show?"},
+    {"type": "image_url", "image_url": {"url": "data:image/png;base64,..."}},
+])
+response = model.invoke([message])
+```
+
+Common pattern: store both an image and an LLM-generated *text description* of it in the vector store — retrieval matches on the description, but the original image is passed to a vision-capable model for the final answer.
+
+---
+
+## 25. Caching & Cost Optimization
+
+- **Response caching** — cache identical/near-identical queries to skip redundant LLM calls.
+- **Embedding caching** — never re-embed documents that haven't changed.
+- **Semantic caching** — cache by *meaning* (embedding similarity) rather than exact string match, catching paraphrased repeat questions.
+- **Model routing** — use a cheap/fast model for simple queries, escalate to a larger model only when needed.
+
+```python
+from langchain_core.caches import InMemoryCache
+from langchain_core.globals import set_llm_cache
+
+set_llm_cache(InMemoryCache())
+```
+
+For production, back the cache with Redis rather than in-memory, and log a cache-hit-rate metric — it's one of the highest-leverage cost levers in a RAG system.
+
+---
+
+## 26. Streaming Responses
+
+Streaming improves perceived latency by showing tokens as they're generated rather than waiting for the full response.
+
+```python
+for chunk in rag_chain.stream("What is the vacation policy?"):
+    print(chunk, end="", flush=True)
+```
+
+In FastAPI, stream via `StreamingResponse`:
+
+```python
+from fastapi.responses import StreamingResponse
+
+@app.post("/ask")
+async def ask(query: str):
+    async def event_stream():
+        async for chunk in rag_chain.astream(query):
+            yield chunk
+    return StreamingResponse(event_stream(), media_type="text/plain")
+```
+
+LangGraph also supports streaming intermediate **node** outputs (not just final tokens) — useful for showing "Searching documents... Reranking... Generating answer..." progress in a UI.
+
+---
+
+## 27. Framework Comparison
+
+| Framework | Strengths | Best for |
+|---|---|---|
+| **LangChain** | Huge ecosystem of integrations, LCEL composability | General LLM app building, RAG pipelines |
+| **LangGraph** | Explicit state machines, cycles, human-in-the-loop | Complex agents, multi-step workflows needing control |
+| **LlamaIndex** | Strong data-indexing/retrieval abstractions | RAG-heavy apps, especially over structured/semi-structured data |
+| **Haystack** | Pipeline-first design, production search focus | Enterprise search + RAG |
+| **No framework (raw SDK calls)** | Full control, minimal dependencies | Simple apps, or teams that find frameworks add more indirection than value |
+
+It's common to mix approaches: e.g., LlamaIndex for ingestion/indexing, LangGraph for agent orchestration on top.
+
+---
+
+## 28. Full Example: RAG + Agent with LangGraph
+
+A minimal agent that decides whether to retrieve from a knowledge base or answer directly, built as a graph.
+
+```python
+from typing import TypedDict, Literal
+from langgraph.graph import StateGraph, END
+from langchain_core.prompts import ChatPromptTemplate
+
+class State(TypedDict):
+    question: str
+    context: str
+    answer: str
+
+def route(state: State) -> Literal["retrieve", "answer_directly"]:
+    decision = model.invoke(
+        f"Does answering '{state['question']}' require looking up company docs? Reply yes or no."
+    )
+    return "retrieve" if "yes" in decision.content.lower() else "answer_directly"
+
+def retrieve(state: State) -> State:
+    docs = retriever.invoke(state["question"])
+    return {"context": "\n\n".join(d.page_content for d in docs)}
+
+def generate_with_context(state: State) -> State:
+    prompt = ChatPromptTemplate.from_template(
+        "Context:\n{context}\n\nQuestion: {question}"
+    )
+    response = model.invoke(prompt.format(context=state["context"], question=state["question"]))
+    return {"answer": response.content}
+
+def generate_directly(state: State) -> State:
+    response = model.invoke(state["question"])
+    return {"answer": response.content}
+
+graph = StateGraph(State)
+graph.add_node("retrieve", retrieve)
+graph.add_node("generate_with_context", generate_with_context)
+graph.add_node("generate_directly", generate_directly)
+
+graph.set_conditional_entry_point(route, {
+    "retrieve": "retrieve",
+    "answer_directly": "generate_directly",
+})
+graph.add_edge("retrieve", "generate_with_context")
+graph.add_edge("generate_with_context", END)
+graph.add_edge("generate_directly", END)
+
+app = graph.compile()
+
+result = app.invoke({"question": "What is our company's vacation policy?"})
+print(result["answer"])
+```
+
+This pattern — route → (optionally) retrieve → generate — is the backbone of most production "chat with your docs" systems that also handle small talk gracefully.
+
+---
+
+## 29. Learning Roadmap
+
+### Must know (foundation)
+Tokens/context windows · embeddings & similarity search · vector databases · basic prompt engineering · the RAG pipeline end-to-end
+
+### Should know (building real apps)
+LangChain core (`ChatModel`, `PromptTemplate`, LCEL) · structured output / tool calling · chunking strategies · hybrid search + reranking · basic LangGraph (`StateGraph`, conditional edges)
+
+### Advanced (production & agents)
+Advanced RAG (HyDE, multi-query, self-querying, corrective RAG) · LangGraph cycles + human-in-the-loop + checkpointing · multi-agent orchestration · evaluation (RAGAS, golden datasets) · observability (LangSmith) · guardrails, caching, and cost control
+
+### Suggested learning order
+
+1. LLM fundamentals — tokens, context windows, sampling params
+2. Embeddings + a vector DB (start with Chroma or FAISS locally)
+3. Build a basic RAG pipeline end-to-end (load → chunk → embed → retrieve → generate)
+4. LangChain core + LCEL — learn to compose, not just call, components
+5. Improve retrieval — hybrid search, reranking, better chunking
+6. Tool calling → basic agents (ReAct pattern)
+7. LangGraph — model your agent as an explicit graph with state
+8. Add evaluation and tracing (RAGAS + LangSmith) before calling anything "production-ready"
+9. Multi-agent systems, guardrails, caching, and cost optimization
