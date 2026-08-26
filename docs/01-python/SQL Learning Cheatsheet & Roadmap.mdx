@@ -1,0 +1,661 @@
+# SQL Learning Cheatsheet & Roadmap
+
+## Table of Contents
+
+1. [Quick Reference Table](#1-quick-reference-table)
+2. [Database & Table Basics (DDL)](#2-database--table-basics-ddl)
+3. [Data Types](#3-data-types)
+4. [Inserting Data](#4-inserting-data)
+5. [SELECT Basics](#5-select-basics)
+6. [Filtering with WHERE](#6-filtering-with-where)
+7. [Sorting & Limiting](#7-sorting--limiting)
+8. [Updating & Deleting Data](#8-updating--deleting-data)
+9. [NULL Handling](#9-null-handling)
+10. [Aggregate Functions & GROUP BY](#10-aggregate-functions--group-by)
+11. [JOINs ⭐ Most Important](#11-joins--most-important)
+12. [Subqueries](#12-subqueries)
+13. [Common Table Expressions (CTEs)](#13-common-table-expressions-ctes)
+14. [Recursive CTEs](#14-recursive-ctes)
+15. [Window Functions](#15-window-functions)
+16. [Set Operations](#16-set-operations)
+17. [String Functions](#17-string-functions)
+18. [Date & Time Functions](#18-date--time-functions)
+19. [CASE Expressions](#19-case-expressions)
+20. [Constraints](#20-constraints)
+21. [Indexes](#21-indexes)
+22. [Views](#22-views)
+23. [Transactions & ACID](#23-transactions--acid)
+24. [Normalization (1NF–3NF)](#24-normalization-1nf3nf)
+25. [Stored Procedures & Triggers (Overview)](#25-stored-procedures--triggers-overview)
+26. [Query Execution Order (Read This!)](#26-query-execution-order-read-this)
+27. [Performance Tips](#27-performance-tips)
+28. [Common Interview Queries](#28-common-interview-queries)
+29. [Learning Roadmap](#29-learning-roadmap)
+
+---
+
+## 1. Quick Reference Table
+
+| Concept | Used for |
+|---|---|
+| `SELECT / FROM / WHERE` | Retrieving and filtering rows |
+| `JOIN` | Combining rows from multiple tables |
+| `GROUP BY / HAVING` | Aggregating rows into summary groups |
+| `Subquery` | A query nested inside another query |
+| `CTE (WITH ... AS)` | Named, readable temporary result sets |
+| `Window Function` | Per-row calculations across a related set of rows |
+| `Index` | Speed up lookups on specific columns |
+| `Transaction` | Group statements into an all-or-nothing unit |
+| `Constraint` | Enforce data integrity rules |
+| `View` | A saved, reusable named query |
+| `Normalization` | Reducing redundancy in schema design |
+
+---
+
+## 2. Database & Table Basics (DDL)
+
+```sql
+CREATE DATABASE bookstore;
+
+CREATE TABLE authors (
+    id   SERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL
+);
+
+CREATE TABLE books (
+    id        SERIAL PRIMARY KEY,
+    title     VARCHAR(200) NOT NULL,
+    price     NUMERIC(10, 2) NOT NULL,
+    author_id INTEGER REFERENCES authors(id)
+);
+
+ALTER TABLE books ADD COLUMN published_year INTEGER;
+ALTER TABLE books DROP COLUMN published_year;
+ALTER TABLE books RENAME COLUMN price TO unit_price;
+
+DROP TABLE books;
+```
+
+> `SERIAL` (Postgres) ≈ `AUTO_INCREMENT` (MySQL) ≈ `IDENTITY(1,1)` (SQL Server).
+
+---
+
+## 3. Data Types
+
+| Category | Common types |
+|---|---|
+| Text | `VARCHAR(n)`, `TEXT`, `CHAR(n)` |
+| Numbers | `INTEGER`, `BIGINT`, `NUMERIC(p, s)`, `FLOAT` |
+| Boolean | `BOOLEAN` |
+| Date/Time | `DATE`, `TIME`, `TIMESTAMP`, `TIMESTAMPTZ` |
+| Identifiers | `UUID` |
+| Semi-structured | `JSON`, `JSONB` (Postgres) |
+
+Use `NUMERIC(p, s)` (fixed precision) for money — never `FLOAT`, which introduces rounding errors.
+
+---
+
+## 4. Inserting Data
+
+```sql
+INSERT INTO authors (name) VALUES ('J.K. Rowling');
+
+INSERT INTO books (title, price, author_id)
+VALUES
+    ('Book One', 499.00, 1),
+    ('Book Two', 599.00, 1);
+
+-- Insert from another query
+INSERT INTO archived_books (title, price)
+SELECT title, price FROM books WHERE price > 1000;
+```
+
+---
+
+## 5. SELECT Basics
+
+```sql
+SELECT * FROM books;
+
+SELECT title, price FROM books;
+
+SELECT title, price AS current_price FROM books;   -- alias
+
+SELECT DISTINCT author_id FROM books;               -- unique values
+```
+
+---
+
+## 6. Filtering with WHERE
+
+```sql
+SELECT * FROM books WHERE price > 500;
+SELECT * FROM books WHERE price BETWEEN 100 AND 500;
+SELECT * FROM books WHERE author_id IN (1, 2, 3);
+SELECT * FROM books WHERE title LIKE 'Python%';     -- starts with
+SELECT * FROM books WHERE title ILIKE '%guide%';    -- case-insensitive (Postgres)
+SELECT * FROM books WHERE author_id IS NULL;
+SELECT * FROM books WHERE price > 100 AND author_id = 1;
+SELECT * FROM books WHERE price < 100 OR price > 1000;
+SELECT * FROM books WHERE NOT price > 500;
+```
+
+**Wildcards for `LIKE`:** `%` = any number of characters, `_` = exactly one character.
+
+---
+
+## 7. Sorting & Limiting
+
+```sql
+SELECT * FROM books ORDER BY price DESC;
+SELECT * FROM books ORDER BY author_id ASC, price DESC;  -- multi-column sort
+
+SELECT * FROM books LIMIT 10;
+SELECT * FROM books LIMIT 10 OFFSET 20;   -- pagination (page 3, 10/page)
+```
+
+---
+
+## 8. Updating & Deleting Data
+
+```sql
+UPDATE books SET price = 599 WHERE id = 1;
+
+UPDATE books SET price = price * 1.1 WHERE author_id = 1;  -- relative update
+
+DELETE FROM books WHERE id = 1;
+
+DELETE FROM books;          -- deletes all rows (keeps table structure)
+TRUNCATE TABLE books;       -- faster full wipe, resets identity sequence
+```
+
+⚠️ Always run the equivalent `SELECT` with the same `WHERE` clause first to confirm which rows you're about to change.
+
+---
+
+## 9. NULL Handling
+
+`NULL` means "unknown" — it is never equal to anything, including itself.
+
+```sql
+SELECT * FROM books WHERE author_id = NULL;      -- ❌ always returns nothing
+SELECT * FROM books WHERE author_id IS NULL;     -- ✅ correct
+
+SELECT COALESCE(discount, 0) AS discount FROM books;  -- default if NULL
+SELECT NULLIF(price, 0) FROM books;                   -- returns NULL if equal
+```
+
+`COALESCE` returns the first non-NULL argument — handy for default values in reports.
+
+---
+
+## 10. Aggregate Functions & GROUP BY
+
+```sql
+SELECT COUNT(*) FROM books;
+SELECT AVG(price), MIN(price), MAX(price), SUM(price) FROM books;
+
+SELECT author_id, COUNT(*) AS book_count
+FROM books
+GROUP BY author_id;
+
+SELECT author_id, AVG(price) AS avg_price
+FROM books
+GROUP BY author_id
+HAVING AVG(price) > 500;   -- filters groups, not rows
+```
+
+**`WHERE` vs `HAVING`:** `WHERE` filters rows before grouping; `HAVING` filters groups after aggregation.
+
+---
+
+## 11. JOINs ⭐ Most Important
+
+```sql
+-- INNER JOIN: only matching rows in both tables
+SELECT b.title, a.name
+FROM books b
+INNER JOIN authors a ON a.id = b.author_id;
+
+-- LEFT JOIN: all rows from left table, matched or NULL
+SELECT b.title, a.name
+FROM books b
+LEFT JOIN authors a ON a.id = b.author_id;
+
+-- RIGHT JOIN: all rows from right table, matched or NULL
+SELECT b.title, a.name
+FROM books b
+RIGHT JOIN authors a ON a.id = b.author_id;
+
+-- FULL OUTER JOIN: all rows from both, matched where possible
+SELECT b.title, a.name
+FROM books b
+FULL OUTER JOIN authors a ON a.id = b.author_id;
+
+-- SELF JOIN: joining a table to itself
+SELECT e1.name AS employee, e2.name AS manager
+FROM employees e1
+JOIN employees e2 ON e1.manager_id = e2.id;
+
+-- CROSS JOIN: every combination of rows (Cartesian product)
+SELECT s.size, c.color
+FROM sizes s
+CROSS JOIN colors c;
+```
+
+**Finding rows with no match** (e.g., authors with no books):
+
+```sql
+SELECT a.name
+FROM authors a
+LEFT JOIN books b ON b.author_id = a.id
+WHERE b.id IS NULL;
+```
+
+---
+
+## 12. Subqueries
+
+```sql
+-- In WHERE
+SELECT * FROM books
+WHERE author_id IN (SELECT id FROM authors WHERE name = 'Rowling');
+
+-- In FROM (derived table)
+SELECT avg_by_author.author_id, avg_by_author.avg_price
+FROM (
+    SELECT author_id, AVG(price) AS avg_price
+    FROM books
+    GROUP BY author_id
+) AS avg_by_author
+WHERE avg_by_author.avg_price > 500;
+
+-- Correlated subquery (references the outer query)
+SELECT title, price
+FROM books b
+WHERE price > (
+    SELECT AVG(price) FROM books WHERE author_id = b.author_id
+);
+
+-- EXISTS (often faster than IN for existence checks)
+SELECT * FROM authors a
+WHERE EXISTS (SELECT 1 FROM books b WHERE b.author_id = a.id);
+```
+
+---
+
+## 13. Common Table Expressions (CTEs)
+
+A `WITH` clause names a subquery so it can be reused and read top-to-bottom.
+
+```sql
+WITH expensive_books AS (
+    SELECT * FROM books WHERE price > 1000
+)
+SELECT author_id, COUNT(*)
+FROM expensive_books
+GROUP BY author_id;
+```
+
+Multiple CTEs:
+
+```sql
+WITH author_totals AS (
+    SELECT author_id, SUM(price) AS total_sales
+    FROM books
+    GROUP BY author_id
+),
+top_authors AS (
+    SELECT * FROM author_totals WHERE total_sales > 5000
+)
+SELECT a.name, t.total_sales
+FROM top_authors t
+JOIN authors a ON a.id = t.author_id;
+```
+
+CTEs mainly improve readability over nested subqueries — use them to break a complex query into named steps.
+
+---
+
+## 14. Recursive CTEs
+
+Useful for hierarchical data (org charts, category trees, comment threads).
+
+```sql
+WITH RECURSIVE org_chart AS (
+    -- Anchor: top-level managers
+    SELECT id, name, manager_id, 1 AS level
+    FROM employees
+    WHERE manager_id IS NULL
+
+    UNION ALL
+
+    -- Recursive step: employees reporting to previous level
+    SELECT e.id, e.name, e.manager_id, oc.level + 1
+    FROM employees e
+    JOIN org_chart oc ON e.manager_id = oc.id
+)
+SELECT * FROM org_chart ORDER BY level;
+```
+
+---
+
+## 15. Window Functions
+
+Unlike `GROUP BY`, window functions compute a value per row without collapsing the result set.
+
+```sql
+-- Ranking
+SELECT title, author_id, price,
+       RANK() OVER (PARTITION BY author_id ORDER BY price DESC) AS price_rank,
+       ROW_NUMBER() OVER (PARTITION BY author_id ORDER BY price DESC) AS row_num,
+       DENSE_RANK() OVER (PARTITION BY author_id ORDER BY price DESC) AS dense_rank
+FROM books;
+
+-- Running total
+SELECT title, price,
+       SUM(price) OVER (ORDER BY id) AS running_total
+FROM books;
+
+-- Comparing to previous/next row
+SELECT title, price,
+       LAG(price) OVER (ORDER BY id) AS prev_price,
+       LEAD(price) OVER (ORDER BY id) AS next_price
+FROM books;
+```
+
+**`RANK` vs `DENSE_RANK` vs `ROW_NUMBER`:** with a tie, `RANK` leaves gaps (1,1,3), `DENSE_RANK` doesn't (1,1,2), `ROW_NUMBER` always increments uniquely (1,2,3) regardless of ties.
+
+---
+
+## 16. Set Operations
+
+```sql
+-- Combine, removing duplicates
+SELECT name FROM authors
+UNION
+SELECT name FROM editors;
+
+-- Combine, keeping duplicates (faster, no dedup pass)
+SELECT name FROM authors
+UNION ALL
+SELECT name FROM editors;
+
+-- Rows in both sets
+SELECT name FROM authors
+INTERSECT
+SELECT name FROM editors;
+
+-- Rows in first set but not second
+SELECT name FROM authors
+EXCEPT
+SELECT name FROM editors;
+```
+
+Requirement: both queries must select the same number of columns with compatible types.
+
+---
+
+## 17. String Functions
+
+```sql
+SELECT UPPER(title), LOWER(title) FROM books;
+SELECT LENGTH(title) FROM books;
+SELECT CONCAT(title, ' - ', price) FROM books;
+SELECT title || ' - ' || price FROM books;         -- Postgres concat operator
+SELECT TRIM('  hello  ');
+SELECT SUBSTRING(title FROM 1 FOR 5) FROM books;
+SELECT REPLACE(title, 'Python', 'JavaScript') FROM books;
+SELECT SPLIT_PART('a,b,c', ',', 2);                -- 'b' (Postgres)
+```
+
+---
+
+## 18. Date & Time Functions
+
+```sql
+SELECT NOW();                                   -- current timestamp
+SELECT CURRENT_DATE;
+
+SELECT AGE(NOW(), created_at) FROM books;       -- interval since (Postgres)
+SELECT EXTRACT(YEAR FROM created_at) FROM books;
+SELECT DATE_TRUNC('month', created_at) FROM books;
+
+SELECT * FROM books
+WHERE created_at >= NOW() - INTERVAL '30 days';
+
+SELECT created_at + INTERVAL '7 days' FROM books;
+```
+
+---
+
+## 19. CASE Expressions
+
+SQL's inline if/else — usable in `SELECT`, `WHERE`, and `ORDER BY`.
+
+```sql
+SELECT title, price,
+    CASE
+        WHEN price < 200 THEN 'Cheap'
+        WHEN price BETWEEN 200 AND 800 THEN 'Moderate'
+        ELSE 'Expensive'
+    END AS price_tier
+FROM books;
+```
+
+---
+
+## 20. Constraints
+
+```sql
+CREATE TABLE books (
+    id        SERIAL PRIMARY KEY,
+    title     VARCHAR(200) NOT NULL,
+    isbn      VARCHAR(13) UNIQUE,
+    price     NUMERIC(10, 2) CHECK (price >= 0),
+    author_id INTEGER REFERENCES authors(id) ON DELETE CASCADE
+);
+```
+
+| Constraint | Meaning |
+|---|---|
+| `PRIMARY KEY` | Unique row identifier, implies `NOT NULL` + `UNIQUE` |
+| `FOREIGN KEY` / `REFERENCES` | Enforces a valid link to another table's key |
+| `UNIQUE` | No duplicate values in this column |
+| `NOT NULL` | Column must have a value |
+| `CHECK` | Custom boolean rule the value must satisfy |
+| `DEFAULT` | Value used when none is provided |
+
+`ON DELETE CASCADE` automatically deletes dependent rows; `ON DELETE SET NULL` nulls the foreign key instead — choose deliberately, since cascading deletes can silently remove more than expected.
+
+---
+
+## 21. Indexes
+
+```sql
+CREATE INDEX idx_books_author_id ON books(author_id);
+CREATE UNIQUE INDEX idx_books_isbn ON books(isbn);
+CREATE INDEX idx_books_title_price ON books(title, price);  -- composite
+
+DROP INDEX idx_books_author_id;
+```
+
+Rules of thumb:
+- Index columns used in `WHERE`, `JOIN`, and `ORDER BY` — especially foreign keys.
+- Composite index column order matters: put the most selective / most-filtered column first.
+- Don't over-index — every index slows down `INSERT`/`UPDATE`/`DELETE`.
+- Use `EXPLAIN` to check whether an index is actually being used.
+
+---
+
+## 22. Views
+
+A view is a saved query you can select from like a table.
+
+```sql
+CREATE VIEW expensive_books AS
+SELECT * FROM books WHERE price > 1000;
+
+SELECT * FROM expensive_books;
+
+CREATE MATERIALIZED VIEW author_sales AS
+SELECT author_id, SUM(price) AS total_sales
+FROM books
+GROUP BY author_id;
+
+REFRESH MATERIALIZED VIEW author_sales;   -- must be refreshed manually
+```
+
+A regular `VIEW` re-runs its query every time; a `MATERIALIZED VIEW` caches the result until refreshed — use it for expensive aggregations that don't need to be real-time.
+
+---
+
+## 23. Transactions & ACID
+
+```sql
+BEGIN;
+
+UPDATE accounts SET balance = balance - 100 WHERE id = 1;
+UPDATE accounts SET balance = balance + 100 WHERE id = 2;
+
+COMMIT;   -- or ROLLBACK; to undo both statements
+```
+
+**ACID** properties transactions guarantee:
+
+| Property | Meaning |
+|---|---|
+| **A**tomicity | All statements succeed, or none do |
+| **C**onsistency | Database moves from one valid state to another |
+| **I**solation | Concurrent transactions don't interfere |
+| **D**urability | Committed changes survive crashes |
+
+```sql
+SAVEPOINT before_update;
+UPDATE books SET price = 0 WHERE id = 1;
+ROLLBACK TO before_update;   -- undo just this part, keep the transaction open
+```
+
+---
+
+## 24. Normalization (1NF–3NF)
+
+| Form | Rule |
+|---|---|
+| **1NF** | Each column holds a single (atomic) value; no repeating groups |
+| **2NF** | 1NF + every non-key column depends on the *whole* primary key |
+| **3NF** | 2NF + no non-key column depends on another non-key column |
+
+**Example fix (3NF):** instead of storing `author_name` directly on every `books` row (duplicated, hard to update), store `author_id` and keep `author_name` in a separate `authors` table.
+
+Denormalization (intentionally duplicating data) is sometimes used for read-heavy analytics workloads — a deliberate trade-off, not a mistake, when done for performance reasons.
+
+---
+
+## 25. Stored Procedures & Triggers (Overview)
+
+```sql
+-- Function (Postgres)
+CREATE FUNCTION get_book_count(a_id INTEGER) RETURNS INTEGER AS $$
+    SELECT COUNT(*) FROM books WHERE author_id = a_id;
+$$ LANGUAGE SQL;
+
+SELECT get_book_count(1);
+
+-- Trigger: run logic automatically on an event
+CREATE FUNCTION update_timestamp() RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER set_timestamp
+BEFORE UPDATE ON books
+FOR EACH ROW
+EXECUTE FUNCTION update_timestamp();
+```
+
+Use sparingly in application-heavy stacks like FastAPI — business logic in the database is powerful but harder to test, version, and debug than logic in application code.
+
+---
+
+## 26. Query Execution Order (Read This!)
+
+SQL is *written* in one order but *executed* in another — understanding this explains a lot of confusing errors (like why you can't use a `SELECT` alias in `WHERE`).
+
+```
+FROM → JOIN → WHERE → GROUP BY → HAVING → SELECT → DISTINCT → ORDER BY → LIMIT
+```
+
+This is why `WHERE` can't reference a column alias defined in `SELECT` (it runs before `SELECT`), but `ORDER BY` can (it runs after).
+
+---
+
+## 27. Performance Tips
+
+- Use `EXPLAIN` / `EXPLAIN ANALYZE` before optimizing blindly.
+- Filter early — a `WHERE` clause on an indexed column beats fetching everything and filtering in application code.
+- Avoid `SELECT *` in production queries — fetch only needed columns.
+- Prefer `EXISTS` over `IN` for large subquery existence checks.
+- Batch writes instead of looping single-row `INSERT`/`UPDATE` statements.
+- Watch for implicit type casts in `WHERE` clauses — they can silently disable index usage.
+- Paginate with keyset (`WHERE id > last_id`) instead of large `OFFSET` values on big tables.
+
+---
+
+## 28. Common Interview Queries
+
+```sql
+-- Second highest price
+SELECT MAX(price) FROM books
+WHERE price < (SELECT MAX(price) FROM books);
+
+-- Nth highest price (Postgres)
+SELECT DISTINCT price FROM books
+ORDER BY price DESC
+LIMIT 1 OFFSET (2 - 1);   -- N = 2
+
+-- Duplicate rows
+SELECT title, COUNT(*)
+FROM books
+GROUP BY title
+HAVING COUNT(*) > 1;
+
+-- Delete duplicates, keep one
+DELETE FROM books
+WHERE id NOT IN (
+    SELECT MIN(id) FROM books GROUP BY title, author_id
+);
+
+-- Employees earning more than their manager
+SELECT e.name
+FROM employees e
+JOIN employees m ON e.manager_id = m.id
+WHERE e.salary > m.salary;
+```
+
+---
+
+## 29. Learning Roadmap
+
+### Must know (used constantly)
+`SELECT` / `WHERE` / `ORDER BY` / `LIMIT` · `JOIN` (inner & left) · `GROUP BY` / `HAVING` · `INSERT` / `UPDATE` / `DELETE` · `NULL` handling · basic constraints
+
+### Should know (used often)
+Subqueries & `EXISTS` · CTEs · `CASE` expressions · indexes · transactions · views · set operations (`UNION`/`INTERSECT`/`EXCEPT`)
+
+### Advanced / interview-level
+Window functions (`RANK`, `LAG`/`LEAD`, running totals) · recursive CTEs · normalization theory · query execution order · performance tuning with `EXPLAIN`
+
+### Suggested learning order
+
+1. `SELECT`, `WHERE`, `ORDER BY`, `LIMIT` — basic retrieval
+2. `INSERT`, `UPDATE`, `DELETE` — modifying data
+3. `JOIN` types — this is the single highest-leverage topic in SQL
+4. `GROUP BY`, `HAVING`, aggregate functions
+5. Subqueries → CTEs (same ideas, more readable)
+6. Window functions — ranking, running totals, comparisons across rows
+7. Constraints, indexes, and transactions — data integrity and performance
+8. Normalization and schema design — how to structure tables well
+9. Views, stored procedures/triggers — know they exist, use judiciously

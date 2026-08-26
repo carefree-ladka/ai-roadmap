@@ -1,0 +1,749 @@
+# PostgreSQL Cheatsheet & Roadmap
+
+## Table of Contents
+
+1. [Quick Reference Table](#1-quick-reference-table)
+2. [Choosing a Driver](#2-choosing-a-driver)
+3. [Connection String / DATABASE_URL](#3-connection-string--database_url)
+4. [Config with pydantic-settings](#4-config-with-pydantic-settings)
+5. [SQLAlchemy 2.0 Async Engine Setup](#5-sqlalchemy-20-async-engine-setup)
+6. [FastAPI DB Session Dependency](#6-fastapi-db-session-dependency)
+7. [Declarative Models (ORM)](#7-declarative-models-orm)
+8. [Alembic Migrations](#8-alembic-migrations)
+9. [CRUD Operations (Async)](#9-crud-operations-async)
+10. [Relationships](#10-relationships)
+11. [Pydantic ⇄ SQLAlchemy (Schemas)](#11-pydantic--sqlalchemy-schemas)
+12. [Transactions](#12-transactions)
+13. [Raw SQL with SQLAlchemy `text()`](#13-raw-sql-with-sqlalchemy-text)
+14. [Raw asyncpg (No ORM)](#14-raw-asyncpg-no-orm)
+15. [Indexes & Constraints](#15-indexes--constraints)
+16. [UUID Primary Keys](#16-uuid-primary-keys)
+17. [Enum Types](#17-enum-types)
+18. [JSONB Columns](#18-jsonb-columns)
+19. [Full-Text Search](#19-full-text-search)
+20. [UPSERT (ON CONFLICT)](#20-upsert-on-conflict)
+21. [Pagination](#21-pagination)
+22. [Connection Pooling](#22-connection-pooling)
+23. [Core SQL Cheatsheet](#23-core-sql-cheatsheet)
+24. [Window Functions](#24-window-functions)
+25. [Performance: EXPLAIN ANALYZE & Indexing Tips](#25-performance-explain-analyze--indexing-tips)
+26. [Testing with pytest](#26-testing-with-pytest)
+27. [Common psql Commands](#27-common-psql-commands)
+28. [Full FastAPI + Postgres Example](#28-full-fastapi--postgres-example)
+29. [Learning Roadmap](#29-learning-roadmap)
+
+---
+
+## 1. Quick Reference Table
+
+| Tool / Concept | Used for |
+|---|---|
+| `asyncpg` | Fast async PostgreSQL driver |
+| `psycopg` (v3) | Sync + async driver, Alembic-friendly |
+| SQLAlchemy 2.0 (async) | ORM + query builder |
+| Alembic | Schema migrations |
+| `pydantic-settings` | Typed environment config |
+| `AsyncSession` | Per-request DB session in FastAPI |
+| `Mapped[...]` / `mapped_column()` | SQLAlchemy 2.0 typed model columns |
+| `selectinload` / `joinedload` | Eager-load relationships |
+| `text()` | Escape hatch to raw SQL in SQLAlchemy |
+| JSONB | Flexible schema-less columns |
+| `ON CONFLICT` | UPSERT in Postgres |
+| `EXPLAIN ANALYZE` | Query performance diagnostics |
+
+---
+
+## 2. Choosing a Driver
+
+| Driver | Async? | Notes |
+|---|---|---|
+| `asyncpg` | ✅ Native async | Fastest option, used via SQLAlchemy's `postgresql+asyncpg://` |
+| `psycopg` (v3) | ✅ Both sync & async | Newer, actively maintained, works well with Alembic |
+| `psycopg2` | ❌ Sync only | Legacy, still common in older codebases |
+
+For a new FastAPI project in 2026: **SQLAlchemy 2.0 async + asyncpg** for the app, **psycopg (v3)** for Alembic (migrations run synchronously).
+
+```bash
+pip install "sqlalchemy[asyncio]" asyncpg psycopg[binary] alembic pydantic-settings
+```
+
+---
+
+## 3. Connection String / DATABASE_URL
+
+```
+postgresql+asyncpg://user:password@localhost:5432/mydb
+```
+
+Breakdown: `postgresql+<driver>://<user>:<password>@<host>:<port>/<database>`
+
+Alembic (sync) typically uses a separate URL without `+asyncpg`:
+
+```
+postgresql+psycopg://user:password@localhost:5432/mydb
+```
+
+---
+
+## 4. Config with pydantic-settings
+
+```python
+from pydantic_settings import BaseSettings
+
+class Settings(BaseSettings):
+    database_url: str
+    db_echo: bool = False
+
+    class Config:
+        env_file = ".env"
+
+settings = Settings()
+```
+
+`.env`:
+
+```
+DATABASE_URL=postgresql+asyncpg://user:password@localhost:5432/mydb
+```
+
+Keeps credentials out of source code and type-checked.
+
+---
+
+## 5. SQLAlchemy 2.0 Async Engine Setup
+
+```python
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+
+engine = create_async_engine(settings.database_url, echo=settings.db_echo)
+
+AsyncSessionLocal = async_sessionmaker(
+    bind=engine,
+    class_=AsyncSession,
+    expire_on_commit=False,
+)
+```
+
+`expire_on_commit=False` avoids re-fetching attributes after commit — important when returning objects from a FastAPI response.
+
+---
+
+## 6. FastAPI DB Session Dependency
+
+```python
+from typing import Annotated, AsyncGenerator
+from fastapi import Depends
+
+async def get_db() -> AsyncGenerator[AsyncSession, None]:
+    async with AsyncSessionLocal() as session:
+        yield session
+
+DbSession = Annotated[AsyncSession, Depends(get_db)]
+
+@app.get("/books")
+async def list_books(db: DbSession):
+    result = await db.execute(select(Book))
+    return result.scalars().all()
+```
+
+The `yield`-based dependency guarantees the session closes even if the request raises an error.
+
+---
+
+## 7. Declarative Models (ORM)
+
+SQLAlchemy 2.0 uses `Mapped[...]` type annotations instead of plain `Column(...)`.
+
+```python
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy import String, ForeignKey
+from datetime import datetime
+
+class Base(DeclarativeBase):
+    pass
+
+class Book(Base):
+    __tablename__ = "books"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    title: Mapped[str] = mapped_column(String(200))
+    price: Mapped[float]
+    author_id: Mapped[int] = mapped_column(ForeignKey("authors.id"))
+    created_at: Mapped[datetime] = mapped_column(server_default="now()")
+```
+
+Type hints do double duty: they define the Python type **and** drive the SQL column type.
+
+---
+
+## 8. Alembic Migrations
+
+```bash
+alembic init alembic
+```
+
+`alembic.ini` / `env.py` → point `target_metadata` to `Base.metadata` and set `sqlalchemy.url` to your sync driver URL.
+
+```bash
+# Autogenerate a migration from model changes
+alembic revision --autogenerate -m "add books table"
+
+# Apply migrations
+alembic upgrade head
+
+# Roll back one step
+alembic downgrade -1
+```
+
+Always **review autogenerated migrations** — Alembic doesn't reliably detect column renames, check constraints, or some type changes.
+
+---
+
+## 9. CRUD Operations (Async)
+
+```python
+from sqlalchemy import select
+
+# CREATE
+book = Book(title="Python 101", price=499, author_id=1)
+db.add(book)
+await db.commit()
+await db.refresh(book)
+
+# READ (one)
+result = await db.execute(select(Book).where(Book.id == 1))
+book = result.scalar_one_or_none()
+
+# READ (many)
+result = await db.execute(select(Book).limit(10))
+books = result.scalars().all()
+
+# UPDATE
+book.price = 599
+await db.commit()
+
+# DELETE
+await db.delete(book)
+await db.commit()
+```
+
+`scalar_one_or_none()` returns `None` instead of raising when no row matches — use `scalar_one()` when you expect exactly one row and want an error otherwise.
+
+---
+
+## 10. Relationships
+
+```python
+from sqlalchemy.orm import relationship
+
+class Author(Base):
+    __tablename__ = "authors"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str]
+    books: Mapped[list["Book"]] = relationship(back_populates="author")
+
+class Book(Base):
+    __tablename__ = "books"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    author_id: Mapped[int] = mapped_column(ForeignKey("authors.id"))
+    author: Mapped["Author"] = relationship(back_populates="books")
+```
+
+### Avoiding N+1 queries — eager loading
+
+```python
+from sqlalchemy.orm import selectinload
+
+result = await db.execute(
+    select(Author).options(selectinload(Author.books))
+)
+authors = result.scalars().all()
+```
+
+`selectinload` issues a second efficient query for all related rows; without it, accessing `author.books` lazily triggers one query per author.
+
+---
+
+## 11. Pydantic ⇄ SQLAlchemy (Schemas)
+
+Keep API schemas separate from ORM models — never expose ORM objects directly.
+
+```python
+from pydantic import BaseModel, ConfigDict
+
+class BookCreate(BaseModel):
+    title: str
+    price: float
+    author_id: int
+
+class BookOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)  # replaces old orm_mode
+
+    id: int
+    title: str
+    price: float
+
+@app.post("/books", response_model=BookOut)
+async def create_book(payload: BookCreate, db: DbSession):
+    book = Book(**payload.model_dump())
+    db.add(book)
+    await db.commit()
+    await db.refresh(book)
+    return book
+```
+
+`from_attributes=True` lets Pydantic build `BookOut` directly from a SQLAlchemy instance's attributes.
+
+---
+
+## 12. Transactions
+
+`AsyncSession` starts a transaction implicitly; commit or roll it back explicitly.
+
+```python
+async with AsyncSessionLocal() as db:
+    async with db.begin():
+        db.add(Book(title="A", price=100, author_id=1))
+        db.add(Book(title="B", price=200, author_id=1))
+    # auto-commits on exit, auto-rollbacks on exception
+```
+
+For multi-step operations that must succeed or fail together (e.g., debit + credit), wrap them in one `db.begin()` block rather than calling `commit()` after each step.
+
+---
+
+## 13. Raw SQL with SQLAlchemy `text()`
+
+```python
+from sqlalchemy import text
+
+result = await db.execute(
+    text("SELECT id, title FROM books WHERE price > :min_price"),
+    {"min_price": 100},
+)
+rows = result.mappings().all()
+```
+
+Always use bound parameters (`:min_price`) — never f-string values into SQL, which opens the door to SQL injection.
+
+---
+
+## 14. Raw asyncpg (No ORM)
+
+For scripts or performance-critical paths where you want to skip the ORM entirely:
+
+```python
+import asyncpg
+
+conn = await asyncpg.connect(dsn="postgresql://user:password@localhost/mydb")
+rows = await conn.fetch("SELECT id, title FROM books WHERE price > $1", 100)
+await conn.close()
+```
+
+`asyncpg` uses `$1, $2, ...` placeholders instead of named parameters.
+
+---
+
+## 15. Indexes & Constraints
+
+```python
+from sqlalchemy import Index, UniqueConstraint, CheckConstraint
+
+class Book(Base):
+    __tablename__ = "books"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    isbn: Mapped[str] = mapped_column(String(13))
+    price: Mapped[float]
+
+    __table_args__ = (
+        UniqueConstraint("isbn", name="uq_books_isbn"),
+        CheckConstraint("price >= 0", name="ck_books_price_positive"),
+        Index("ix_books_price", "price"),
+    )
+```
+
+Raw SQL equivalent:
+
+```sql
+CREATE UNIQUE INDEX uq_books_isbn ON books (isbn);
+CREATE INDEX ix_books_price ON books (price);
+ALTER TABLE books ADD CONSTRAINT ck_books_price_positive CHECK (price >= 0);
+```
+
+Index columns you frequently filter, join, or sort on — but every index adds write overhead, so don't index everything.
+
+---
+
+## 16. UUID Primary Keys
+
+```python
+import uuid
+from sqlalchemy.dialects.postgresql import UUID
+
+class Book(Base):
+    __tablename__ = "books"
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+```
+
+UUIDs avoid exposing sequential IDs (e.g., `/books/1`, `/books/2`) and work well for distributed systems. Trade-off: slightly larger index size than integers.
+
+---
+
+## 17. Enum Types
+
+Postgres has a native `ENUM` type; SQLAlchemy maps Python `Enum` to it.
+
+```python
+import enum
+from sqlalchemy import Enum as SqlEnum
+
+class Status(str, enum.Enum):
+    PENDING = "pending"
+    ACTIVE = "active"
+    CLOSED = "closed"
+
+class Order(Base):
+    __tablename__ = "orders"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    status: Mapped[Status] = mapped_column(SqlEnum(Status, name="order_status"))
+```
+
+Adding a new enum value later requires a migration (`ALTER TYPE ... ADD VALUE`) — Alembic doesn't autogenerate this reliably, so write it by hand when needed.
+
+---
+
+## 18. JSONB Columns
+
+```python
+from sqlalchemy.dialects.postgresql import JSONB
+
+class Event(Base):
+    __tablename__ = "events"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    payload: Mapped[dict] = mapped_column(JSONB)
+```
+
+Querying inside JSONB:
+
+```sql
+SELECT * FROM events WHERE payload->>'type' = 'click';
+SELECT * FROM events WHERE payload @> '{"user_id": 42}';
+```
+
+```python
+from sqlalchemy import select
+
+result = await db.execute(
+    select(Event).where(Event.payload["type"].astext == "click")
+)
+```
+
+Use JSONB for flexible/semi-structured data, but don't use it as a substitute for proper columns on fields you regularly filter or index — a `GIN` index helps:
+
+```sql
+CREATE INDEX ix_events_payload ON events USING GIN (payload);
+```
+
+---
+
+## 19. Full-Text Search
+
+```sql
+ALTER TABLE books ADD COLUMN search_vector tsvector
+  GENERATED ALWAYS AS (to_tsvector('english', title)) STORED;
+
+CREATE INDEX ix_books_search ON books USING GIN (search_vector);
+
+SELECT * FROM books
+WHERE search_vector @@ to_tsquery('english', 'python & fastapi');
+```
+
+In SQLAlchemy:
+
+```python
+from sqlalchemy import func
+
+result = await db.execute(
+    select(Book).where(
+        func.to_tsvector("english", Book.title).op("@@")(
+            func.to_tsquery("english", "python & fastapi")
+        )
+    )
+)
+```
+
+For heavier search needs, consider `pg_trgm` for fuzzy/typo-tolerant matching, or an external engine (Elasticsearch/Meilisearch) at scale.
+
+---
+
+## 20. UPSERT (ON CONFLICT)
+
+```sql
+INSERT INTO books (isbn, title, price)
+VALUES ('12345', 'Python 101', 499)
+ON CONFLICT (isbn)
+DO UPDATE SET price = EXCLUDED.price;
+```
+
+SQLAlchemy Core equivalent:
+
+```python
+from sqlalchemy.dialects.postgresql import insert
+
+stmt = insert(Book).values(isbn="12345", title="Python 101", price=499)
+stmt = stmt.on_conflict_do_update(
+    index_elements=["isbn"],
+    set_={"price": stmt.excluded.price},
+)
+await db.execute(stmt)
+await db.commit()
+```
+
+---
+
+## 21. Pagination
+
+**Offset pagination** (simple, but slow on large offsets):
+
+```python
+result = await db.execute(
+    select(Book).offset((page - 1) * page_size).limit(page_size)
+)
+```
+
+**Keyset (cursor) pagination** (fast, stable on large tables):
+
+```python
+result = await db.execute(
+    select(Book).where(Book.id > last_seen_id).order_by(Book.id).limit(page_size)
+)
+```
+
+Prefer keyset pagination for large or frequently-changing tables — offset pagination degrades as `OFFSET` grows because Postgres still scans and discards those rows.
+
+---
+
+## 22. Connection Pooling
+
+SQLAlchemy pools connections by default; tune pool size for your workload:
+
+```python
+engine = create_async_engine(
+    settings.database_url,
+    pool_size=10,
+    max_overflow=20,
+    pool_timeout=30,
+    pool_pre_ping=True,   # checks connection liveness before use
+)
+```
+
+For serverless/high-concurrency deployments, consider **PgBouncer** in front of Postgres to pool connections across many app instances — set SQLAlchemy's pool small (or `NullPool`) when PgBouncer already pools upstream.
+
+---
+
+## 23. Core SQL Cheatsheet
+
+```sql
+-- Filtering
+SELECT * FROM books WHERE price BETWEEN 100 AND 500;
+SELECT * FROM books WHERE title ILIKE '%python%';
+
+-- Sorting & limiting
+SELECT * FROM books ORDER BY price DESC LIMIT 10;
+
+-- Joins
+SELECT b.title, a.name
+FROM books b
+JOIN authors a ON a.id = b.author_id;
+
+-- Aggregation
+SELECT author_id, COUNT(*), AVG(price)
+FROM books
+GROUP BY author_id
+HAVING COUNT(*) > 5;
+
+-- Subquery
+SELECT * FROM books
+WHERE author_id IN (SELECT id FROM authors WHERE name = 'Rowling');
+
+-- Common Table Expression (CTE)
+WITH expensive_books AS (
+  SELECT * FROM books WHERE price > 1000
+)
+SELECT * FROM expensive_books ORDER BY price DESC;
+```
+
+---
+
+## 24. Window Functions
+
+```sql
+-- Rank books by price within each author
+SELECT
+  title,
+  author_id,
+  price,
+  RANK() OVER (PARTITION BY author_id ORDER BY price DESC) AS price_rank
+FROM books;
+
+-- Running total
+SELECT
+  title,
+  price,
+  SUM(price) OVER (ORDER BY id) AS running_total
+FROM books;
+```
+
+Window functions compute across a set of rows related to the current row without collapsing them into groups (unlike `GROUP BY`).
+
+---
+
+## 25. Performance: EXPLAIN ANALYZE & Indexing Tips
+
+```sql
+EXPLAIN ANALYZE
+SELECT * FROM books WHERE price > 100 ORDER BY price;
+```
+
+Read the output for:
+- `Seq Scan` → table scan; consider an index if the table is large and this runs often
+- `Index Scan` / `Index Only Scan` → index is being used effectively
+- High `actual time` relative to `rows` → possible missing index or bad statistics (`ANALYZE books;`)
+
+**General tips:**
+- Index foreign keys used in joins (Postgres doesn't auto-index them).
+- Use `EXPLAIN (ANALYZE, BUFFERS)` to see cache hits vs. disk reads.
+- Avoid `SELECT *` in hot paths — fetch only needed columns.
+- Batch inserts/updates instead of looping one-row-at-a-time round trips.
+- Run `VACUUM ANALYZE` periodically (or rely on autovacuum) to keep planner statistics fresh.
+
+---
+
+## 26. Testing with pytest
+
+```python
+import pytest
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+
+@pytest.fixture
+async def db_session():
+    engine = create_async_engine("postgresql+asyncpg://user:pass@localhost/test_db")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    async_session = async_sessionmaker(engine, expire_on_commit=False)
+    async with async_session() as session:
+        yield session
+
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+```
+
+Use a **separate test database** (never point tests at production/dev data), and wrap each test in a transaction that rolls back for isolation when the suite grows large.
+
+---
+
+## 27. Common psql Commands
+
+```
+\l              -- list databases
+\c mydb         -- connect to database
+\dt             -- list tables
+\d books        -- describe table structure
+\di             -- list indexes
+\x              -- toggle expanded row display
+\timing         -- show query execution time
+\q              -- quit
+```
+
+---
+
+## 28. Full FastAPI + Postgres Example
+
+```python
+from typing import Annotated, AsyncGenerator
+from fastapi import FastAPI, Depends, HTTPException
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from pydantic import BaseModel, ConfigDict
+from pydantic_settings import BaseSettings
+
+
+class Settings(BaseSettings):
+    database_url: str = "postgresql+asyncpg://user:pass@localhost:5432/mydb"
+
+settings = Settings()
+
+class Base(DeclarativeBase):
+    pass
+
+class Book(Base):
+    __tablename__ = "books"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    title: Mapped[str]
+    price: Mapped[float]
+
+class BookCreate(BaseModel):
+    title: str
+    price: float
+
+class BookOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    title: str
+    price: float
+
+engine = create_async_engine(settings.database_url)
+AsyncSessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+async def get_db() -> AsyncGenerator[AsyncSession, None]:
+    async with AsyncSessionLocal() as session:
+        yield session
+
+DbSession = Annotated[AsyncSession, Depends(get_db)]
+
+app = FastAPI()
+
+@app.post("/books", response_model=BookOut)
+async def create_book(payload: BookCreate, db: DbSession):
+    book = Book(**payload.model_dump())
+    db.add(book)
+    await db.commit()
+    await db.refresh(book)
+    return book
+
+@app.get("/books/{book_id}", response_model=BookOut)
+async def get_book(book_id: int, db: DbSession):
+    result = await db.execute(select(Book).where(Book.id == book_id))
+    book = result.scalar_one_or_none()
+    if book is None:
+        raise HTTPException(status_code=404, detail="Book not found")
+    return book
+```
+
+---
+
+## 29. Learning Roadmap
+
+### Must know (used constantly)
+Connection setup (`asyncpg` + SQLAlchemy async engine) · `AsyncSession` dependency in FastAPI · Declarative models with `Mapped[...]` · Basic CRUD · Alembic migrations · Pydantic schemas with `from_attributes`
+
+### Should know (used often)
+Relationships + `selectinload` (avoiding N+1) · Transactions with `db.begin()` · Indexes & constraints · Pagination (offset vs. keyset) · `ON CONFLICT` upserts · JSONB columns
+
+### Advanced / production
+`EXPLAIN ANALYZE` and query tuning · Connection pooling & PgBouncer · Full-text search · Window functions · Testing with isolated transactions · Raw SQL escape hatches (`text()`, `asyncpg`)
+
+### Suggested learning order
+
+1. Core SQL (`SELECT`, `JOIN`, `GROUP BY`, subqueries, CTEs)
+2. SQLAlchemy 2.0 async engine + session setup
+3. Declarative models + Alembic migrations
+4. CRUD in FastAPI with Pydantic schemas
+5. Relationships and eager loading
+6. Indexes, constraints, and pagination strategy
+7. JSONB, full-text search, and `ON CONFLICT`
+8. Performance tuning (`EXPLAIN ANALYZE`, pooling) and testing
