@@ -1,0 +1,960 @@
+# Python Decorators & Annotations
+
+## Table of Contents
+
+1. [Quick Reference Table](#1-quick-reference-table)
+2. [@dataclass ⭐ Most Important](#2-dataclass--most-important)
+3. [@staticmethod](#3-staticmethod)
+4. [@classmethod](#4-classmethod)
+5. [staticmethod vs classmethod](#5-staticmethod-vs-classmethod)
+6. [@property](#6-property)
+7. [@cached_property](#7-cached_property)
+8. [Annotated ⭐ FastAPI Essential](#8-annotated--fastapi-essential)
+9. [Literal](#9-literal)
+10. [Final](#10-final)
+11. [TypedDict](#11-typeddict)
+12. [Protocol](#12-protocol)
+13. [@abstractmethod](#13-abstractmethod)
+14. [ClassVar](#14-classvar)
+15. [InitVar](#15-initvar)
+16. [__post_init__](#16-post_init)
+17. [kw_only=True](#17-kw_onlytrue)
+18. [repr=False, compare=False](#18-reprfalse-comparefalse)
+19. [Writing Your Own Decorators (functools.wraps)](#19-writing-your-own-decorators-functoolswraps)
+20. [@functools.lru_cache](#20-functoolslru_cache)
+21. [@contextmanager / @asynccontextmanager](#21-contextmanager--asynccontextmanager)
+22. [Enum & StrEnum](#22-enum--strenum)
+23. [NamedTuple](#23-namedtuple)
+24. [@functools.singledispatch](#24-functoolssingledispatch)
+25. [@total_ordering](#25-total_ordering)
+26. [@overload](#26-overload)
+27. [Self Type](#27-self-type)
+28. [Pydantic BaseModel + field_validator (FastAPI's real workhorse)](#28-pydantic-basemodel--field_validator-fastapis-real-workhorse)
+29. [Real FastAPI Example (Uses Everything Together)](#29-real-fastapi-example-uses-everything-together)
+30. [Learning Roadmap](#30-learning-roadmap)
+
+---
+
+## 1. Quick Reference Table
+
+| Feature | Used for |
+|---|---|
+| `@dataclass` | Boilerplate-free classes (DTOs, configs, models) |
+| `@staticmethod` | Utility function inside a class |
+| `@classmethod` | Alternative constructors / factory methods |
+| `@property` | Getter that behaves like an attribute |
+| `@cached_property` | Compute once, cache forever |
+| `@abstractmethod` | Interface / base classes |
+| `Annotated` | FastAPI validation + dependency metadata |
+| `Final` | Prevent overriding (type checking) |
+| `Literal` | Restrict values to fixed options |
+| `TypedDict` | Type-safe dictionaries |
+| `Protocol` | Structural interfaces (duck-typing with types) |
+| `functools.wraps` | Preserve metadata in custom decorators |
+| `lru_cache` | Memoize pure functions |
+| `contextmanager` | Build `with`-statement resources without a class |
+| `Enum` / `StrEnum` | Fixed sets of named constants |
+| `NamedTuple` | Lightweight immutable tuples with named fields |
+| `singledispatch` | Function overloading by argument type |
+| `overload` | Multiple type signatures for one function |
+| `Self` | Return type that refers to "this class" |
+| Pydantic `BaseModel` | Runtime validation + parsing for FastAPI |
+
+---
+
+## 2. @dataclass ⭐ Most Important
+
+A dataclass automatically generates `__init__`, `__repr__`, `__eq__`, and optionally `__hash__`.
+
+**Without dataclass:**
+
+```python
+class User:
+    def __init__(self, name: str, age: int):
+        self.name = name
+        self.age = age
+```
+
+**With dataclass:**
+
+```python
+from dataclasses import dataclass
+
+@dataclass
+class User:
+    name: str
+    age: int
+
+user = User("Pawan", 25)
+print(user)
+```
+
+```
+User(name='Pawan', age=25)
+```
+
+Less code, same behavior.
+
+### `frozen=True` — Immutability
+
+```python
+from dataclasses import dataclass
+
+@dataclass(frozen=True)
+class Config:
+    host: str
+    port: int
+
+config = Config("localhost", 5432)
+config.port = 3306      # ❌ Error: frozen instance
+```
+
+Useful for configuration, constants, and API response objects. Think of TypeScript's `readonly`.
+
+### `slots=True` — Lower Memory Footprint
+
+```python
+@dataclass(slots=True)
+class User:
+    name: str
+    age: int
+```
+
+Benefits:
+- Faster attribute lookup
+- Lower memory usage
+- Prevents accidentally creating random attributes
+
+```python
+user.city = "Lucknow"   # ❌ AttributeError
+```
+
+Great for models with thousands of objects.
+
+### `frozen=True` + `slots=True` (Best Practice)
+
+```python
+from dataclasses import dataclass
+
+@dataclass(frozen=True, slots=True)
+class Book:
+    title: str
+    author: str
+    price: float
+```
+
+This combination is common for config and domain objects.
+
+### `field()` — Customizing Fields
+
+```python
+from dataclasses import dataclass, field
+
+@dataclass
+class User:
+    name: str
+    skills: list[str] = field(default_factory=list)
+```
+
+**Why `default_factory`?**
+
+Bad — every object shares the same list:
+
+```python
+skills: list[str] = []
+```
+
+Good — every object gets a fresh list:
+
+```python
+skills: list[str] = field(default_factory=list)
+```
+
+---
+
+## 3. @staticmethod
+
+A method that doesn't use `self`.
+
+```python
+class Math:
+    @staticmethod
+    def add(a, b):
+        return a + b
+
+print(Math.add(2, 3))
+```
+
+Use when writing utility functions, validation helpers, or formatting logic.
+
+```python
+class PasswordUtils:
+    @staticmethod
+    def hash(password: str):
+        return "hashed-" + password
+```
+
+No object required.
+
+---
+
+## 4. @classmethod
+
+Receives the class (`cls`) instead of the instance.
+
+```python
+class User:
+    def __init__(self, name):
+        self.name = name
+
+    @classmethod
+    def guest(cls):
+        return cls("Guest")
+
+user = User.guest()
+print(user.name)
+```
+
+Used for alternative constructors:
+
+```python
+class DatabaseConfig:
+    def __init__(self, host, port):
+        self.host = host
+        self.port = port
+
+    @classmethod
+    def from_env(cls):
+        return cls("localhost", 5432)
+```
+
+Common in config loading.
+
+---
+
+## 5. staticmethod vs classmethod
+
+| `@staticmethod` | `@classmethod` |
+|---|---|
+| No `self`, no `cls` | Gets `cls` automatically |
+| Utility function | Creates/returns class objects |
+| Cannot access class variables | Can access class variables |
+
+---
+
+## 6. @property
+
+Turns a method into an attribute-like accessor.
+
+```python
+class Rectangle:
+    def __init__(self, width, height):
+        self.width = width
+        self.height = height
+
+    @property
+    def area(self):
+        return self.width * self.height
+
+rect = Rectangle(10, 5)
+print(rect.area)
+```
+
+Instead of calling `rect.area()`, you use `rect.area` — a cleaner API.
+
+### Setter with property
+
+```python
+class User:
+    def __init__(self):
+        self._age = 0
+
+    @property
+    def age(self):
+        return self._age
+
+    @age.setter
+    def age(self, value):
+        if value < 0:
+            raise ValueError("Invalid age")
+        self._age = value
+```
+
+Useful for validation on assignment.
+
+---
+
+## 7. @cached_property
+
+Expensive calculation? Cache it after the first access.
+
+```python
+from functools import cached_property
+
+class Data:
+    @cached_property
+    def expensive(self):
+        print("Running...")
+        return sum(range(10_000_000))
+
+d = Data()
+print(d.expensive)
+print(d.expensive)
+```
+
+```
+Running...
+49999995000000
+49999995000000
+```
+
+Runs only once. Great for reading config, parsing files, or caching embeddings.
+
+---
+
+## 8. Annotated ⭐ FastAPI Essential
+
+`Annotated` attaches metadata to a type without changing the type itself.
+
+```python
+from typing import Annotated
+```
+
+### FastAPI Query Parameters
+
+```python
+from fastapi import FastAPI, Query
+from typing import Annotated
+
+app = FastAPI()
+
+@app.get("/books")
+def get_books(
+    page: Annotated[int, Query(gt=0)] = 1,
+):
+    return {"page": page}
+```
+
+The type is `int`; the validation metadata is `Query(gt=0)`.
+
+### FastAPI Dependency Injection
+
+```python
+from fastapi import Depends
+
+def get_db():
+    return "DB"
+
+@app.get("/users")
+def users(db: Annotated[str, Depends(get_db)]):
+    return db
+```
+
+Modern FastAPI prefers this over default-argument-style dependencies.
+
+### Multiple / Reusable Metadata
+
+```python
+from fastapi import Header
+
+Token = Annotated[str, Header(min_length=10)]
+```
+
+Define once, reuse everywhere.
+
+---
+
+## 9. Literal
+
+Restricts a value to a fixed set of options.
+
+```python
+from typing import Literal
+
+Role = Literal["admin", "user", "guest"]
+
+def login(role: Role):
+    print(role)
+
+login("admin")
+login("manager")   # ❌ Type checker error
+```
+
+Great for status, role, and priority fields.
+
+```python
+Priority = Literal["LOW", "MEDIUM", "HIGH"]
+```
+
+---
+
+## 10. Final
+
+Prevents a variable or method from being overridden.
+
+```python
+from typing import Final
+
+API_VERSION: Final = "v1"
+API_VERSION = "v2"   # ❌ Type checker error
+```
+
+### Final method
+
+```python
+from typing import final
+
+class Animal:
+    @final
+    def breathe(self):
+        print("Breathing")
+```
+
+Subclasses shouldn't override `breathe`.
+
+---
+
+## 11. TypedDict
+
+A type-safe dictionary shape.
+
+```python
+from typing import TypedDict
+
+class BookDict(TypedDict):
+    title: str
+    price: float
+
+book: BookDict = {
+    "title": "Python",
+    "price": 500,
+}
+```
+
+Better autocomplete than a plain `dict`, and useful when JSON payloads still need to stay dict-shaped rather than becoming a class.
+
+---
+
+## 12. Protocol
+
+Python's structural interface — "duck typing with type hints."
+
+```python
+from typing import Protocol
+
+class Storage(Protocol):
+    def upload(self, file: str) -> str: ...
+
+class S3Storage:
+    def upload(self, file):
+        return "url"
+```
+
+Any class implementing `upload()` satisfies `Storage`, with no explicit inheritance required. Useful for dependency injection and testing with fakes/mocks.
+
+### `runtime_checkable` — isinstance() checks
+
+By default, `Protocol` only works for static type checking. To check at runtime:
+
+```python
+from typing import Protocol, runtime_checkable
+
+@runtime_checkable
+class Storage(Protocol):
+    def upload(self, file: str) -> str: ...
+
+print(isinstance(S3Storage(), Storage))  # True
+```
+
+---
+
+## 13. @abstractmethod
+
+Forces subclasses to implement specific methods.
+
+```python
+from abc import ABC, abstractmethod
+
+class Storage(ABC):
+    @abstractmethod
+    def upload(self, file):
+        pass
+
+class S3Storage(Storage):
+    def upload(self, file):
+        return "uploaded"
+```
+
+`Storage()` cannot be instantiated directly. Great for repository/service base classes.
+
+> **Protocol vs ABC:** `Protocol` is structural (no inheritance needed, duck-typed); `ABC` is nominal (must explicitly inherit). Use `Protocol` for loose coupling, `ABC` when you want to enforce a shared class hierarchy.
+
+---
+
+## 14. ClassVar
+
+Marks a class-level variable that isn't part of instance state.
+
+```python
+from typing import ClassVar
+from dataclasses import dataclass
+
+@dataclass
+class User:
+    name: str
+    table_name: ClassVar[str] = "users"
+```
+
+`table_name` is not part of the dataclass's generated `__init__`.
+
+---
+
+## 15. InitVar
+
+An input-only field used during initialization but not stored on the instance.
+
+```python
+from dataclasses import dataclass, InitVar
+
+@dataclass
+class User:
+    name: str
+    password: InitVar[str]
+
+    def __post_init__(self, password):
+        print("Hashing:", password)
+```
+
+`password` is available only during initialization — useful for hashing secrets without persisting the raw value.
+
+---
+
+## 16. __post_init__
+
+Runs logic right after a dataclass is initialized.
+
+```python
+from dataclasses import dataclass
+
+@dataclass
+class Book:
+    title: str
+    price: float
+
+    def __post_init__(self):
+        if self.price < 0:
+            raise ValueError("Price must be positive")
+```
+
+Validation and computed fields belong here.
+
+---
+
+## 17. kw_only=True
+
+Forces keyword-only arguments.
+
+```python
+from dataclasses import dataclass
+
+@dataclass(kw_only=True)
+class User:
+    name: str
+    age: int
+
+User(name="Pawan", age=25)   # ✅
+User("Pawan", 25)            # ❌ TypeError
+```
+
+Improves readability in configs and long constructors.
+
+---
+
+## 18. repr=False, compare=False
+
+Hides sensitive fields from the generated `__repr__` / `__eq__`.
+
+```python
+from dataclasses import dataclass, field
+
+@dataclass
+class User:
+    name: str
+    password: str = field(repr=False)
+```
+
+Printing a `User` instance won't expose the password.
+
+---
+
+## 19. Writing Your Own Decorators (functools.wraps)
+
+Everything above uses built-in decorators — but you'll often write your own (logging, timing, auth checks, retries). A decorator without `functools.wraps` silently breaks the wrapped function's name and docstring.
+
+```python
+import functools
+import time
+
+def timed(func):
+    @functools.wraps(func)   # preserves func.__name__, __doc__, etc.
+    def wrapper(*args, **kwargs):
+        start = time.perf_counter()
+        result = func(*args, **kwargs)
+        elapsed = time.perf_counter() - start
+        print(f"{func.__name__} took {elapsed:.4f}s")
+        return result
+    return wrapper
+
+@timed
+def slow_add(a, b):
+    """Adds two numbers."""
+    return a + b
+
+slow_add(2, 3)
+print(slow_add.__name__)   # "slow_add" (not "wrapper", thanks to wraps)
+```
+
+### Decorators that accept arguments
+
+A decorator factory is just a function that returns a decorator:
+
+```python
+def retry(times: int):
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            for attempt in range(times):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    print(f"Attempt {attempt + 1} failed: {e}")
+            raise
+        return wrapper
+    return decorator
+
+@retry(times=3)
+def flaky_call():
+    ...
+```
+
+Always use `@functools.wraps` — without it, tools like FastAPI, Sphinx, and debuggers see the wrong function name/signature.
+
+---
+
+## 20. @functools.lru_cache
+
+Memoizes a function's return values by its arguments — a simple, powerful cache for pure functions.
+
+```python
+from functools import lru_cache
+
+@lru_cache(maxsize=128)
+def fib(n: int) -> int:
+    if n < 2:
+        return n
+    return fib(n - 1) + fib(n - 2)
+
+fib(35)   # fast, thanks to caching
+```
+
+Use for expensive pure computations (no side effects, same input → same output). For instance methods, prefer `@cached_property` (Section 7) to avoid memory leaks from caching `self`.
+
+---
+
+## 21. @contextmanager / @asynccontextmanager
+
+Build a `with`-statement resource manager from a plain generator function instead of writing a full class with `__enter__`/`__exit__`.
+
+```python
+from contextlib import contextmanager
+
+@contextmanager
+def open_file(path):
+    f = open(path)
+    try:
+        yield f
+    finally:
+        f.close()
+
+with open_file("data.txt") as f:
+    print(f.read())
+```
+
+### asynccontextmanager — FastAPI lifespan events
+
+This is the modern, recommended way to run startup/shutdown logic in FastAPI:
+
+```python
+from contextlib import asynccontextmanager
+from fastapi import FastAPI
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    print("Starting up: connect to DB, load models...")
+    yield
+    print("Shutting down: close connections...")
+
+app = FastAPI(lifespan=lifespan)
+```
+
+---
+
+## 22. Enum & StrEnum
+
+A type-safe, named set of constants — more robust than `Literal` when you also want iteration, comparison, or attached behavior.
+
+```python
+from enum import Enum
+
+class Status(Enum):
+    PENDING = "pending"
+    ACTIVE = "active"
+    CLOSED = "closed"
+
+print(Status.ACTIVE)          # Status.ACTIVE
+print(Status.ACTIVE.value)    # "active"
+```
+
+### StrEnum (Python 3.11+) — plays nicely with JSON/FastAPI
+
+```python
+from enum import StrEnum
+
+class Status(StrEnum):
+    PENDING = "pending"
+    ACTIVE = "active"
+
+# Behaves like a str, so FastAPI/Pydantic serialize it cleanly
+assert Status.ACTIVE == "active"
+```
+
+Use `Enum`/`StrEnum` over `Literal` when you need runtime iteration (`list(Status)`) or want the value attached to a named symbol.
+
+---
+
+## 23. NamedTuple
+
+A lightweight, immutable, tuple-based alternative to a dataclass — useful for small, hashable, positionally-unpackable records.
+
+```python
+from typing import NamedTuple
+
+class Point(NamedTuple):
+    x: float
+    y: float
+
+p = Point(1.0, 2.0)
+x, y = p          # tuple unpacking works
+print(p.x, p.y)
+```
+
+**NamedTuple vs dataclass vs TypedDict:**
+
+| | Mutable | Runtime type | Best for |
+|---|---|---|---|
+| `NamedTuple` | No | tuple | Small immutable records, unpacking |
+| `dataclass` | Yes (unless `frozen`) | class instance | Domain models, DTOs |
+| `TypedDict` | Yes | plain dict | JSON-shaped dicts, no methods needed |
+
+---
+
+## 24. @functools.singledispatch
+
+Function overloading based on the type of the first argument — Python's answer to method overloading.
+
+```python
+from functools import singledispatch
+
+@singledispatch
+def render(value):
+    raise NotImplementedError(f"Cannot render {type(value)}")
+
+@render.register
+def _(value: int):
+    return f"Number: {value}"
+
+@render.register
+def _(value: str):
+    return f"Text: {value}"
+
+print(render(5))       # "Number: 5"
+print(render("hi"))    # "Text: hi"
+```
+
+Useful for serializers, formatters, or visitor-pattern-style code.
+
+---
+
+## 25. @total_ordering
+
+Generates all comparison methods (`<`, `<=`, `>`, `>=`) from just `__eq__` and one other (e.g., `__lt__`).
+
+```python
+from functools import total_ordering
+
+@total_ordering
+class Money:
+    def __init__(self, amount: float):
+        self.amount = amount
+
+    def __eq__(self, other):
+        return self.amount == other.amount
+
+    def __lt__(self, other):
+        return self.amount < other.amount
+
+a, b = Money(10), Money(20)
+print(a < b, a <= b, a > b)   # True True False
+```
+
+Saves you from writing four near-duplicate comparison methods.
+
+---
+
+## 26. @overload
+
+Declares multiple type signatures for a single function — purely for static type checkers (no runtime effect on the actual dispatch logic).
+
+```python
+from typing import overload
+
+@overload
+def get_item(id: int) -> dict: ...
+@overload
+def get_item(id: str) -> list[dict]: ...
+
+def get_item(id):
+    if isinstance(id, int):
+        return {"id": id}
+    return [{"id": id}]
+```
+
+Type checkers now know `get_item(1)` returns `dict` while `get_item("x")` returns `list[dict]`.
+
+---
+
+## 27. Self Type
+
+Refers to "an instance of the current class" — cleaner than repeating the class name, especially with inheritance.
+
+```python
+from typing import Self
+
+class Builder:
+    def __init__(self):
+        self.parts: list[str] = []
+
+    def add(self, part: str) -> Self:
+        self.parts.append(part)
+        return self
+
+builder = Builder().add("wheel").add("engine")
+```
+
+If a subclass overrides `add`, its return type still correctly narrows to the subclass — important for fluent/builder-style APIs.
+
+---
+
+## 28. Pydantic BaseModel + field_validator (FastAPI's real workhorse)
+
+FastAPI's actual request/response validation isn't `TypedDict` or plain `dataclass` — it's **Pydantic**. It deserves a spot alongside the typing tools above.
+
+```python
+from pydantic import BaseModel, field_validator
+
+class UserCreate(BaseModel):
+    name: str
+    age: int
+
+    @field_validator("age")
+    @classmethod
+    def check_age(cls, value: int) -> int:
+        if value < 0:
+            raise ValueError("Age must be positive")
+        return value
+
+user = UserCreate(name="Pawan", age=25)
+```
+
+- Validates and parses incoming JSON automatically in FastAPI request bodies.
+- Raises clean `422` errors with field-level messages when validation fails.
+- Supports nested models, `Annotated` + `Field(...)` for constraints, and `model_config` for behavior like `frozen=True` or alias handling.
+
+```python
+from pydantic import BaseModel, Field
+from typing import Annotated
+
+class Book(BaseModel):
+    title: Annotated[str, Field(min_length=1)]
+    price: Annotated[float, Field(gt=0)]
+```
+
+Use `dataclass` for internal domain models; use Pydantic `BaseModel` at the API boundary where untrusted input needs validation.
+
+---
+
+## 29. Real FastAPI Example (Uses Everything Together)
+
+```python
+from dataclasses import dataclass
+from typing import Annotated, Literal
+from fastapi import FastAPI, Depends, Query
+from contextlib import asynccontextmanager
+
+Priority = Literal["LOW", "MEDIUM", "HIGH"]
+
+@dataclass(frozen=True, slots=True)
+class AppConfig:
+    app_name: str
+    debug: bool
+
+config = AppConfig("Book API", True)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    print("Starting up...")
+    yield
+    print("Shutting down...")
+
+app = FastAPI(lifespan=lifespan)
+
+def get_config():
+    return config
+
+@app.get("/books")
+def get_books(
+    page: Annotated[int, Query(gt=0)] = 1,
+    priority: Priority = "LOW",
+    cfg: Annotated[AppConfig, Depends(get_config)] = config,
+):
+    return {
+        "page": page,
+        "priority": priority,
+        "app": cfg.app_name,
+    }
+```
+
+This is very close to production FastAPI style.
+
+---
+
+## 30. Learning Roadmap
+
+### Must know (used constantly)
+`@dataclass` (`frozen`, `slots`, `field`, `__post_init__`) · `Annotated` · `Literal` · `TypedDict` · Pydantic `BaseModel`
+
+### Should know (used often)
+`@staticmethod` · `@classmethod` · `@property` · `@cached_property` · `ClassVar` · `functools.wraps` (for custom decorators) · `Enum`/`StrEnum`
+
+### Interview / architecture
+`Protocol` (+ `runtime_checkable`) · `@abstractmethod` · `Final` · `kw_only=True` · `InitVar` · `Self` · `singledispatch` · `@overload`
+
+### Suggested learning order
+
+1. `@dataclass` — including `frozen`, `slots`, `field`, `__post_init__`
+2. `Annotated` — FastAPI dependencies & validation
+3. `Literal`, `Optional`, `Union`, `TypedDict`, `Enum`
+4. `@property`, `@staticmethod`, `@classmethod`, `@cached_property`
+5. `functools.wraps` — writing your own decorators correctly
+6. `Protocol` + `@abstractmethod` — Repository pattern in FastAPI
+7. Pydantic `BaseModel` — real-world request/response validation
