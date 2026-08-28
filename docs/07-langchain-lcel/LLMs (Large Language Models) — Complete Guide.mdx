@@ -1,0 +1,563 @@
+# LLMs — Complete Guide
+
+## Table of Contents
+
+1. [What is an LLM & Why This Guide](#1-what-is-an-llm--why-this-guide)
+2. [Core Concepts You Must Know](#2-core-concepts-you-must-know)
+   - 2.1 [Tokens & Tokenization](#21-tokens--tokenization)
+   - 2.2 [The Transformer & Autoregressive Generation](#22-the-transformer--autoregressive-generation)
+   - 2.3 [Context Window](#23-context-window)
+   - 2.4 [Sampling Parameters (Temperature, Top-p, Top-k)](#24-sampling-parameters-temperature-top-p-top-k)
+   - 2.5 [System, User, Assistant Roles](#25-system-user-assistant-roles)
+   - 2.6 [Prompt Engineering Basics](#26-prompt-engineering-basics)
+   - 2.7 [Few-Shot vs. Zero-Shot vs. Chain-of-Thought](#27-few-shot-vs-zero-shot-vs-chain-of-thought)
+   - 2.8 [Function/Tool Calling](#28-functiontool-calling)
+   - 2.9 [Structured Output / JSON Mode](#29-structured-output--json-mode)
+   - 2.10 [Embeddings & Semantic Search](#210-embeddings--semantic-search)
+   - 2.11 [Fine-Tuning vs. RAG vs. Prompting](#211-fine-tuning-vs-rag-vs-prompting)
+   - 2.12 [Hallucination](#212-hallucination)
+   - 2.13 [Model Sizes, Quantization & Latency/Cost Trade-offs](#213-model-sizes-quantization--latencycost-trade-offs)
+   - 2.14 [Multimodal Models](#214-multimodal-models)
+   - 2.15 [Reasoning / Extended Thinking Models](#215-reasoning--extended-thinking-models)
+3. [Project Setup](#3-project-setup)
+4. [Your First LLM Call](#4-your-first-llm-call)
+5. [FastAPI + LLM: Basic Chat Endpoint](#5-fastapi--llm-basic-chat-endpoint)
+6. [FastAPI + LLM: Streaming Responses](#6-fastapi--llm-streaming-responses)
+7. [FastAPI + LLM: Function/Tool Calling](#7-fastapi--llm-functiontool-calling)
+8. [FastAPI + LLM: Structured JSON Output](#8-fastapi--llm-structured-json-output)
+9. [FastAPI + LLM: Embeddings & Semantic Search Endpoint](#9-fastapi--llm-embeddings--semantic-search-endpoint)
+10. [FastAPI + LLM: Multi-Turn Conversation with Token Budgeting](#10-fastapi--llm-multi-turn-conversation-with-token-budgeting)
+11. [FastAPI + LLM: Multiple Providers with Fallback](#11-fastapi--llm-multiple-providers-with-fallback)
+12. [Production Concerns](#12-production-concerns)
+13. [Checklist — Topics You Must Master](#13-checklist--topics-you-must-master)
+
+---
+
+## 1. What is an LLM & Why This Guide
+
+A **Large Language Model (LLM)** is a neural network — almost always a **Transformer** — trained on huge amounts of text to predict the next token in a sequence. That simple objective, at sufficient scale, produces a model that can write, summarize, translate, reason step-by-step, call tools, and hold conversations, even though it was never explicitly programmed to do any of those things.
+
+This guide covers the **provider-agnostic fundamentals** — the concepts that apply whether you're calling OpenAI, Anthropic, Google, or a self-hosted open-weight model — separately from the framework layers (LangChain, LlamaIndex) covered elsewhere. Understanding these fundamentals is what lets you debug weird outputs, control cost/latency, and reason about what a framework is actually doing underneath its abstractions.
+
+---
+
+## 2. Core Concepts You Must Know
+
+### 2.1 Tokens & Tokenization
+
+Models don't see raw text — they see **tokens**, sub-word chunks produced by a tokenizer (e.g. OpenAI's `tiktoken`, byte-pair encoding variants). A word like "tokenization" might be one token or split into several; common short words are usually one token each. Roughly: **1 token ≈ 4 characters ≈ ¾ of an English word.**
+
+Why this matters practically:
+- **Pricing** is per token (input and output priced separately, output usually more expensive).
+- **Context window limits** are token limits, not character limits.
+- Non-English languages, code, and rare words often tokenize less efficiently (more tokens for the same meaning), affecting both cost and effective context length.
+
+```python
+import tiktoken
+
+enc = tiktoken.encoding_for_model("gpt-4o-mini")
+tokens = enc.encode("LLMs process tokens, not characters.")
+print(len(tokens))  # count tokens before sending, to estimate cost/limits
+```
+
+### 2.2 The Transformer & Autoregressive Generation
+
+At a high level, a Transformer processes an input sequence through stacked layers of **self-attention** (each token "looks at" every other token to build contextual representations) and feed-forward networks. Generation is **autoregressive**: the model predicts one token at a time, appends it to the sequence, and repeats — which is exactly why streaming works (each token really is produced sequentially) and why longer outputs take proportionally longer and cost proportionally more.
+
+You rarely need to implement this yourself, but understanding "one token at a time, each depending on all previous ones" explains a lot of LLM behavior: why models can "change their mind" mid-generation, why cutting off a response mid-sentence and asking it to continue works, and why latency scales with output length, not just input length.
+
+### 2.3 Context Window
+
+The **context window** is the maximum number of tokens (input + output combined, for most providers) a model can process in one call. Exceeding it causes a hard error or forced truncation. Typical modern windows range from ~128K to over 1M tokens depending on model and provider — but a large context window doesn't mean the model uses all of it equally well; models generally attend most reliably to content near the start and end of a long context ("lost in the middle" effect), so don't assume dumping everything in guarantees good recall.
+
+### 2.4 Sampling Parameters (Temperature, Top-p, Top-k)
+
+The model outputs a probability distribution over the next possible token; sampling parameters control how that distribution is turned into an actual chosen token.
+
+| Parameter | Effect |
+|---|---|
+| `temperature` | Scales randomness. `0` ≈ deterministic/greedy (always the most likely token); higher values (e.g. `0.7`–`1.0`) increase variety and creativity, at the cost of consistency. |
+| `top_p` (nucleus sampling) | Only sample from the smallest set of tokens whose cumulative probability exceeds `p` — e.g. `top_p=0.9` ignores the unlikely long tail. |
+| `top_k` | Only sample from the `k` most likely next tokens. |
+| `max_tokens` | Hard cap on output length — generation stops even mid-sentence if hit. |
+| `stop` | Sequences that immediately end generation when produced. |
+
+Rule of thumb: use low temperature (0–0.3) for factual/deterministic tasks (extraction, classification, code), higher temperature (0.7+) for creative writing or brainstorming. Adjust `temperature` **or** `top_p`, not both aggressively at once — they interact.
+
+```python
+response = client.chat.completions.create(
+    model="gpt-4o-mini",
+    messages=[{"role": "user", "content": "List 3 startup ideas."}],
+    temperature=0.9,
+    max_tokens=300,
+)
+```
+
+### 2.5 System, User, Assistant Roles
+
+Chat models are trained on structured conversations with distinct roles:
+- **system** — instructions that set behavior/persona/constraints for the whole conversation (highest priority, but not an absolute security boundary — see prompt injection in the Guardrails guide).
+- **user** — the human's message.
+- **assistant** — the model's own prior responses (included so it has conversational memory within the call).
+- **tool** (sometimes `function`) — the result of a tool call, fed back so the model can use it to form a final answer.
+
+```python
+messages = [
+    {"role": "system", "content": "You are a terse technical assistant."},
+    {"role": "user", "content": "What is a race condition?"},
+]
+```
+
+### 2.6 Prompt Engineering Basics
+
+Practical techniques that consistently improve output quality:
+- **Be specific and explicit** — state format, length, tone, and constraints rather than relying on the model to guess.
+- **Show, don't just tell** — a concrete example of desired output usually beats a paragraph describing it (see few-shot below).
+- **Put instructions and data in clearly separated sections** — e.g. use delimiters (`"""`, XML-like tags, markdown headers) so the model doesn't confuse your instructions with the content it's operating on.
+- **Ask for step-by-step reasoning** on non-trivial tasks (see chain-of-thought below) — it measurably improves accuracy on multi-step problems.
+- **Iterate empirically** — prompt engineering is trial-and-error against real examples, not a one-shot design exercise; keep a small test set of representative inputs to check changes against.
+
+### 2.7 Few-Shot vs. Zero-Shot vs. Chain-of-Thought
+
+- **Zero-shot** — just ask directly, no examples. Works well for tasks the model has clearly seen a lot of during training.
+- **Few-shot** — include 2–5 examples of input→output pairs in the prompt before the real question. Substantially improves consistency for formatting-sensitive or unusual tasks.
+- **Chain-of-thought (CoT)** — ask the model to "think step by step" or show its reasoning before the final answer. Improves accuracy on arithmetic, logic, and multi-step reasoning tasks, at the cost of more output tokens (and thus latency/cost).
+
+```python
+few_shot_prompt = """
+Classify sentiment as positive, negative, or neutral.
+
+Text: "This product changed my life!"
+Sentiment: positive
+
+Text: "It broke after two days."
+Sentiment: negative
+
+Text: "It's fine, does what it says."
+Sentiment: neutral
+
+Text: "{input_text}"
+Sentiment:
+"""
+```
+
+### 2.8 Function/Tool Calling
+
+Modern models can be given a list of available "tools" (functions) with a name, description, and JSON-schema-defined parameters. Instead of generating a plain text answer, the model can choose to output a structured request to call one of those functions — your application code then actually executes it and feeds the result back.
+
+```python
+tools = [{
+    "type": "function",
+    "function": {
+        "name": "get_weather",
+        "description": "Get the current weather for a city",
+        "parameters": {
+            "type": "object",
+            "properties": {"city": {"type": "string"}},
+            "required": ["city"],
+        },
+    },
+}]
+
+response = client.chat.completions.create(
+    model="gpt-4o-mini",
+    messages=[{"role": "user", "content": "What's the weather in Paris?"}],
+    tools=tools,
+)
+```
+
+This is the foundational primitive underneath every "agent" you build in LangChain, LangGraph, or LlamaIndex — those frameworks are largely orchestration wrapped around this exact request/response pattern, executed in a loop.
+
+### 2.9 Structured Output / JSON Mode
+
+Beyond tool calling, most providers offer a dedicated mode to force output that strictly matches a JSON schema (rather than relying on prompt instructions and hoping the model complies) — far more reliable than asking "please respond in JSON" in plain text.
+
+```python
+from pydantic import BaseModel
+
+class Extraction(BaseModel):
+    name: str
+    age: int
+
+response = client.responses.parse(
+    model="gpt-4o-mini",
+    input="Extract: John is 34 years old.",
+    text_format=Extraction,
+)
+```
+
+### 2.10 Embeddings & Semantic Search
+
+An **embedding model** converts text into a fixed-length numeric vector such that semantically similar texts produce vectors that are close together (by cosine similarity or dot product). This is the foundation of semantic search, RAG retrieval, clustering, and recommendation — distinct from a chat/completion model, and usually much cheaper per call.
+
+```python
+response = client.embeddings.create(model="text-embedding-3-small", input="How do refunds work?")
+vector = response.data[0].embedding  # e.g. 1536 floats
+```
+
+### 2.11 Fine-Tuning vs. RAG vs. Prompting
+
+Three different ways to adapt a general model to your use case — not interchangeable, and often combined:
+
+| Approach | Adapts | Best for | Cost/complexity |
+|---|---|---|---|
+| **Prompting** | Behavior via instructions/examples in-context | Most use cases; fastest to iterate | Lowest |
+| **RAG** | Knowledge, by retrieving relevant data at query time | Grounding answers in your data, keeping knowledge current without retraining | Moderate (needs a retrieval pipeline) |
+| **Fine-tuning** | The model's weights themselves | Teaching a consistent output *style*/*format*, domain-specific tone, or behaviors that are hard to specify via prompting alone | Highest (data prep, training, hosting/versioning) |
+
+Common mistake: reaching for fine-tuning to "teach the model facts" — that's what RAG is for. Fine-tuning is better suited to teaching *how* to respond, not *what* to know, since factual knowledge baked into weights goes stale and can't be easily updated or audited the way retrieved documents can.
+
+### 2.12 Hallucination
+
+Hallucination is when a model states something false or unsupported as if it were fact — an inherent consequence of how these models generate text (predicting plausible-sounding continuations, not looking up verified facts, unless explicitly grounded via RAG/tools). Mitigations: RAG grounding with citations, lower temperature for factual tasks, explicit "say you don't know if unsure" instructions, output validation/guardrails, and human review for high-stakes outputs. No mitigation eliminates hallucination entirely — treat model output as a draft requiring appropriate verification for the stakes involved.
+
+### 2.13 Model Sizes, Quantization & Latency/Cost Trade-offs
+
+Providers typically offer a spectrum of model sizes/tiers (e.g. a small/fast/cheap model vs. a large/slow/expensive/more-capable one). Choosing the smallest model that reliably meets your quality bar is usually the right default — many production systems route: small model for simple classification/extraction, larger model reserved for genuinely hard reasoning steps. For self-hosted open-weight models, **quantization** (reducing numeric precision of weights, e.g. from 16-bit to 4-bit) trades a small amount of quality for significantly less memory and faster inference — relevant if you're deploying your own models rather than calling a hosted API.
+
+### 2.14 Multimodal Models
+
+Modern frontier models increasingly accept (and sometimes generate) images, audio, and video alongside text within the same context — meaning a single API call can take a screenshot plus a text question and return an answer grounded in both. Treat non-text inputs as consuming context/token budget too (an image is typically converted into an equivalent token cost based on resolution).
+
+### 2.15 Reasoning / Extended Thinking Models
+
+A newer class of models is trained to spend extra inference-time computation on internal step-by-step reasoning before producing a final answer, substantially improving performance on hard math, coding, and multi-step logic tasks compared to a same-sized non-reasoning model — at the cost of higher latency and token usage for that "thinking" phase. When available, these are typically opt-in per request (a reasoning-effort or "thinking budget" parameter) rather than always-on, since simple tasks don't need it and it would waste cost/latency.
+
+---
+
+## 3. Project Setup
+
+```bash
+python -m venv venv
+source venv/bin/activate
+
+pip install fastapi uvicorn[standard] openai anthropic tiktoken python-dotenv pydantic
+```
+
+`.env`:
+```
+OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
+```
+
+---
+
+## 4. Your First LLM Call
+
+```python
+from openai import OpenAI
+
+client = OpenAI()
+
+response = client.chat.completions.create(
+    model="gpt-4o-mini",
+    messages=[{"role": "user", "content": "Explain LLMs in one sentence."}],
+    temperature=0.3,
+)
+print(response.choices[0].message.content)
+print(response.usage)  # prompt_tokens, completion_tokens, total_tokens
+```
+
+---
+
+## 5. FastAPI + LLM: Basic Chat Endpoint
+
+```python
+# main.py
+from fastapi import FastAPI
+from pydantic import BaseModel
+from dotenv import load_dotenv
+from openai import OpenAI
+
+load_dotenv()
+app = FastAPI(title="LLM + FastAPI Demo")
+client = OpenAI()
+
+class ChatRequest(BaseModel):
+    message: str
+    temperature: float = 0.3
+
+class ChatResponse(BaseModel):
+    answer: str
+    prompt_tokens: int
+    completion_tokens: int
+
+@app.post("/chat", response_model=ChatResponse)
+async def chat(req: ChatRequest):
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": req.message}],
+        temperature=req.temperature,
+    )
+    return ChatResponse(
+        answer=response.choices[0].message.content,
+        prompt_tokens=response.usage.prompt_tokens,
+        completion_tokens=response.usage.completion_tokens,
+    )
+```
+
+> The OpenAI SDK's sync client blocks the event loop; for real async concurrency use `AsyncOpenAI` and `await client.chat.completions.create(...)` inside `async def` routes instead.
+
+---
+
+## 6. FastAPI + LLM: Streaming Responses
+
+```python
+from fastapi.responses import StreamingResponse
+from openai import AsyncOpenAI
+import json
+
+async_client = AsyncOpenAI()
+
+@app.post("/chat/stream")
+async def chat_stream(req: ChatRequest):
+    async def event_generator():
+        stream = await async_client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": req.message}],
+            temperature=req.temperature,
+            stream=True,
+        )
+        async for chunk in stream:
+            token = chunk.choices[0].delta.content
+            if token:
+                yield f"data: {json.dumps({'token': token})}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+```
+
+---
+
+## 7. FastAPI + LLM: Function/Tool Calling
+
+```python
+import json
+
+tools = [{
+    "type": "function",
+    "function": {
+        "name": "get_order_status",
+        "description": "Look up the status of a customer order by its ID.",
+        "parameters": {
+            "type": "object",
+            "properties": {"order_id": {"type": "string"}},
+            "required": ["order_id"],
+        },
+    },
+}]
+
+def get_order_status(order_id: str) -> str:
+    return f"Order {order_id} is out for delivery."
+
+AVAILABLE_FUNCTIONS = {"get_order_status": get_order_status}
+
+@app.post("/chat/tools")
+async def chat_with_tools(req: ChatRequest):
+    messages = [{"role": "user", "content": req.message}]
+    response = await async_client.chat.completions.create(
+        model="gpt-4o-mini", messages=messages, tools=tools,
+    )
+    message = response.choices[0].message
+
+    if message.tool_calls:
+        messages.append(message)
+        for call in message.tool_calls:
+            fn = AVAILABLE_FUNCTIONS[call.function.name]
+            args = json.loads(call.function.arguments)
+            result = fn(**args)
+            messages.append({
+                "role": "tool",
+                "tool_call_id": call.id,
+                "content": result,
+            })
+        # second call: let the model turn the tool result into a natural-language answer
+        response = await async_client.chat.completions.create(model="gpt-4o-mini", messages=messages)
+        return {"answer": response.choices[0].message.content}
+
+    return {"answer": message.content}
+```
+
+---
+
+## 8. FastAPI + LLM: Structured JSON Output
+
+```python
+from pydantic import BaseModel as PydanticModel
+
+class TicketExtraction(PydanticModel):
+    category: str
+    urgency: str
+    summary: str
+
+class ExtractRequest(BaseModel):
+    message: str
+
+@app.post("/tickets/extract")
+async def extract_ticket(req: ExtractRequest):
+    response = await async_client.responses.parse(
+        model="gpt-4o-mini",
+        input=f"Classify this support message:\n\n{req.message}",
+        text_format=TicketExtraction,
+    )
+    return response.output_parsed
+```
+
+> Structured-output modes still benefit from being paired with application-level validation (Pydantic already gives you that here) — see the Guardrails guide for retry/repair behavior on top of this.
+
+---
+
+## 9. FastAPI + LLM: Embeddings & Semantic Search Endpoint
+
+A minimal in-memory semantic search endpoint — for anything beyond toy scale, swap the list-based store for a real vector database.
+
+```python
+import numpy as np
+
+DOCS = [
+    "Our return window is 30 days from purchase.",
+    "Shipping typically takes 3-5 business days.",
+    "You can reset your password from the account settings page.",
+]
+doc_embeddings: list[list[float]] = []
+
+@app.on_event("startup")
+async def index_docs():
+    global doc_embeddings
+    response = await async_client.embeddings.create(model="text-embedding-3-small", input=DOCS)
+    doc_embeddings = [d.embedding for d in response.data]
+
+def cosine_similarity(a: list[float], b: list[float]) -> float:
+    a, b = np.array(a), np.array(b)
+    return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b)))
+
+class SearchRequest(BaseModel):
+    query: str
+    top_k: int = 2
+
+@app.post("/search")
+async def semantic_search(req: SearchRequest):
+    query_emb = (await async_client.embeddings.create(
+        model="text-embedding-3-small", input=req.query
+    )).data[0].embedding
+
+    scored = sorted(
+        ((cosine_similarity(query_emb, doc_emb), doc) for doc_emb, doc in zip(doc_embeddings, DOCS)),
+        key=lambda x: x[0], reverse=True,
+    )
+    return {"results": [{"text": doc, "score": score} for score, doc in scored[: req.top_k]]}
+```
+
+---
+
+## 10. FastAPI + LLM: Multi-Turn Conversation with Token Budgeting
+
+Naively appending every message to history eventually exceeds the context window. A simple token-aware trimming strategy:
+
+```python
+import tiktoken
+
+encoder = tiktoken.encoding_for_model("gpt-4o-mini")
+MAX_HISTORY_TOKENS = 3000
+
+def count_tokens(messages: list[dict]) -> int:
+    return sum(len(encoder.encode(m["content"])) for m in messages)
+
+def trim_history(messages: list[dict], max_tokens: int) -> list[dict]:
+    system = [m for m in messages if m["role"] == "system"]
+    rest = [m for m in messages if m["role"] != "system"]
+    while count_tokens(system + rest) > max_tokens and len(rest) > 2:
+        rest.pop(0)  # drop oldest turn first
+    return system + rest
+
+sessions: dict[str, list[dict]] = {}
+
+class SessionChatRequest(BaseModel):
+    session_id: str
+    message: str
+
+@app.post("/chat/session")
+async def session_chat(req: SessionChatRequest):
+    history = sessions.setdefault(req.session_id, [
+        {"role": "system", "content": "You are a helpful assistant."},
+    ])
+    history.append({"role": "user", "content": req.message})
+    history = trim_history(history, MAX_HISTORY_TOKENS)
+
+    response = await async_client.chat.completions.create(model="gpt-4o-mini", messages=history)
+    answer = response.choices[0].message.content
+    history.append({"role": "assistant", "content": answer})
+    sessions[req.session_id] = history
+
+    return {"answer": answer, "history_tokens": count_tokens(history)}
+```
+
+> For production, persist `sessions` to Redis/Postgres, and consider summarizing dropped turns into a running summary instead of discarding them outright, to preserve important early context.
+
+---
+
+## 11. FastAPI + LLM: Multiple Providers with Fallback
+
+```python
+from anthropic import AsyncAnthropic
+
+anthropic_client = AsyncAnthropic()
+
+async def call_with_fallback(message: str) -> str:
+    try:
+        response = await async_client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": message}],
+            timeout=10,
+        )
+        return response.choices[0].message.content
+    except Exception:
+        response = await anthropic_client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=1000,
+            messages=[{"role": "user", "content": message}],
+        )
+        return response.content[0].text
+
+@app.post("/chat/resilient")
+async def chat_resilient(req: ChatRequest):
+    answer = await call_with_fallback(req.message)
+    return {"answer": answer}
+```
+
+---
+
+## 12. Production Concerns
+
+- **Count tokens before sending**, not just after — estimate cost and catch context-window overflows proactively rather than reactively handling errors.
+- **Set explicit timeouts** on every LLM call — a hung provider request shouldn't hang your API indefinitely.
+- **Use async clients** (`AsyncOpenAI`, `AsyncAnthropic`) inside FastAPI's async routes — the sync clients block the event loop and kill concurrency.
+- **Cache aggressively where valid** — embeddings for unchanged text, and even full completions for identical prompts in read-heavy use cases (e.g. FAQ-style endpoints).
+- **Log token usage per request** — it's your primary cost lever, and unexpected spikes usually indicate a prompt bug (e.g. unbounded history growth) rather than legitimate usage.
+- **Right-size the model per task** — route cheap/simple tasks (classification, short extraction) to smaller/cheaper models, and reserve larger or reasoning models for tasks that actually need them.
+- **Never trust raw model output for anything security- or money-sensitive** — validate structured output, and pair with the guardrails patterns covered separately for PII/injection/safety concerns.
+- **Version and pin your model strings** — providers periodically update default aliases; pin to a specific dated model version for anything where consistent behavior matters, and test before bumping.
+- **Handle rate limits and retries with backoff** — batch/bulk endpoints especially need exponential backoff rather than a naive retry loop.
+- **Add tracing/observability** (see the LangSmith guide, or provider-native logging) so you can debug a specific bad response after the fact, not just aggregate metrics.
+
+---
+
+## 13. Checklist — Topics You Must Master
+
+- [ ] Tokens vs. characters/words, and how tokenization affects cost and context limits
+- [ ] The Transformer/self-attention mechanism at a conceptual level, and autoregressive generation
+- [ ] Context window limits and the "lost in the middle" effect on long contexts
+- [ ] Sampling parameters: `temperature`, `top_p`, `top_k`, `max_tokens`, `stop`
+- [ ] Message roles: system, user, assistant, tool
+- [ ] Prompt engineering fundamentals: specificity, delimiters, examples, iteration
+- [ ] Zero-shot vs. few-shot vs. chain-of-thought prompting
+- [ ] Function/tool calling — the mechanism underneath every agent framework
+- [ ] Structured output / JSON mode vs. prompting for JSON
+- [ ] Embeddings, cosine similarity, and semantic search
+- [ ] Fine-tuning vs. RAG vs. prompting — knowing which lever to pull for a given problem
+- [ ] Hallucination: why it happens and how to mitigate (not eliminate) it
+- [ ] Model size/tier trade-offs, routing simple tasks to cheaper models, quantization basics
+- [ ] Multimodal input/output and token cost of non-text content
+- [ ] Reasoning/extended-thinking models and when the extra latency/cost is worth it
+- [ ] FastAPI integration: async clients, SSE streaming, tool-calling loops, structured extraction endpoints, embedding-backed search, token-budgeted multi-turn memory, multi-provider fallback
+- [ ] Production concerns: timeouts, caching, cost logging, model right-sizing, retries/backoff, observability

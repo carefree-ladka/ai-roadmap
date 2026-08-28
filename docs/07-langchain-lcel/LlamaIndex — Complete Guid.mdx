@@ -1,0 +1,546 @@
+---
+title: "LlamaIndex — Complete Guide"
+description: "Theory, core concepts, and practical FastAPI integration patterns for LlamaIndex"
+---
+
+# LlamaIndex — Complete Guide (Theory + FastAPI Examples)
+
+## Table of Contents
+
+1. [What is LlamaIndex & Why it Exists](#1-what-is-llamaindex--why-it-exists)
+2. [Core Concepts You Must Know](#2-core-concepts-you-must-know)
+   - 2.1 [Documents & Nodes](#21-documents--nodes)
+   - 2.2 [Data Connectors / Readers](#22-data-connectors--readers)
+   - 2.3 [Node Parsers / Text Splitters](#23-node-parsers--text-splitters)
+   - 2.4 [Embeddings](#24-embeddings)
+   - 2.5 [Indexes](#25-indexes)
+   - 2.6 [Storage Context & Vector Stores](#26-storage-context--vector-stores)
+   - 2.7 [Retrievers](#27-retrievers)
+   - 2.8 [Query Engines](#28-query-engines)
+   - 2.9 [Chat Engines & Memory](#29-chat-engines--memory)
+   - 2.10 [Response Synthesizers & Post-Processors](#210-response-synthesizers--post-processors)
+   - 2.11 [Agents & Tools](#211-agents--tools)
+   - 2.12 [Workflows](#212-workflows)
+   - 2.13 [Evaluation](#213-evaluation)
+3. [Project Setup](#3-project-setup)
+4. [Your First Index: Load, Index, Query](#4-your-first-index-load-index-query)
+5. [FastAPI + LlamaIndex: Basic Query Endpoint](#5-fastapi--llamaindex-basic-query-endpoint)
+6. [FastAPI + LlamaIndex: Streaming Responses](#6-fastapi--llamaindex-streaming-responses)
+7. [FastAPI + LlamaIndex: Persistent Index with a Vector DB](#7-fastapi--llamaindex-persistent-index-with-a-vector-db)
+8. [FastAPI + LlamaIndex: File Upload → Index → Query](#8-fastapi--llamaindex-file-upload--index--query)
+9. [FastAPI + LlamaIndex: Chat Engine with Memory](#9-fastapi--llamaindex-chat-engine-with-memory)
+10. [FastAPI + LlamaIndex: Agent with Tools](#10-fastapi--llamaindex-agent-with-tools)
+11. [Production Concerns](#11-production-concerns)
+12. [Checklist — Topics You Must Master](#12-checklist--topics-you-must-master)
+
+---
+
+## 1. What is LlamaIndex & Why it Exists
+
+LlamaIndex is a framework focused specifically on **connecting LLMs to your data** — it's the "data framework" side of the LLM-app ecosystem, whereas LangChain/LangGraph lean more toward general orchestration and agent control flow. Its core value proposition is making **RAG (Retrieval Augmented Generation)** easy to build and hard to get wrong:
+
+- Ingest data from almost any source (PDFs, Notion, Slack, SQL databases, APIs — 300+ connectors via **LlamaHub**)
+- Chunk, embed, and index that data efficiently
+- Retrieve the right chunks for a query
+- Synthesize a grounded answer from those chunks
+- Evaluate whether the retrieval/answer was actually good
+
+LlamaIndex is opinionated and batteries-included for RAG: a 3-line "load → index → query" flow works out of the box, while still exposing lower-level building blocks (retrievers, node postprocessors, response synthesizers) when you need to customize behavior. It also has **Workflows** — an event-driven orchestration layer comparable to LangGraph — for building agents beyond simple RAG.
+
+**When to reach for LlamaIndex vs. LangChain:** if your app is primarily "answer questions over my documents/data," LlamaIndex tends to get you there faster with less boilerplate. If you need complex, highly custom multi-agent control flow, LangGraph gives you more low-level control. Many production apps combine both.
+
+---
+
+## 2. Core Concepts You Must Know
+
+### 2.1 Documents & Nodes
+
+- A **Document** is a raw piece of source content (a whole PDF, a whole webpage) plus metadata.
+- A **Node** is a chunk of a Document — the atomic unit that actually gets embedded, indexed, and retrieved. Nodes carry relationships to their source document and to neighboring nodes.
+
+```python
+from llama_index.core import Document
+
+doc = Document(text="LlamaIndex helps you build RAG apps.", metadata={"source": "intro.md"})
+```
+
+### 2.2 Data Connectors / Readers
+
+Readers load external data into `Document` objects. `SimpleDirectoryReader` handles local files (PDF, docx, txt, csv, images with OCR, etc.) out of the box; **LlamaHub** provides hundreds more (Notion, Google Drive, Slack, SQL, Confluence...).
+
+```python
+from llama_index.core import SimpleDirectoryReader
+
+documents = SimpleDirectoryReader("./data").load_data()
+```
+
+### 2.3 Node Parsers / Text Splitters
+
+Split Documents into Nodes. `SentenceSplitter` is the standard default; more advanced parsers preserve semantic or hierarchical structure.
+
+```python
+from llama_index.core.node_parser import SentenceSplitter
+
+parser = SentenceSplitter(chunk_size=1024, chunk_overlap=200)
+nodes = parser.get_nodes_from_documents(documents)
+```
+
+### 2.4 Embeddings
+
+Turn node text into vectors. Configure globally via `Settings` or per-index.
+
+```python
+from llama_index.embeddings.openai import OpenAIEmbedding
+from llama_index.core import Settings
+
+Settings.embed_model = OpenAIEmbedding(model="text-embedding-3-small")
+```
+
+### 2.5 Indexes
+
+An index is a data structure over your nodes that supports efficient retrieval. The most common:
+
+| Index Type | Behavior |
+|---|---|
+| `VectorStoreIndex` | Embedding similarity search — the default choice for most RAG |
+| `SummaryIndex` | Sequentially scans all nodes — good for small corpora / "summarize everything" |
+| `TreeIndex` | Hierarchical summarization tree — good for very large documents |
+| `KeywordTableIndex` | Keyword-based lookup, no embeddings needed |
+| `KnowledgeGraphIndex` / `PropertyGraphIndex` | Entity-relationship graph extracted from text — good for multi-hop reasoning |
+
+```python
+from llama_index.core import VectorStoreIndex
+
+index = VectorStoreIndex(nodes)
+```
+
+### 2.6 Storage Context & Vector Stores
+
+By default everything lives in memory and is lost on restart. `StorageContext` lets you plug in a persistent **vector store** (Chroma, Pinecone, Qdrant, Weaviate, pgvector, etc.) plus document/index stores.
+
+```python
+from llama_index.core import StorageContext
+from llama_index.vector_stores.chroma import ChromaVectorStore
+import chromadb
+
+chroma_client = chromadb.PersistentClient(path="./chroma_db")
+chroma_collection = chroma_client.get_or_create_collection("docs")
+vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
+storage_context = StorageContext.from_defaults(vector_store=vector_store)
+
+index = VectorStoreIndex(nodes, storage_context=storage_context)
+```
+
+To reload later without re-embedding: `VectorStoreIndex.from_vector_store(vector_store)`.
+
+### 2.7 Retrievers
+
+A retriever converts a query into a ranked list of relevant Nodes. Every index exposes `.as_retriever()`, and retrieval strategy is swappable (top-k similarity, hybrid keyword+vector, auto-merging, etc.).
+
+```python
+retriever = index.as_retriever(similarity_top_k=5)
+nodes = retriever.retrieve("What is the refund policy?")
+```
+
+### 2.8 Query Engines
+
+A query engine wraps a retriever **plus** a response synthesizer: retrieve nodes, then feed them to the LLM to produce a grounded natural-language answer. This is the highest-level, "just answer my question" interface.
+
+```python
+query_engine = index.as_query_engine(similarity_top_k=5)
+response = query_engine.query("What is the refund policy?")
+print(response.response)
+print([n.metadata for n in response.source_nodes])
+```
+
+### 2.9 Chat Engines & Memory
+
+A chat engine is a query engine with conversation history awareness — it condenses the chat history plus the new question into a good retrieval query, then answers.
+
+```python
+chat_engine = index.as_chat_engine(chat_mode="condense_plus_context")
+response = chat_engine.chat("What is the refund window?")
+response2 = chat_engine.chat("Does that apply to sale items too?")  # resolves "that" from history
+```
+
+Common `chat_mode` values: `"condense_question"`, `"context"`, `"condense_plus_context"`, `"react"` (agentic).
+
+### 2.10 Response Synthesizers & Post-Processors
+
+- **Response synthesizer**: controls *how* retrieved nodes are combined into an answer — `"compact"` (default, stuffs as many chunks as fit per LLM call), `"refine"` (iteratively refines an answer chunk-by-chunk), `"tree_summarize"` (hierarchical merge — good for many chunks), `"no_text"` (retrieval only, no LLM call).
+- **Node postprocessors**: transform/filter retrieved nodes before synthesis — e.g. `SimilarityPostprocessor` (cutoff by score), `CohereRerank`/`SentenceTransformerRerank` (re-rank for higher precision), `MetadataReplacementPostProcessor`.
+
+```python
+from llama_index.core.postprocessor import SimilarityPostprocessor
+
+query_engine = index.as_query_engine(
+    similarity_top_k=10,
+    node_postprocessors=[SimilarityPostprocessor(similarity_cutoff=0.75)],
+    response_mode="tree_summarize",
+)
+```
+
+### 2.11 Agents & Tools
+
+LlamaIndex agents let an LLM decide which **tools** to call — including your query engines themselves, wrapped as tools (a query engine over "HR docs" and another over "engineering docs," with the agent picking which to consult).
+
+```python
+from llama_index.core.tools import QueryEngineTool
+from llama_index.core.agent.workflow import FunctionAgent
+
+hr_tool = QueryEngineTool.from_defaults(
+    query_engine=hr_query_engine,
+    name="hr_policy_search",
+    description="Answers questions about HR policies.",
+)
+
+agent = FunctionAgent(tools=[hr_tool], llm=llm)
+response = await agent.run("How many vacation days do new hires get?")
+```
+
+### 2.12 Workflows
+
+**Workflows** are LlamaIndex's event-driven orchestration primitive — the rough analog to LangGraph. You define **steps** (async functions) that consume and emit typed **Events**; the workflow engine wires them together automatically based on event types, supporting loops, branching, and parallel steps without an explicit graph object.
+
+```python
+from llama_index.core.workflow import Workflow, step, StartEvent, StopEvent, Event
+
+class RetrievedEvent(Event):
+    nodes: list
+
+class MyRAGWorkflow(Workflow):
+    @step
+    async def retrieve(self, ev: StartEvent) -> RetrievedEvent:
+        nodes = retriever.retrieve(ev.query)
+        return RetrievedEvent(nodes=nodes)
+
+    @step
+    async def synthesize(self, ev: RetrievedEvent) -> StopEvent:
+        response = await query_engine.asynthesize(ev.query, ev.nodes)
+        return StopEvent(result=response)
+
+workflow = MyRAGWorkflow(timeout=60)
+result = await workflow.run(query="What is the refund policy?")
+```
+
+### 2.13 Evaluation
+
+LlamaIndex ships evaluators to measure RAG quality without manual labeling:
+- `FaithfulnessEvaluator` — is the answer actually supported by the retrieved context (hallucination check)?
+- `RelevancyEvaluator` — is the answer relevant to the query?
+- `CorrectnessEvaluator` — compares against a reference/ground-truth answer.
+- Retrieval-specific metrics (hit rate, MRR) via `RetrieverEvaluator`.
+
+```python
+from llama_index.core.evaluation import FaithfulnessEvaluator
+
+evaluator = FaithfulnessEvaluator(llm=llm)
+eval_result = evaluator.evaluate_response(response=response)
+print(eval_result.passing)
+```
+
+---
+
+## 3. Project Setup
+
+```bash
+python -m venv venv
+source venv/bin/activate
+
+pip install fastapi uvicorn[standard] \
+    llama-index-core llama-index-llms-openai llama-index-embeddings-openai \
+    llama-index-vector-stores-chroma chromadb \
+    python-dotenv pydantic
+```
+
+`.env`:
+```
+OPENAI_API_KEY=sk-...
+```
+
+Global config (set once, applies everywhere unless overridden):
+
+```python
+from llama_index.core import Settings
+from llama_index.llms.openai import OpenAI
+from llama_index.embeddings.openai import OpenAIEmbedding
+
+Settings.llm = OpenAI(model="gpt-4o-mini", temperature=0.2)
+Settings.embed_model = OpenAIEmbedding(model="text-embedding-3-small")
+Settings.chunk_size = 1024
+```
+
+---
+
+## 4. Your First Index: Load, Index, Query
+
+```python
+from llama_index.core import SimpleDirectoryReader, VectorStoreIndex
+
+documents = SimpleDirectoryReader("./data").load_data()
+index = VectorStoreIndex.from_documents(documents)
+
+query_engine = index.as_query_engine()
+response = query_engine.query("Summarize the main points.")
+print(response.response)
+```
+
+That's the whole "hello world" — `from_documents` handles parsing, embedding, and indexing in one call.
+
+---
+
+## 5. FastAPI + LlamaIndex: Basic Query Endpoint
+
+```python
+# main.py
+from fastapi import FastAPI
+from pydantic import BaseModel
+from dotenv import load_dotenv
+from llama_index.core import Settings, SimpleDirectoryReader, VectorStoreIndex
+from llama_index.llms.openai import OpenAI
+from llama_index.embeddings.openai import OpenAIEmbedding
+
+load_dotenv()
+Settings.llm = OpenAI(model="gpt-4o-mini", temperature=0.2)
+Settings.embed_model = OpenAIEmbedding(model="text-embedding-3-small")
+
+app = FastAPI(title="LlamaIndex + FastAPI Demo")
+
+documents = SimpleDirectoryReader("./data").load_data()
+index = VectorStoreIndex.from_documents(documents)
+query_engine = index.as_query_engine(similarity_top_k=5)
+
+class QueryRequest(BaseModel):
+    question: str
+
+class QueryResponse(BaseModel):
+    answer: str
+    sources: list[dict]
+
+@app.post("/query", response_model=QueryResponse)
+async def query(req: QueryRequest):
+    response = await query_engine.aquery(req.question)
+    return QueryResponse(
+        answer=response.response,
+        sources=[n.metadata for n in response.source_nodes],
+    )
+```
+
+---
+
+## 6. FastAPI + LlamaIndex: Streaming Responses
+
+```python
+from fastapi.responses import StreamingResponse
+import json
+
+streaming_query_engine = index.as_query_engine(similarity_top_k=5, streaming=True)
+
+@app.post("/query/stream")
+async def query_stream(req: QueryRequest):
+    streaming_response = await streaming_query_engine.aquery(req.question)
+
+    async def event_generator():
+        for token in streaming_response.response_gen:
+            yield f"data: {json.dumps({'token': token})}\n\n"
+        sources = [n.metadata for n in streaming_response.source_nodes]
+        yield f"data: {json.dumps({'done': True, 'sources': sources})}\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+```
+
+> `streaming=True` on the query engine switches `response_gen` from a plain string to a token generator — note it's a sync generator, so for a fully async app you may wrap iteration in a thread via `run_in_threadpool` if it blocks noticeably under load.
+
+---
+
+## 7. FastAPI + LlamaIndex: Persistent Index with a Vector DB
+
+Rebuilding the index from scratch on every server start doesn't scale. Persist to Chroma (or any supported vector store) and reload without re-embedding.
+
+```python
+# indexing.py
+import chromadb
+from llama_index.core import VectorStoreIndex, StorageContext, SimpleDirectoryReader
+from llama_index.vector_stores.chroma import ChromaVectorStore
+
+def build_or_load_index(data_dir: str = "./data", persist_dir: str = "./chroma_db"):
+    chroma_client = chromadb.PersistentClient(path=persist_dir)
+    collection = chroma_client.get_or_create_collection("docs")
+    vector_store = ChromaVectorStore(chroma_collection=collection)
+
+    if collection.count() > 0:
+        # reload existing index — no re-embedding needed
+        return VectorStoreIndex.from_vector_store(vector_store)
+
+    documents = SimpleDirectoryReader(data_dir).load_data()
+    storage_context = StorageContext.from_defaults(vector_store=vector_store)
+    return VectorStoreIndex.from_documents(documents, storage_context=storage_context)
+```
+
+```python
+# main.py (addition) — build once at startup
+from contextlib import asynccontextmanager
+from indexing import build_or_load_index
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    app.state.index = build_or_load_index()
+    yield
+
+app = FastAPI(lifespan=lifespan)
+
+@app.post("/query")
+async def query(req: QueryRequest):
+    engine = app.state.index.as_query_engine(similarity_top_k=5)
+    response = await engine.aquery(req.question)
+    return {"answer": response.response}
+```
+
+---
+
+## 8. FastAPI + LlamaIndex: File Upload → Index → Query
+
+A common real-world pattern: let a user upload a document, index it into its own namespace/collection, then query just that document.
+
+```python
+import shutil
+from pathlib import Path
+from fastapi import UploadFile, File
+import chromadb
+from llama_index.core import SimpleDirectoryReader, VectorStoreIndex, StorageContext
+from llama_index.vector_stores.chroma import ChromaVectorStore
+
+UPLOAD_DIR = Path("./uploads")
+UPLOAD_DIR.mkdir(exist_ok=True)
+chroma_client = chromadb.PersistentClient(path="./chroma_db")
+
+@app.post("/documents/upload")
+async def upload_document(collection_id: str, file: UploadFile = File(...)):
+    dest = UPLOAD_DIR / collection_id / file.filename
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    with dest.open("wb") as f:
+        shutil.copyfileobj(file.file, f)
+
+    documents = SimpleDirectoryReader(str(dest.parent)).load_data()
+    collection = chroma_client.get_or_create_collection(collection_id)
+    vector_store = ChromaVectorStore(chroma_collection=collection)
+    storage_context = StorageContext.from_defaults(vector_store=vector_store)
+    VectorStoreIndex.from_documents(documents, storage_context=storage_context)
+
+    return {"collection_id": collection_id, "status": "indexed", "chunks": collection.count()}
+
+@app.post("/documents/{collection_id}/query")
+async def query_document(collection_id: str, req: QueryRequest):
+    collection = chroma_client.get_collection(collection_id)
+    vector_store = ChromaVectorStore(chroma_collection=collection)
+    index = VectorStoreIndex.from_vector_store(vector_store)
+    response = await index.as_query_engine().aquery(req.question)
+    return {"answer": response.response}
+```
+
+For large files, move the indexing call into a `BackgroundTasks` job or a task queue (Celery/RQ) and return a `202 Accepted` with a status-polling endpoint instead of blocking the upload request.
+
+---
+
+## 9. FastAPI + LlamaIndex: Chat Engine with Memory
+
+Chat engines need per-session state just like LangChain chains do — keep one chat engine instance per session, backed by a `ChatMemoryBuffer`.
+
+```python
+from llama_index.core.memory import ChatMemoryBuffer
+
+session_engines: dict[str, "BaseChatEngine"] = {}
+
+def get_chat_engine(session_id: str, index):
+    if session_id not in session_engines:
+        memory = ChatMemoryBuffer.from_defaults(token_limit=3000)
+        session_engines[session_id] = index.as_chat_engine(
+            chat_mode="condense_plus_context",
+            memory=memory,
+            system_prompt="You are a helpful support assistant. Answer only from the provided context.",
+        )
+    return session_engines[session_id]
+
+class SessionChatRequest(BaseModel):
+    session_id: str
+    message: str
+
+@app.post("/chat")
+async def chat(req: SessionChatRequest):
+    engine = get_chat_engine(req.session_id, app.state.index)
+    response = await engine.achat(req.message)
+    return {"answer": response.response}
+```
+
+> As with LangChain, the in-memory `dict` above won't survive restarts or work across multiple replicas — persist `ChatMemoryBuffer` contents (e.g. serialize to Redis/Postgres per session) for production.
+
+---
+
+## 10. FastAPI + LlamaIndex: Agent with Tools
+
+```python
+# agent.py
+from llama_index.core.tools import FunctionTool, QueryEngineTool
+from llama_index.core.agent.workflow import FunctionAgent
+
+def get_order_status(order_id: str) -> str:
+    """Look up the status of a customer order by its ID."""
+    return f"Order {order_id} is out for delivery."
+
+order_tool = FunctionTool.from_defaults(fn=get_order_status)
+
+docs_tool = QueryEngineTool.from_defaults(
+    query_engine=query_engine,
+    name="policy_search",
+    description="Answers questions about company policies from indexed documents.",
+)
+
+agent = FunctionAgent(tools=[order_tool, docs_tool], llm=Settings.llm)
+```
+
+```python
+# main.py (addition)
+from agent import agent
+
+@app.post("/agent")
+async def run_agent(req: QueryRequest):
+    response = await agent.run(req.question)
+    return {"answer": str(response)}
+```
+
+The agent decides per-query whether to call `get_order_status`, search the indexed policy documents, both, or neither — the same tool-calling loop pattern as LangGraph's `create_react_agent`, expressed via LlamaIndex's `FunctionAgent`.
+
+---
+
+## 11. Production Concerns
+
+- **Persist everything**: never rebuild an index from raw files on every deploy/restart — use a real vector store (Chroma/Pinecone/Qdrant/pgvector) and load via `from_vector_store`.
+- **Chunking strategy matters more than model choice**: tune `chunk_size`/`chunk_overlap` and consider `SentenceWindowNodeParser` or hierarchical parsers for long documents — bad chunking is the #1 cause of bad RAG answers.
+- **Rerank before synthesizing**: adding a reranker (Cohere, cross-encoder) after initial top-k retrieval materially improves answer quality for most corpora.
+- **Async everywhere**: use `aquery`/`achat`/`.run()` in FastAPI routes; avoid sync calls blocking the event loop.
+- **Background indexing**: move file-upload indexing off the request path for large documents.
+- **Cost/latency**: cache embeddings (don't re-embed unchanged documents), batch embedding calls, and use `similarity_top_k` conservatively.
+- **Evaluation in CI**: wire `FaithfulnessEvaluator`/`RelevancyEvaluator` into tests against a fixed eval set so retrieval or prompt changes don't silently regress answer quality.
+- **Multi-tenant isolation**: use separate collections/namespaces per user or org so retrieval never leaks across tenants.
+- **Observability**: LlamaIndex integrates with LlamaTrace/Arize Phoenix and OpenTelemetry-based tracing for inspecting retrieval + synthesis steps in production.
+
+---
+
+## 12. Checklist — Topics You Must Master
+
+- [ ] Documents vs. Nodes, and how metadata flows from Document → Node
+- [ ] `SimpleDirectoryReader` and LlamaHub connectors for external data sources
+- [ ] Node parsers/text splitters and how chunk size/overlap affects retrieval quality
+- [ ] `Settings` for global LLM/embedding/chunking configuration
+- [ ] Index types: `VectorStoreIndex`, `SummaryIndex`, `TreeIndex`, `KeywordTableIndex`, `PropertyGraphIndex` — and when each fits
+- [ ] `StorageContext` and persisting to a real vector store (Chroma, Pinecone, Qdrant, pgvector)
+- [ ] Retrievers vs. query engines vs. chat engines — the layering between them
+- [ ] Response modes: `compact`, `refine`, `tree_summarize`, `no_text`
+- [ ] Node postprocessors: similarity cutoffs, rerankers
+- [ ] Chat engine modes (`condense_question`, `context`, `condense_plus_context`, `react`) and `ChatMemoryBuffer`
+- [ ] Tools: `FunctionTool` vs. `QueryEngineTool`, and wrapping query engines as agent tools
+- [ ] `FunctionAgent` / agentic tool-calling loop
+- [ ] Workflows: `@step`, custom `Event` subclasses, `StartEvent`/`StopEvent`, loops and branching
+- [ ] Evaluation: `FaithfulnessEvaluator`, `RelevancyEvaluator`, `CorrectnessEvaluator`, retrieval metrics
+- [ ] FastAPI integration: lifespan-managed index construction, SSE streaming via `response_gen`, upload-then-index endpoints, per-session chat engines
+- [ ] Production concerns: persistent vector stores, reranking, background indexing, multi-tenant collection isolation, eval-in-CI

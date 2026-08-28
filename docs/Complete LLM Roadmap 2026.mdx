@@ -1,0 +1,683 @@
+import TOCInline from '@theme/TOCInline';
+
+# Complete LLM Roadmap (2026)
+
+This roadmap is designed for you: a **React + FastAPI developer** who wants to become an **AI Engineer**. It follows the order real AI applications are built — from Python fundamentals to LLM internals, RAG, LangChain, LangGraph, MCP, agents, and deployment.
+
+:::tip[24-Module AI Engineer Roadmap]
+**3–4 months** · **Project-based** · **Production-ready skills**
+
+Covers the entire modern LLM stack: RAG, embeddings, vector databases, LangChain, LangGraph, MCP, agents, evaluation, fine-tuning, deployment, and monitoring.
+:::
+
+## Table of Contents
+
+<TOCInline toc={toc} minHeadingLevel={2} maxHeadingLevel={3} />
+
+---
+
+## Visual Roadmap
+
+The learning path, in the order you should actually walk it:
+
+```text
+Python → LLM Basics → Transformers → Embeddings → Vector DB → RAG
+   → LangChain → LCEL → Tools → Agents → LangGraph → MCP
+      → Evaluation → Fine-Tuning → Deployment → Monitoring → AI Apps
+```
+
+### Phase Map
+
+| Module | Outcome |
+| --- | --- |
+| [Phase 1](#phase-1--python--ai-foundations) | Python + AI Foundations |
+| [Phase 2](#phase-2--llm-fundamentals-must-master) | How LLMs Actually Work |
+| [Phase 3](#phase-3--embeddings) | Embeddings |
+| [Phase 4](#phase-4--vector-databases) | Vector Databases |
+| [Phase 5](#phase-5--rag-retrieval-augmented-generation) | RAG from Scratch + Advanced RAG |
+| [Phase 6](#phase-6--langchain) | LangChain + LCEL |
+| [Phase 7](#phase-7--prompt-engineering) | Prompt Engineering |
+| [Phase 8](#phase-8--langgraph) | LangGraph (Workflows & Agents) |
+| [Phase 9](#phase-9--llamaindex) | LlamaIndex |
+| [Phase 10](#phase-10--mcp-model-context-protocol) | MCP (Model Context Protocol) |
+| [Phase 11](#phase-11--function-calling) | Function Calling & Tools |
+| [Phase 12](#phase-12--ai-agents) | AI Agents |
+| [Phase 13](#phase-13--memory) | Memory in AI Apps |
+| [Phase 14](#phase-14--evaluation) | Evaluation (RAGAS, DeepEval) |
+| [Phase 15](#phase-15--fine-tuning) | Fine-Tuning & LoRA |
+| [Phase 16](#phase-16--hugging-face-ecosystem) | Hugging Face Ecosystem |
+| [Phase 17](#phase-17--serving-llms) | Serving LLMs |
+| [Phase 18](#phase-18--fastapi-ai-backend) | FastAPI + AI Backend |
+| [Phase 19](#phase-19--ai-deployment) | Deployment |
+| [Phase 20](#phase-20--monitoring--observability) | Monitoring & Observability |
+| [Phase 21](#phase-21--guardrails--ai-security) | Guardrails & AI Security |
+| [Phase 22](#phase-22--multi-agent-systems) | Multi-Agent Systems |
+| [Phase 23](#phase-23--multimodal-ai) | Multimodal AI |
+| [Phase 24](#phase-24--production-ai-projects) | Projects |
+| [Extra](#interview-preparation) | Interview Preparation |
+| [Extra](#recommended-tech-stack-2026-ai-engineer) | Recommended Tech Stack |
+| [Extra](#12-week-learning-schedule) | 12-Week Learning Schedule |
+
+---
+
+## Phase 1 — Python + AI Foundations
+
+**Goal:** become comfortable building AI backends.
+
+### Learn Python Properly
+
+- Types (`Annotated`, `Literal`, `TypedDict`)
+- Classes
+- Dataclasses
+- Async / Await
+- Context Managers
+- Generators
+- Iterators
+- Decorators
+- Type Hints
+- Virtual Environments
+- `pyproject.toml`
+
+### Learn AI Math (Only Required Topics)
+
+| Topic | Why |
+| --- | --- |
+| Vectors | Embeddings |
+| Matrices | Transformer computation |
+| Dot Product | Similarity search |
+| Cosine Similarity | Vector search |
+| Softmax | Attention |
+| Probability | Token prediction |
+
+---
+
+## Phase 2 — LLM Fundamentals (Must Master)
+
+### Understand Every AI Vocabulary
+
+| Vocabulary | Meaning |
+| --- | --- |
+| LLM | Large Language Model |
+| Prompt | Instruction given to model |
+| Completion | Generated output |
+| Inference | Running the model |
+| Context Window | Memory available in one request |
+| Token | Smallest text unit |
+| Embedding | Vector representation |
+| Transformer | Neural architecture |
+| Attention | How tokens interact |
+| Hallucination | Incorrect generation |
+| Temperature | Randomness |
+| Top P | Sampling strategy |
+| System Prompt | Model behavior |
+| Few-shot Prompting | Examples in prompt |
+| Zero-shot | Instruction only |
+| Chain of Thought | Reasoning prompt |
+
+### Tokenization
+
+- BPE
+- SentencePiece
+- WordPiece
+- Token IDs
+- Vocabulary Size
+- Token Limits
+- Token Counting
+
+### Transformers (Deep Dive)
+
+| Topic | Importance |
+| --- | --- |
+| Self Attention | ★★★★★ |
+| Q, K, V | ★★★★★ |
+| Multi Head Attention | ★★★★★ |
+| Positional Encoding | ★★★★☆ |
+| Feed Forward Network | ★★★★☆ |
+| LayerNorm | ★★★☆☆ |
+| Residual Connections | ★★★☆☆ |
+
+### Attention Explained
+
+Learn it mathematically — you should be able to write this from memory:
+
+```text
+Attention(Q, K, V) = softmax( (Q · Kᵀ) / √d_k ) · V
+```
+
+- `Q` (query), `K` (key), `V` (value) are linear projections of the input
+- `Q · Kᵀ` scores how much every token should attend to every other token
+- `√d_k` scaling keeps the dot products from saturating softmax
+- `softmax` turns scores into attention weights that sum to 1
+- multiplying by `V` produces the weighted mix of token information
+
+### LLM Generation Pipeline
+
+- Logits
+- Softmax
+- Sampling
+- Greedy Decoding
+- Beam Search
+- Temperature
+- Top-K
+- Top-P
+
+---
+
+## Phase 3 — Embeddings
+
+### What Are Embeddings?
+
+- Embedding models
+- Dense embeddings
+- Sparse embeddings
+- Hybrid embeddings
+- Similarity search
+
+### Embedding Models
+
+| Model | Use |
+| --- | --- |
+| OpenAI | High quality |
+| BGE | Open source |
+| Nomic | Fast embeddings |
+| E5 | Retrieval optimized |
+| Jina | Long document retrieval |
+
+---
+
+## Phase 4 — Vector Databases
+
+### Learn These Databases
+
+| Database | Why Learn |
+| --- | --- |
+| FAISS | Local retrieval |
+| Chroma | Beginner RAG |
+| Qdrant | Production open source |
+| Pinecone | Managed cloud DB |
+| pgvector | Postgres integration |
+
+### Concepts
+
+- ANN Search
+- HNSW
+- IVF
+- PQ
+- Metadata Filtering
+- Hybrid Search
+- Semantic Search
+
+---
+
+## Phase 5 — RAG (Retrieval Augmented Generation)
+
+You already started this. Master every step.
+
+### RAG from Scratch
+
+| Lesson | Status |
+| --- | --- |
+| Chunking | ✅ |
+| Embeddings | Next |
+| Vector DB | Next |
+| Retriever | Pending |
+| Prompt Template | Pending |
+| LLM Response | Pending |
+
+### Advanced RAG
+
+- Parent Document Retrieval
+- Multi Query Retrieval
+- Context Compression
+- Query Expansion
+- Rerankers
+- Hybrid Search
+- Self RAG
+- Corrective RAG (CRAG)
+- GraphRAG
+- Agentic RAG
+
+---
+
+## Phase 6 — LangChain
+
+Master these modules.
+
+### LangChain Modules
+
+| Topic | Importance |
+| --- | --- |
+| Models | ★★★★★ |
+| PromptTemplate | ★★★★★ |
+| OutputParser | ★★★★★ |
+| Retriever | ★★★★★ |
+| Chains | ★★★★★ |
+| Memory | ★★★★☆ |
+| Tools | ★★★★★ |
+| Agents | ★★★★★ |
+
+### LCEL (LangChain Expression Language)
+
+Must know:
+
+- `RunnableSequence`
+- `RunnableParallel`
+- `RunnableLambda`
+- `RunnableBranch`
+- `RunnableMap`
+- Pipe operator (`|`)
+- Streaming
+- Async Chains
+
+---
+
+## Phase 7 — Prompt Engineering
+
+Learn the patterns:
+
+| Pattern | Purpose |
+| --- | --- |
+| Zero-shot | Instructions only |
+| Few-shot | Examples |
+| Chain of Thought | Reasoning |
+| Self Consistency | Multiple reasoning paths |
+| ReAct | Reason + Act |
+| Tree of Thought | Planning |
+
+---
+
+## Phase 8 — LangGraph
+
+This is **workflow orchestration**.
+
+### Core Concepts
+
+| Concept | Purpose |
+| --- | --- |
+| State | Shared memory |
+| Node | Step |
+| Edge | Transition |
+| Conditional Edge | Branching |
+| Cycles | Loops |
+| Interrupt | Human approval |
+| Checkpoint | Resume workflow |
+
+### Projects
+
+- Email assistant
+- Resume analyzer
+- Research agent
+- SQL agent
+
+---
+
+## Phase 9 — LlamaIndex
+
+Learn:
+
+- Documents
+- Nodes
+- Readers
+- Loaders
+- Indexes
+- Query Engine
+- Router Query Engine
+- Chat Engine
+
+---
+
+## Phase 10 — MCP (Model Context Protocol)
+
+### Topics
+
+| Topic | Example |
+| --- | --- |
+| MCP Server | GitHub server |
+| MCP Client | Claude Desktop |
+| Resources | Files, DB |
+| Tools | Functions |
+| Prompts | Reusable prompt library |
+
+### Build
+
+- Weather MCP
+- Filesystem MCP
+- PostgreSQL MCP
+- GitHub MCP
+
+---
+
+## Phase 11 — Function Calling
+
+Learn:
+
+- JSON Schema
+- Tool Registration
+- Tool Execution
+- Structured Output
+- Validation
+- Retry
+
+---
+
+## Phase 12 — AI Agents
+
+### Agent Architecture
+
+| Component | Role |
+| --- | --- |
+| Planner | Break tasks down |
+| Executor | Use tools |
+| Memory | Store history |
+| Reflection | Improve answers |
+
+### Frameworks
+
+- LangGraph
+- AutoGen
+- CrewAI
+- OpenAI Agents SDK
+- SmolAgents
+
+---
+
+## Phase 13 — Memory
+
+Types:
+
+- Conversation Buffer
+- Window Memory
+- Summary Memory
+- Semantic Memory
+- Episodic Memory
+- Long-term Memory
+- Vector Memory
+
+---
+
+## Phase 14 — Evaluation
+
+### Metrics
+
+| Metric | Meaning |
+| --- | --- |
+| Faithfulness | No hallucinations |
+| Answer Relevancy | Correct response |
+| Context Precision | Relevant chunks |
+| Context Recall | Retrieved enough info |
+
+### Libraries
+
+- RAGAS
+- DeepEval
+- LangSmith
+- Phoenix (Arize)
+
+---
+
+## Phase 15 — Fine-Tuning
+
+### Methods
+
+| Method | Why |
+| --- | --- |
+| Supervised Fine-Tuning | Teach new tasks |
+| LoRA | Cheap training |
+| QLoRA | 4-bit training |
+| DPO | Preference optimization |
+| RLHF | Human feedback |
+
+### Tools
+
+- Hugging Face Transformers
+- PEFT
+- TRL
+- Unsloth
+
+---
+
+## Phase 16 — Hugging Face Ecosystem
+
+Must know:
+
+- Transformers
+- Tokenizers
+- Datasets
+- Accelerate
+- PEFT
+- Diffusers
+- Safetensors
+- Hub
+
+---
+
+## Phase 17 — Serving LLMs
+
+### Tools
+
+| Server | Purpose |
+| --- | --- |
+| vLLM | Fast inference |
+| Ollama | Local models |
+| TGI | Production inference |
+| SGLang | High throughput |
+
+### Topics
+
+- Quantization
+- GGUF
+- FP16
+- INT4
+- KV Cache
+- Speculative Decoding
+
+---
+
+## Phase 18 — FastAPI AI Backend
+
+Since you're learning FastAPI, this is where your existing skills compound.
+
+### Build APIs For
+
+- Chat Completion
+- Streaming Tokens
+- Upload Documents
+- Embedding Pipeline
+- Retrieval Endpoint
+- Agent Endpoint
+
+### Learn
+
+- SSE
+- WebSockets
+- Background Tasks
+- Async Streaming
+- Dependency Injection
+
+---
+
+## Phase 19 — AI Deployment
+
+### Topics
+
+- Docker
+- Docker Compose
+- Kubernetes Basics
+- GPU Containers
+- Nginx
+- CI/CD
+- GitHub Actions
+
+### Cloud
+
+- AWS Bedrock
+- Azure OpenAI
+- Google Vertex AI
+- Cloud Run
+- Fly.io
+- Railway
+
+---
+
+## Phase 20 — Monitoring & Observability
+
+### Learn
+
+- Prompt Logging
+- Token Usage
+- Latency
+- Cost Monitoring
+- Traces
+- User Sessions
+- Feedback Collection
+
+### Tools
+
+- LangSmith
+- Helicone
+- OpenTelemetry
+- Phoenix
+
+---
+
+## Phase 21 — Guardrails & AI Security
+
+### Topics
+
+| Security Topic | Purpose |
+| --- | --- |
+| Prompt Injection | Prevent malicious prompts |
+| Jailbreak | Safety bypass |
+| Output Validation | JSON schema |
+| PII Detection | Privacy |
+| Content Moderation | Safe responses |
+
+### Libraries
+
+- Guardrails AI
+- PydanticAI
+- NeMo Guardrails
+
+---
+
+## Phase 22 — Multi-Agent Systems
+
+### Patterns
+
+- Planner Agent
+- Research Agent
+- Coding Agent
+- Review Agent
+- Memory Agent
+
+### Frameworks
+
+- LangGraph
+- CrewAI
+- AutoGen
+- OpenAI Agents SDK
+
+---
+
+## Phase 23 — Multimodal AI
+
+| Area | Models |
+| --- | --- |
+| Vision | GPT-4.1 Vision, LLaVA |
+| OCR | Donut, PaddleOCR |
+| Speech-to-Text | Whisper |
+| Text-to-Speech | ElevenLabs, Kokoro |
+| Image Generation | Flux, Stable Diffusion |
+
+---
+
+## Phase 24 — Production AI Projects
+
+### Beginner (Learning)
+
+- PDF Chat (RAG)
+- Resume Analyzer
+- FAQ Chatbot
+- Markdown Knowledge Base
+- Website Chatbot
+
+### Intermediate
+
+- SQL Agent
+- GitHub Repository Chat
+- Customer Support Agent
+- Research Assistant
+- Email Assistant
+
+### Advanced
+
+- Multi-Agent Coding Assistant
+- AI IDE using MCP
+- Meeting Assistant
+- Voice AI Agent
+- Autonomous Research Agent
+
+---
+
+## Interview Preparation
+
+### LLM Interview Topics
+
+| Topic | Must Know |
+| --- | --- |
+| Transformer Internals | ★★★★★ |
+| Attention Math | ★★★★★ |
+| Embeddings | ★★★★★ |
+| Vector Databases | ★★★★★ |
+| Chunking Strategies | ★★★★★ |
+| Retriever Types | ★★★★★ |
+| RAG Architecture | ★★★★★ |
+| LangChain | ★★★★★ |
+| LangGraph | ★★★★★ |
+| Function Calling | ★★★★★ |
+| Prompt Engineering | ★★★★★ |
+| Evaluation Metrics | ★★★★☆ |
+| LoRA / Fine-Tuning | ★★★★☆ |
+| Inference Optimization | ★★★★☆ |
+| AI Security | ★★★★☆ |
+
+---
+
+## Recommended Tech Stack (2026 AI Engineer)
+
+| Layer | Recommended |
+| --- | --- |
+| Frontend | React + Next.js + Tailwind |
+| Backend | FastAPI |
+| LLM Framework | LangChain + LCEL |
+| Workflow Engine | LangGraph |
+| RAG Framework | LlamaIndex + LangChain |
+| Vector DB | Qdrant / pgvector / Chroma |
+| Database | PostgreSQL |
+| LLM Providers | OpenAI, Anthropic, Gemini, Ollama |
+| Evaluation | RAGAS, DeepEval, LangSmith |
+| Deployment | Docker + AWS + vLLM |
+
+---
+
+## 12-Week Learning Schedule
+
+| Week | Focus |
+| --- | --- |
+| 1 | Python + AI Vocabulary + Tokens |
+| 2 | Transformers + Attention |
+| 3 | Embeddings + Similarity Search |
+| 4 | Vector Databases (FAISS, Chroma, Qdrant) |
+| 5 | RAG from Scratch |
+| 6 | LangChain + LCEL |
+| 7 | LangGraph Workflows |
+| 8 | LlamaIndex + Advanced RAG |
+| 9 | MCP + Tool Calling + Agents |
+| 10 | Evaluation + Memory + Guardrails |
+| 11 | Fine-Tuning + Hugging Face + Ollama |
+| 12 | Deployment + Production AI Project |
+
+:::note[Pace yourself]
+Twelve weeks is a shape, not a deadline. Depth on RAG, LangGraph, and one
+finished production project will get you further than skimming all 24 modules.
+:::

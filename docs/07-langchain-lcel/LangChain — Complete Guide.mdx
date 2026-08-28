@@ -1,0 +1,497 @@
+# LangChain — Complete Guide
+
+## Table of Contents
+
+1. [What is LangChain & Why it Exists](#1-what-is-langchain--why-it-exists)
+2. [Core Concepts You Must Know](#2-core-concepts-you-must-know)
+   - 2.1 [Models (LLMs & Chat Models)](#21-models-llms--chat-models)
+   - 2.2 [Prompt Templates](#22-prompt-templates)
+   - 2.3 [Output Parsers](#23-output-parsers)
+   - 2.4 [LCEL — LangChain Expression Language](#24-lcel--langchain-expression-language)
+   - 2.5 [Chains](#25-chains)
+   - 2.6 [Memory](#26-memory)
+   - 2.7 [Document Loaders & Text Splitters](#27-document-loaders--text-splitters)
+   - 2.8 [Embeddings & Vector Stores](#28-embeddings--vector-stores)
+   - 2.9 [Retrievers & RAG](#29-retrievers--rag)
+   - 2.10 [Tools](#210-tools)
+   - 2.11 [Agents](#211-agents)
+   - 2.12 [Callbacks & Streaming](#212-callbacks--streaming)
+   - 2.13 [LangGraph (Stateful Orchestration)](#213-langgraph-stateful-orchestration)
+3. [Project Setup](#3-project-setup)
+4. [FastAPI + LangChain: Basic Chat Endpoint](#4-fastapi--langchain-basic-chat-endpoint)
+5. [FastAPI + LangChain: Streaming Responses](#5-fastapi--langchain-streaming-responses)
+6. [FastAPI + LangChain: RAG Endpoint](#6-fastapi--langchain-rag-endpoint)
+7. [FastAPI + LangChain: Agent with Tools](#7-fastapi--langchain-agent-with-tools)
+8. [FastAPI + LangChain: Conversation Memory per Session](#8-fastapi--langchain-conversation-memory-per-session)
+9. [Production Concerns](#9-production-concerns)
+10. [Checklist — Topics You Must Master](#10-checklist--topics-you-must-master)
+
+---
+
+## 1. What is LangChain & Why it Exists
+
+LangChain is a framework for building applications powered by large language models (LLMs). An LLM by itself is just a text-in/text-out function — it has no memory, no access to your data, no ability to call external tools, and no built-in way to reason over multi-step tasks. LangChain provides the **plumbing** around the raw model:
+
+- A common interface for many model providers (OpenAI, Anthropic, Google, local models via Ollama, etc.)
+- A way to compose prompts, models, and parsers into pipelines (**chains**)
+- A way to connect your own data to the model (**RAG — Retrieval Augmented Generation**)
+- A way to let the model take actions in the world (**tools** and **agents**)
+- A way to give the model memory across turns
+- Observability and debugging via **LangSmith**
+
+Think of LangChain as the "glue code" library so you don't reinvent prompt formatting, retries, streaming, and tool-calling plumbing for every project.
+
+**LangChain ecosystem packages:**
+
+| Package | Purpose |
+|---|---|
+| `langchain-core` | Base abstractions: `Runnable`, messages, prompts, output parsers |
+| `langchain` | Chains, agents, retrieval logic |
+| `langchain-community` | Third-party integrations (loaders, vector stores) |
+| `langchain-openai`, `langchain-anthropic`, etc. | Provider-specific model wrappers |
+| `langgraph` | Graph-based orchestration for stateful, multi-step agents |
+| `langsmith` | Tracing, evaluation, debugging |
+
+---
+
+## 2. Core Concepts You Must Know
+
+### 2.1 Models (LLMs & Chat Models)
+
+Two families:
+- **LLMs** — plain text completion (mostly legacy now).
+- **Chat Models** — take a list of messages (`SystemMessage`, `HumanMessage`, `AIMessage`) and return an `AIMessage`. This is the standard today.
+
+```python
+from langchain_openai import ChatOpenAI
+from langchain_core.messages import HumanMessage, SystemMessage
+
+model = ChatOpenAI(model="gpt-4o-mini", temperature=0.3)
+
+response = model.invoke([
+    SystemMessage(content="You are a concise assistant."),
+    HumanMessage(content="Explain vector databases in one sentence."),
+])
+print(response.content)
+```
+
+### 2.2 Prompt Templates
+
+Templates let you parameterize prompts instead of hardcoding f-strings, and they integrate with LCEL pipelines.
+
+```python
+from langchain_core.prompts import ChatPromptTemplate
+
+prompt = ChatPromptTemplate.from_messages([
+    ("system", "You are an expert {domain} assistant."),
+    ("human", "{question}"),
+])
+
+formatted = prompt.invoke({"domain": "FastAPI", "question": "How do I add middleware?"})
+```
+
+### 2.3 Output Parsers
+
+Convert raw model output into structured data (strings, JSON, Pydantic models).
+
+```python
+from langchain_core.output_parsers import StrOutputParser, PydanticOutputParser
+from pydantic import BaseModel
+
+class Movie(BaseModel):
+    title: str
+    year: int
+
+parser = PydanticOutputParser(pydantic_object=Movie)
+```
+
+Modern LangChain prefers **`.with_structured_output()`** on the model itself when the provider supports tool/function calling:
+
+```python
+structured_model = model.with_structured_output(Movie)
+result = structured_model.invoke("Give me a classic sci-fi movie with its release year.")
+```
+
+### 2.4 LCEL — LangChain Expression Language
+
+LCEL is the modern way to compose components using the `|` (pipe) operator. Every component implements the `Runnable` interface (`invoke`, `batch`, `stream`, `ainvoke`, `astream`).
+
+```python
+chain = prompt | model | StrOutputParser()
+result = chain.invoke({"domain": "FastAPI", "question": "How do I add middleware?"})
+```
+
+This single line replaces what used to require verbose `LLMChain` classes. LCEL chains automatically support:
+- Sync and async execution
+- Streaming token-by-token
+- Batching
+- Parallel execution via `RunnableParallel`
+- Fallbacks via `.with_fallbacks()`
+- Retries via `.with_retry()`
+
+### 2.5 Chains
+
+A "chain" is just a composed sequence of runnables. Beyond simple pipes, LangChain provides pre-built chain constructors like `create_retrieval_chain` and `create_stuff_documents_chain` for RAG, covered in section 2.9.
+
+### 2.6 Memory
+
+Memory lets a conversation persist context across turns. In modern LangChain, memory is implemented explicitly rather than via the old `ConversationBufferMemory` classes — typically using `RunnableWithMessageHistory` or, preferably, **LangGraph's** built-in state/checkpointing.
+
+```python
+from langchain_core.runnables.history import RunnableWithMessageHistory
+from langchain_community.chat_message_histories import ChatMessageHistory
+
+store = {}
+
+def get_session_history(session_id: str):
+    if session_id not in store:
+        store[session_id] = ChatMessageHistory()
+    return store[session_id]
+
+chain_with_memory = RunnableWithMessageHistory(
+    chain,
+    get_session_history,
+    input_messages_key="question",
+    history_messages_key="history",
+)
+```
+
+### 2.7 Document Loaders & Text Splitters
+
+To feed your own data (PDFs, websites, DBs) to an LLM, you first load it, then split it into chunks small enough to embed and fit in context.
+
+```python
+from langchain_community.document_loaders import PyPDFLoader
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+loader = PyPDFLoader("handbook.pdf")
+docs = loader.load()
+
+splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=150)
+chunks = splitter.split_documents(docs)
+```
+
+### 2.8 Embeddings & Vector Stores
+
+Embeddings turn text into numeric vectors that capture semantic meaning. A vector store indexes those vectors for similarity search.
+
+```python
+from langchain_openai import OpenAIEmbeddings
+from langchain_community.vectorstores import Chroma
+
+embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
+vectorstore = Chroma.from_documents(chunks, embeddings, persist_directory="./chroma_db")
+```
+
+Common vector stores: **Chroma**, **FAISS**, **Pinecone**, **Qdrant**, **Weaviate**, **pgvector**.
+
+### 2.9 Retrievers & RAG
+
+A retriever wraps a vector store to fetch the most relevant chunks for a query. RAG = retrieve relevant context, then stuff it into the prompt.
+
+```python
+from langchain.chains.combine_documents import create_stuff_documents_chain
+from langchain.chains import create_retrieval_chain
+
+retriever = vectorstore.as_retriever(search_kwargs={"k": 4})
+
+qa_prompt = ChatPromptTemplate.from_messages([
+    ("system", "Answer using only this context:\n\n{context}"),
+    ("human", "{input}"),
+])
+
+combine_docs_chain = create_stuff_documents_chain(model, qa_prompt)
+rag_chain = create_retrieval_chain(retriever, combine_docs_chain)
+
+result = rag_chain.invoke({"input": "What is the refund policy?"})
+print(result["answer"])
+```
+
+### 2.10 Tools
+
+Tools are functions the model can choose to call — search, calculators, DB queries, API calls. Define with the `@tool` decorator; the docstring becomes the description the model reads to decide when to use it.
+
+```python
+from langchain_core.tools import tool
+
+@tool
+def get_weather(city: str) -> str:
+    """Get the current weather for a given city."""
+    return f"It's sunny in {city}."
+```
+
+### 2.11 Agents
+
+An agent uses the LLM to decide **which tools to call, in what order**, based on the user's goal — as opposed to a fixed chain where the sequence of steps is hardcoded.
+
+```python
+from langgraph.prebuilt import create_react_agent
+
+agent = create_react_agent(model, tools=[get_weather])
+result = agent.invoke({"messages": [("human", "What's the weather in Tokyo?")]})
+```
+
+`create_react_agent` (from LangGraph) is the modern replacement for the older `initialize_agent`/`AgentExecutor` pattern — it's more transparent and easier to debug/stream.
+
+### 2.12 Callbacks & Streaming
+
+Callbacks hook into a chain's lifecycle (`on_llm_start`, `on_llm_new_token`, `on_chain_end`, etc.) — used for logging, streaming to a UI, or custom metrics. Every LCEL runnable natively supports `.stream()` and `.astream()` without extra setup, which is what you'll use inside FastAPI for token streaming.
+
+### 2.13 LangGraph (Stateful Orchestration)
+
+For anything beyond a simple linear chain — loops, conditional branching, multi-agent collaboration, human-in-the-loop approval — **LangGraph** is the modern LangChain-team-built successor to complex `AgentExecutor` logic. It models your application as a graph of nodes (functions) and edges (transitions), with built-in state persistence (checkpointing), making it the recommended approach for production agents in 2025+.
+
+---
+
+## 3. Project Setup
+
+```bash
+python -m venv venv
+source venv/bin/activate
+
+pip install fastapi uvicorn[standard] \
+    langchain langchain-core langchain-openai langchain-community \
+    langgraph chromadb python-dotenv pydantic
+```
+
+`.env`:
+```
+OPENAI_API_KEY=sk-...
+```
+
+---
+
+## 4. FastAPI + LangChain: Basic Chat Endpoint
+
+```python
+# main.py
+from fastapi import FastAPI
+from pydantic import BaseModel
+from langchain_openai import ChatOpenAI
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+from dotenv import load_dotenv
+
+load_dotenv()
+app = FastAPI(title="LangChain + FastAPI Demo")
+
+model = ChatOpenAI(model="gpt-4o-mini", temperature=0.2)
+prompt = ChatPromptTemplate.from_messages([
+    ("system", "You are a helpful assistant."),
+    ("human", "{question}"),
+])
+chain = prompt | model | StrOutputParser()
+
+class ChatRequest(BaseModel):
+    question: str
+
+class ChatResponse(BaseModel):
+    answer: str
+
+@app.post("/chat", response_model=ChatResponse)
+async def chat(req: ChatRequest):
+    answer = await chain.ainvoke({"question": req.question})
+    return ChatResponse(answer=answer)
+```
+
+Run it: `uvicorn main:app --reload`
+
+---
+
+## 5. FastAPI + LangChain: Streaming Responses
+
+Streaming matters for UX — users see tokens as they're generated rather than waiting for the full response. FastAPI's `StreamingResponse` pairs naturally with LCEL's `.astream()`.
+
+```python
+from fastapi.responses import StreamingResponse
+
+@app.post("/chat/stream")
+async def chat_stream(req: ChatRequest):
+    async def token_generator():
+        async for chunk in chain.astream({"question": req.question}):
+            yield chunk  # chunk is a string piece from StrOutputParser
+
+    return StreamingResponse(token_generator(), media_type="text/plain")
+```
+
+For Server-Sent Events (SSE), which most frontend chat widgets expect:
+
+```python
+import json
+
+@app.post("/chat/sse")
+async def chat_sse(req: ChatRequest):
+    async def event_generator():
+        async for chunk in chain.astream({"question": req.question}):
+            yield f"data: {json.dumps({'token': chunk})}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+```
+
+---
+
+## 6. FastAPI + LangChain: RAG Endpoint
+
+```python
+# rag.py
+from langchain_community.document_loaders import PyPDFLoader
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_openai import OpenAIEmbeddings
+from langchain_community.vectorstores import Chroma
+from langchain.chains.combine_documents import create_stuff_documents_chain
+from langchain.chains import create_retrieval_chain
+from langchain_core.prompts import ChatPromptTemplate
+
+def build_rag_chain(pdf_path: str, model):
+    docs = PyPDFLoader(pdf_path).load()
+    chunks = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=150).split_documents(docs)
+
+    embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
+    vectorstore = Chroma.from_documents(chunks, embeddings)
+    retriever = vectorstore.as_retriever(search_kwargs={"k": 4})
+
+    qa_prompt = ChatPromptTemplate.from_messages([
+        ("system", "Answer strictly from this context. If unsure, say you don't know.\n\n{context}"),
+        ("human", "{input}"),
+    ])
+    combine_docs_chain = create_stuff_documents_chain(model, qa_prompt)
+    return create_retrieval_chain(retriever, combine_docs_chain)
+```
+
+```python
+# main.py (additions)
+from rag import build_rag_chain
+
+rag_chain = build_rag_chain("handbook.pdf", model)
+
+class RagRequest(BaseModel):
+    query: str
+
+@app.post("/rag/ask")
+async def rag_ask(req: RagRequest):
+    result = await rag_chain.ainvoke({"input": req.query})
+    return {
+        "answer": result["answer"],
+        "sources": [doc.metadata for doc in result["context"]],
+    }
+```
+
+For **file upload → index → query** in one API, add an upload endpoint that saves the file, rebuilds/updates the vector store, and returns a `collection_id` the client sends with subsequent queries.
+
+---
+
+## 7. FastAPI + LangChain: Agent with Tools
+
+```python
+from langgraph.prebuilt import create_react_agent
+from langchain_core.tools import tool
+
+@tool
+def get_order_status(order_id: str) -> str:
+    """Look up the status of a customer order by its ID."""
+    # pretend DB call
+    return f"Order {order_id} is out for delivery."
+
+@tool
+def calculate_discount(price: float, percent: float) -> float:
+    """Calculate the discounted price given an original price and a discount percent."""
+    return round(price * (1 - percent / 100), 2)
+
+agent = create_react_agent(model, tools=[get_order_status, calculate_discount])
+
+class AgentRequest(BaseModel):
+    message: str
+
+@app.post("/agent")
+async def run_agent(req: AgentRequest):
+    result = await agent.ainvoke({"messages": [("human", req.message)]})
+    final_message = result["messages"][-1]
+    return {"answer": final_message.content}
+```
+
+The agent decides on its own whether to call `get_order_status`, `calculate_discount`, both, or neither — based on the user's message.
+
+---
+
+## 8. FastAPI + LangChain: Conversation Memory per Session
+
+Real chat apps need per-user/session history, not a single global chain.
+
+```python
+from langchain_core.runnables.history import RunnableWithMessageHistory
+from langchain_community.chat_message_histories import ChatMessageHistory
+from langchain_core.prompts import MessagesPlaceholder
+
+memory_prompt = ChatPromptTemplate.from_messages([
+    ("system", "You are a helpful assistant."),
+    MessagesPlaceholder("history"),
+    ("human", "{question}"),
+])
+memory_chain = memory_prompt | model | StrOutputParser()
+
+session_store: dict[str, ChatMessageHistory] = {}
+
+def get_session_history(session_id: str) -> ChatMessageHistory:
+    if session_id not in session_store:
+        session_store[session_id] = ChatMessageHistory()
+    return session_store[session_id]
+
+conversational_chain = RunnableWithMessageHistory(
+    memory_chain,
+    get_session_history,
+    input_messages_key="question",
+    history_messages_key="history",
+)
+
+class SessionChatRequest(BaseModel):
+    session_id: str
+    question: str
+
+@app.post("/chat/session")
+async def session_chat(req: SessionChatRequest):
+    answer = await conversational_chain.ainvoke(
+        {"question": req.question},
+        config={"configurable": {"session_id": req.session_id}},
+    )
+    return {"answer": answer}
+```
+
+> In production, swap the in-memory `dict` for `RedisChatMessageHistory`, `PostgresChatMessageHistory`, or a LangGraph checkpointer backed by a real database — the in-memory store above is wiped on every server restart and won't work across multiple workers/replicas.
+
+---
+
+## 9. Production Concerns
+
+- **API keys**: load via environment variables / secrets manager, never hardcode.
+- **Rate limiting & timeouts**: wrap model calls with `.with_retry()` and set request timeouts; add FastAPI-level rate limiting (e.g. `slowapi`).
+- **Async everywhere**: use `ainvoke`/`astream` inside FastAPI's async routes to avoid blocking the event loop.
+- **Observability**: enable **LangSmith** tracing (`LANGCHAIN_TRACING_V2=true`) to debug chains/agents in production.
+- **Cost control**: cache repeated queries, cap `max_tokens`, choose smaller models for simple tasks.
+- **Statelessness across replicas**: don't rely on in-process `dict` memory stores when running multiple Uvicorn workers or containers — use Redis/Postgres.
+- **Structured output validation**: use `.with_structured_output(PydanticModel)` and validate before returning to the client.
+- **Security**: sanitize/validate any user input passed to tools that touch a database or execute code; never let an agent run arbitrary shell commands.
+- **Testing**: unit test chains by mocking the model (`FakeListChatModel`) so tests are deterministic and don't cost tokens.
+
+---
+
+## 10. Checklist — Topics You Must Master
+
+- [ ] Chat models vs. legacy LLMs, and the message types (`SystemMessage`, `HumanMessage`, `AIMessage`, `ToolMessage`)
+- [ ] `ChatPromptTemplate` and `MessagesPlaceholder`
+- [ ] Output parsers, and `.with_structured_output()`
+- [ ] LCEL: the `Runnable` interface, `|` composition, `RunnableParallel`, `RunnableLambda`, `.with_retry()`, `.with_fallbacks()`
+- [ ] `.invoke()` / `.batch()` / `.stream()` and their async counterparts
+- [ ] Document loaders (PDF, web, CSV, DB) and text splitters
+- [ ] Embeddings and how similarity search works (cosine similarity)
+- [ ] Vector stores: Chroma, FAISS, Pinecone, pgvector — trade-offs
+- [ ] Retrievers, `create_stuff_documents_chain`, `create_retrieval_chain`
+- [ ] RAG failure modes: chunking strategy, retrieval quality, hallucination despite context
+- [ ] Tools: `@tool` decorator, tool-calling models
+- [ ] Agents: ReAct pattern, `create_react_agent`, when to use an agent vs. a fixed chain
+- [ ] LangGraph: nodes, edges, state, checkpointing — for anything beyond linear chains
+- [ ] Memory: `RunnableWithMessageHistory`, session-scoped history, persistent backends
+- [ ] Callbacks and streaming internals
+- [ ] LangSmith for tracing/debugging/evaluation
+- [ ] FastAPI integration patterns: async routes, `StreamingResponse`/SSE, per-session state, background indexing for uploaded files
+- [ ] Production concerns: rate limiting, cost control, multi-replica state, security around tool execution

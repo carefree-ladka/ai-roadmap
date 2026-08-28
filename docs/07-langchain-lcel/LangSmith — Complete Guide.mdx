@@ -1,0 +1,407 @@
+# LangSmith — Complete Guide
+
+## Table of Contents
+
+1. [What is LangSmith & Why it Exists](#1-what-is-langsmith--why-it-exists)
+2. [Core Concepts You Must Know](#2-core-concepts-you-must-know)
+   - 2.1 [Traces & Runs](#21-traces--runs)
+   - 2.2 [Projects](#22-projects)
+   - 2.3 [Auto-Instrumentation vs. Manual Tracing](#23-auto-instrumentation-vs-manual-tracing)
+   - 2.4 [The `@traceable` Decorator](#24-the-traceable-decorator)
+   - 2.5 [Runs Trees & Nested Spans](#25-runs-trees--nested-spans)
+   - 2.6 [Metadata & Tags](#26-metadata--tags)
+   - 2.7 [Datasets & Examples](#27-datasets--examples)
+   - 2.8 [Evaluators & Evaluation Runs](#28-evaluators--evaluation-runs)
+   - 2.9 [Feedback (Online Evaluation)](#29-feedback-online-evaluation)
+   - 2.10 [Prompt Hub](#210-prompt-hub)
+   - 2.11 [Monitoring & Alerts](#211-monitoring--alerts)
+3. [Project Setup](#3-project-setup)
+4. [Your First Trace](#4-your-first-trace)
+5. [FastAPI + LangSmith: Auto-Traced Chain Endpoint](#5-fastapi--langsmith-auto-traced-chain-endpoint)
+6. [FastAPI + LangSmith: Manual Tracing with `@traceable`](#6-fastapi--langsmith-manual-tracing-with-traceable)
+7. [FastAPI + LangSmith: Tagging Requests by User/Session](#7-fastapi--langsmith-tagging-requests-by-usersession)
+8. [FastAPI + LangSmith: Capturing User Feedback](#8-fastapi--langsmith-capturing-user-feedback)
+9. [FastAPI + LangSmith: Running an Evaluation Job](#9-fastapi--langsmith-running-an-evaluation-job)
+10. [Production Concerns](#10-production-concerns)
+11. [Checklist — Topics You Must Master](#11-checklist--topics-you-must-master)
+
+---
+
+## 1. What is LangSmith & Why it Exists
+
+Once an LLM app is more than a single prompt call, you lose visibility fast: which retrieved chunk caused a bad answer? Which tool call failed? How much did that one request cost? A `print()` statement doesn't scale to production traffic or multi-step agents.
+
+**LangSmith** is Anthropic-competitor-neutral tooling from the LangChain team for **observability, debugging, and evaluation** of LLM applications. It gives you:
+
+- **Tracing** — a full, nested timeline of every step in a chain/agent/graph run (prompts sent, tokens used, latency, errors) — works with LangChain/LangGraph automatically, and with **any** Python/JS code via the `@traceable` decorator (it does not require LangChain).
+- **Datasets & Evaluation** — curate test cases and score your app's outputs automatically, so prompt/model changes don't silently regress quality.
+- **Prompt Hub** — version and share prompts outside of application code.
+- **Monitoring** — dashboards for latency, cost, error rate, and feedback scores over time in production.
+- **Feedback collection** — attach thumbs up/down or custom scores to specific runs, tying user sentiment back to the exact trace that produced it.
+
+Mental model: **LangSmith is to your LLM app what an APM tool (Datadog/Sentry) is to a regular web app — plus built-in support for evaluating output quality, which traditional APM tools don't do.**
+
+---
+
+## 2. Core Concepts You Must Know
+
+### 2.1 Traces & Runs
+
+- A **run** is a single recorded unit of work — one LLM call, one tool call, one retriever call, one chain step.
+- A **trace** is the full tree of runs produced by one top-level invocation (e.g. one `/chat` request) — the root run plus all its nested child runs.
+
+### 2.2 Projects
+
+Runs are grouped into **projects** (set via the `LANGCHAIN_PROJECT` env var or explicitly in code) — typically one project per environment (`myapp-dev`, `myapp-staging`, `myapp-prod`) or per app/service.
+
+### 2.3 Auto-Instrumentation vs. Manual Tracing
+
+- **Auto**: if you're using LangChain or LangGraph, setting three env vars turns on tracing for every chain/graph/agent call with zero code changes.
+- **Manual**: for arbitrary Python functions (including code that doesn't use LangChain at all — raw OpenAI SDK calls, custom retrieval logic, business logic around the LLM call), wrap functions with `@traceable` to get them into the same trace tree.
+
+### 2.4 The `@traceable` Decorator
+
+The single most important LangSmith primitive for non-LangChain code:
+
+```python
+from langsmith import traceable
+
+@traceable(name="classify_intent")
+def classify_intent(message: str) -> str:
+    # any code — LLM call, regex, DB lookup — all get recorded as a run
+    ...
+    return "billing"
+```
+
+Works on sync and async functions, and even generators (for streaming steps) — each call becomes a run, automatically nested under whatever `@traceable` function called it.
+
+### 2.5 Runs Trees & Nested Spans
+
+When one `@traceable` function calls another, LangSmith automatically builds the parent-child relationship — you get a full call tree in the UI without manually passing span IDs around, similar to how OpenTelemetry spans nest, but purpose-built for LLM inputs/outputs/token counts.
+
+```python
+@traceable(name="rag_pipeline")
+def answer_question(query: str) -> str:
+    docs = retrieve(query)      # nested run, if @traceable
+    answer = generate(query, docs)  # nested run, if @traceable
+    return answer
+```
+
+### 2.6 Metadata & Tags
+
+Attach arbitrary metadata (`user_id`, `session_id`, `model_version`, `experiment_name`) and tags to runs — critical for filtering traces in the UI later ("show me all traces for user X" or "show me all traces tagged `checkout-flow`").
+
+```python
+@traceable(name="chat", metadata={"team": "support"})
+def chat(message: str, config: dict) -> str:
+    ...
+```
+
+Or dynamically per-call via `langsmith_extra`:
+
+```python
+answer_question(query, langsmith_extra={"metadata": {"user_id": user_id}, "tags": ["prod"]})
+```
+
+### 2.7 Datasets & Examples
+
+A **dataset** is a named collection of **examples** — each example is an input plus (optionally) a reference/expected output. Datasets are the foundation for repeatable evaluation: run your app against the same fixed set of inputs every time you change a prompt or model.
+
+```python
+from langsmith import Client
+
+client = Client()
+dataset = client.create_dataset("support-qa-eval")
+client.create_examples(
+    inputs=[{"question": "What is the refund window?"}],
+    outputs=[{"answer": "30 days from purchase."}],
+    dataset_id=dataset.id,
+)
+```
+
+### 2.8 Evaluators & Evaluation Runs
+
+An **evaluator** scores a run's output — either a heuristic function, an LLM-as-judge, or a comparison against the dataset's reference output. `evaluate()` runs your app against every example in a dataset and records scores.
+
+```python
+from langsmith.evaluation import evaluate
+
+def correctness(run, example) -> dict:
+    predicted = run.outputs["answer"]
+    expected = example.outputs["answer"]
+    score = 1.0 if expected.lower() in predicted.lower() else 0.0
+    return {"key": "correctness", "score": score}
+
+results = evaluate(
+    lambda inputs: {"answer": answer_question(inputs["question"])},
+    data="support-qa-eval",
+    evaluators=[correctness],
+)
+```
+
+LangSmith also ships prebuilt LLM-as-judge evaluators (e.g. for correctness, conciseness, harmfulness) via `langchain.smith` / `openevals` so you don't have to hand-write every scoring function.
+
+### 2.9 Feedback (Online Evaluation)
+
+Beyond offline dataset evaluation, you can attach **feedback** to a live production run — e.g. a user clicking thumbs up/down in your app UI. This links real user sentiment directly to the exact trace that produced that answer, letting you find and inspect the worst-performing traces in production.
+
+```python
+client.create_feedback(
+    run_id=run_id,
+    key="user_score",
+    score=1,  # 1 = thumbs up, 0 = thumbs down
+)
+```
+
+### 2.10 Prompt Hub
+
+A version-controlled store for prompts, decoupled from your application code — pull the latest approved prompt at runtime instead of hardcoding it, and iterate on wording without a redeploy.
+
+```python
+prompt = client.pull_prompt("my-org/support-answer-prompt")
+```
+
+### 2.11 Monitoring & Alerts
+
+The LangSmith UI provides production dashboards — request volume, latency percentiles, token cost, error rate, and feedback score trends over time — plus configurable alerts when metrics cross a threshold.
+
+---
+
+## 3. Project Setup
+
+```bash
+pip install langsmith langchain langchain-openai fastapi uvicorn[standard] python-dotenv
+```
+
+`.env`:
+```
+LANGCHAIN_TRACING_V2=true
+LANGCHAIN_API_KEY=ls-...
+LANGCHAIN_PROJECT=myapp-dev
+OPENAI_API_KEY=sk-...
+```
+
+Setting `LANGCHAIN_TRACING_V2=true` is the single switch that turns on tracing for any LangChain/LangGraph code in the process — no code changes needed for that part.
+
+---
+
+## 4. Your First Trace
+
+```python
+from dotenv import load_dotenv
+load_dotenv()
+
+from langchain_openai import ChatOpenAI
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+
+model = ChatOpenAI(model="gpt-4o-mini")
+prompt = ChatPromptTemplate.from_template("Answer briefly: {question}")
+chain = prompt | model | StrOutputParser()
+
+chain.invoke({"question": "What is LangSmith?"})
+# → open smith.langchain.com and see the full trace: prompt → model call → parser
+```
+
+---
+
+## 5. FastAPI + LangSmith: Auto-Traced Chain Endpoint
+
+Because tracing is env-var-driven, an existing LangChain-powered FastAPI endpoint gets full observability for free:
+
+```python
+# main.py
+from fastapi import FastAPI
+from pydantic import BaseModel
+from dotenv import load_dotenv
+
+load_dotenv()  # loads LANGCHAIN_TRACING_V2 etc. before any chain is built
+
+from langchain_openai import ChatOpenAI
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+
+app = FastAPI(title="LangSmith + FastAPI Demo")
+
+model = ChatOpenAI(model="gpt-4o-mini")
+chain = ChatPromptTemplate.from_template("Answer: {question}") | model | StrOutputParser()
+
+class ChatRequest(BaseModel):
+    question: str
+
+@app.post("/chat")
+async def chat(req: ChatRequest):
+    answer = await chain.ainvoke({"question": req.question})
+    return {"answer": answer}
+```
+
+Every request to `/chat` now appears as a full trace in the `myapp-dev` project — no additional code required.
+
+---
+
+## 6. FastAPI + LangSmith: Manual Tracing with `@traceable`
+
+For business logic around the chain (or if you're not using LangChain at all, e.g. raw OpenAI SDK), wrap it explicitly so it shows up in the same trace tree.
+
+```python
+from langsmith import traceable
+from openai import OpenAI
+
+client = OpenAI()
+
+@traceable(name="moderate_input")
+def moderate(text: str) -> bool:
+    result = client.moderations.create(input=text)
+    return result.results[0].flagged
+
+@traceable(name="generate_answer")
+def generate(question: str) -> str:
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": question}],
+    )
+    return response.choices[0].message.content
+
+@traceable(name="chat_pipeline")
+def chat_pipeline(question: str) -> str:
+    if moderate(question):
+        return "I can't help with that request."
+    return generate(question)
+
+@app.post("/chat/raw")
+async def chat_raw(req: ChatRequest):
+    answer = chat_pipeline(req.question)  # one trace, three nested runs
+    return {"answer": answer}
+```
+
+---
+
+## 7. FastAPI + LangSmith: Tagging Requests by User/Session
+
+Attach per-request metadata so you can filter and debug traces by user, session, or route in the LangSmith UI.
+
+```python
+from fastapi import Request
+
+class SessionChatRequest(BaseModel):
+    session_id: str
+    user_id: str
+    question: str
+
+@app.post("/chat/session")
+async def session_chat(req: SessionChatRequest):
+    answer = await chain.ainvoke(
+        {"question": req.question},
+        config={
+            "metadata": {"user_id": req.user_id, "session_id": req.session_id},
+            "tags": ["prod", "chat-endpoint"],
+            "run_name": "session_chat",
+        },
+    )
+    return {"answer": answer}
+```
+
+For manual `@traceable` functions, pass the same info via `langsmith_extra`:
+
+```python
+chat_pipeline(
+    req.question,
+    langsmith_extra={"metadata": {"user_id": req.user_id}, "tags": ["prod"]},
+)
+```
+
+---
+
+## 8. FastAPI + LangSmith: Capturing User Feedback
+
+Return the `run_id` to the client alongside the answer so a later "thumbs up/down" click can be linked back to the exact trace.
+
+```python
+from langsmith import Client
+from langsmith.run_helpers import get_current_run_tree
+
+ls_client = Client()
+
+@app.post("/chat")
+async def chat(req: ChatRequest):
+    with_run = chain.with_config({"run_name": "chat_endpoint"})
+    result = await with_run.ainvoke({"question": req.question})
+    run_tree = get_current_run_tree()
+    return {"answer": result, "run_id": str(run_tree.id) if run_tree else None}
+
+class FeedbackRequest(BaseModel):
+    run_id: str
+    score: int  # 1 = thumbs up, 0 = thumbs down
+    comment: str | None = None
+
+@app.post("/feedback")
+async def submit_feedback(req: FeedbackRequest):
+    ls_client.create_feedback(
+        run_id=req.run_id,
+        key="user_score",
+        score=req.score,
+        comment=req.comment,
+    )
+    return {"status": "recorded"}
+```
+
+---
+
+## 9. FastAPI + LangSmith: Running an Evaluation Job
+
+Expose an internal/admin endpoint that reruns your app against a curated dataset — useful for CI or a "re-evaluate after prompt change" button.
+
+```python
+from langsmith.evaluation import evaluate
+from langsmith import Client
+
+ls_client = Client()
+
+def correctness_evaluator(run, example) -> dict:
+    predicted = (run.outputs or {}).get("answer", "")
+    expected = (example.outputs or {}).get("answer", "")
+    return {"key": "correctness", "score": 1.0 if expected.lower() in predicted.lower() else 0.0}
+
+@app.post("/admin/evaluate")
+async def run_evaluation(dataset_name: str = "support-qa-eval"):
+    results = evaluate(
+        lambda inputs: {"answer": chain.invoke({"question": inputs["question"]})},
+        data=dataset_name,
+        evaluators=[correctness_evaluator],
+        experiment_prefix="fastapi-triggered",
+    )
+    return {"status": "completed", "experiment_url": results.experiment_url if hasattr(results, "experiment_url") else None}
+```
+
+> Long evaluation runs should go through `BackgroundTasks` or a job queue rather than blocking the request — evaluating even a modest dataset means one LLM call per example plus one per evaluator.
+
+---
+
+## 10. Production Concerns
+
+- **Separate projects per environment**: never let dev/test traces mix with prod traces — set `LANGCHAIN_PROJECT` per deployment.
+- **PII in traces**: traces capture full prompts/outputs by default — redact or avoid logging sensitive user data, or use LangSmith's data masking features.
+- **Sampling**: at high volume, trace 100% of errors but consider sampling successful runs to control cost/storage.
+- **Don't block the request path**: tracing calls are async/non-blocking by default in the SDK, but evaluation jobs are not — always run those out-of-band.
+- **Tie feedback to run IDs, not just requests**: return `run_id` from your API so frontend feedback widgets can call `create_feedback` accurately.
+- **Version your prompts**: use Prompt Hub or at least tag traces with a `prompt_version` metadata field so you can correlate quality changes with prompt changes.
+- **CI gating**: run `evaluate()` against a regression dataset in CI before merging prompt/model changes, and fail the build if scores drop below a threshold.
+- **Cost visibility**: LangSmith surfaces token usage/cost per run — review regularly, especially for agent loops that can silently balloon call counts.
+
+---
+
+## 11. Checklist — Topics You Must Master
+
+- [ ] Traces vs. runs, and how nested spans form a run tree
+- [ ] Projects, and separating trace data by environment
+- [ ] The three tracing env vars (`LANGCHAIN_TRACING_V2`, `LANGCHAIN_API_KEY`, `LANGCHAIN_PROJECT`)
+- [ ] Auto-tracing for LangChain/LangGraph vs. `@traceable` for arbitrary code
+- [ ] Passing metadata/tags via `config` (LangChain) or `langsmith_extra` (`@traceable`)
+- [ ] Datasets and examples as the foundation of repeatable evaluation
+- [ ] Writing custom evaluators vs. using prebuilt LLM-as-judge evaluators
+- [ ] `evaluate()` for offline evaluation runs
+- [ ] Feedback API for online/production evaluation, linked via `run_id`
+- [ ] Prompt Hub for decoupling prompts from application code
+- [ ] Monitoring dashboards: latency, cost, error rate, feedback trends
+- [ ] FastAPI integration: returning `run_id` to clients, tagging by user/session, background-job evaluation endpoints
+- [ ] Production concerns: environment separation, PII redaction, sampling, CI regression gating

@@ -1,0 +1,407 @@
+# LCEL — Complete Guide
+
+## Table of Contents
+
+1. [What is LCEL & Why it Exists](#1-what-is-lcel--why-it-exists)
+2. [Core Concepts You Must Know](#2-core-concepts-you-must-know)
+   - 2.1 [The `Runnable` Interface](#21-the-runnable-interface)
+   - 2.2 [The Pipe Operator (`|`)](#22-the-pipe-operator-)
+   - 2.3 [`RunnableSequence`](#23-runnablesequence)
+   - 2.4 [`RunnableParallel`](#24-runnableparallel)
+   - 2.5 [`RunnableLambda`](#25-runnablelambda)
+   - 2.6 [`RunnablePassthrough`](#26-runnablepassthrough)
+   - 2.7 [`RunnableBranch` (Conditional Routing)](#27-runnablebranch-conditional-routing)
+   - 2.8 [Configurable Fields & Alternatives](#28-configurable-fields--alternatives)
+   - 2.9 [`.bind()`, `.with_retry()`, `.with_fallbacks()`](#29-bind-with_retry-with_fallbacks)
+   - 2.10 [Batching, Streaming, and Async](#210-batching-streaming-and-async)
+   - 2.11 [`RunnableWithMessageHistory`](#211-runnablewithmessagehistory)
+   - 2.12 [Astream Events (Fine-Grained Streaming)](#212-astream-events-fine-grained-streaming)
+3. [Project Setup](#3-project-setup)
+4. [Your First LCEL Chain](#4-your-first-lcel-chain)
+5. [FastAPI + LCEL: Basic Endpoint](#5-fastapi--lcel-basic-endpoint)
+6. [FastAPI + LCEL: Streaming Tokens (SSE)](#6-fastapi--lcel-streaming-tokens-sse)
+7. [FastAPI + LCEL: Parallel Sub-Chains](#7-fastapi--lcel-parallel-sub-chains)
+8. [FastAPI + LCEL: Conditional Routing Chain](#8-fastapi--lcel-conditional-routing-chain)
+9. [FastAPI + LCEL: Retries & Fallback Models](#9-fastapi--lcel-retries--fallback-models)
+10. [FastAPI + LCEL: Fine-Grained Event Streaming (Tool Calls + Tokens)](#10-fastapi--lcel-fine-grained-event-streaming-tool-calls--tokens)
+11. [Production Concerns](#11-production-concerns)
+12. [Checklist — Topics You Must Master](#12-checklist--topics-you-must-master)
+
+---
+
+## 1. What is LCEL & Why it Exists
+
+Early LangChain required subclassing chain classes (`LLMChain`, `SequentialChain`, ...) just to plug a prompt into a model. It worked, but every chain needed its own boilerplate for streaming, batching, and async support — and composing chains together was awkward.
+
+**LCEL (LangChain Expression Language)** replaced that with a **declarative composition syntax**: every building block (prompts, models, parsers, retrievers, tools) implements the same `Runnable` interface, and you compose them with the `|` pipe operator, the way you'd pipe shell commands.
+
+```python
+chain = prompt | model | parser
+```
+
+The payoff: because every piece implements the same interface, **you get streaming, batching, async execution, retries, and fallbacks on every chain automatically** — you don't write that logic per chain, the interface gives it to you for free. This is the single biggest reason LCEL exists and the reason modern LangChain code looks so much shorter than pre-2024 tutorials.
+
+---
+
+## 2. Core Concepts You Must Know
+
+### 2.1 The `Runnable` Interface
+
+Every LCEL component — prompts, chat models, output parsers, retrievers, even plain Python functions wrapped in `RunnableLambda` — implements the same set of methods:
+
+| Method | Purpose |
+|---|---|
+| `.invoke(input)` | Run once, synchronously, return the final output |
+| `.ainvoke(input)` | Async version |
+| `.batch([inputs])` | Run many inputs, potentially in parallel |
+| `.abatch([inputs])` | Async version |
+| `.stream(input)` | Yield output incrementally as it's produced |
+| `.astream(input)` | Async version |
+| `.astream_events(input)` | Fine-grained event stream (see 2.12) |
+
+Because the interface is uniform, a `Runnable` built by composing five pieces behaves exactly like a single `Runnable` — you can nest, reuse, and further compose chains indefinitely.
+
+### 2.2 The Pipe Operator (`|`)
+
+`a | b` means "run `a`, feed its output as the input to `b`." Under the hood this constructs a `RunnableSequence`.
+
+```python
+chain = prompt | model | StrOutputParser()
+```
+
+Equivalent to manually writing:
+
+```python
+chain = RunnableSequence(first=prompt, middle=[model], last=StrOutputParser())
+```
+
+— but nobody writes it that way; `|` is the idiomatic form.
+
+### 2.3 `RunnableSequence`
+
+The core sequential building block: runs each step in order, passing output to input. `prompt | model | parser` is a three-step `RunnableSequence`. Any plain Python callable can be inserted into the sequence — LCEL auto-wraps it in a `RunnableLambda`.
+
+### 2.4 `RunnableParallel`
+
+Runs multiple runnables **concurrently** on the same input and returns a dict of their outputs — essential for RAG (fetch context and pass through the question at the same time) or for generating several independent outputs from one input.
+
+```python
+from langchain_core.runnables import RunnableParallel, RunnablePassthrough
+
+setup = RunnableParallel(
+    context=retriever,
+    question=RunnablePassthrough(),
+)
+rag_chain = setup | prompt | model | StrOutputParser()
+```
+
+A plain dict literal `{"context": retriever, "question": RunnablePassthrough()}` is automatically coerced into a `RunnableParallel` — you'll see this shorthand constantly in LangChain examples.
+
+### 2.5 `RunnableLambda`
+
+Wraps an arbitrary Python function as a `Runnable` so it can be composed with `|` and gets streaming/batching/async behavior automatically.
+
+```python
+from langchain_core.runnables import RunnableLambda
+
+def word_count(text: str) -> dict:
+    return {"text": text, "words": len(text.split())}
+
+chain = prompt | model | StrOutputParser() | RunnableLambda(word_count)
+```
+
+Any bare function used inside a chain (e.g. `prompt | model | (lambda x: x.content.upper())`) is implicitly wrapped this way too.
+
+### 2.6 `RunnablePassthrough`
+
+Passes its input straight through unchanged — used inside `RunnableParallel` to forward the original input alongside a derived value (as in the RAG example above, where the raw question needs to reach the prompt template unchanged while also being sent to the retriever).
+
+`RunnablePassthrough.assign(...)` adds computed keys to a dict without dropping the existing ones:
+
+```python
+chain = RunnablePassthrough.assign(context=retriever) | prompt | model
+```
+
+### 2.7 `RunnableBranch` (Conditional Routing)
+
+Routes input to different sub-chains based on a condition — the LCEL equivalent of an if/elif chain, for cases simple enough not to need a full LangGraph state machine.
+
+```python
+from langchain_core.runnables import RunnableBranch
+
+branch = RunnableBranch(
+    (lambda x: "refund" in x["question"].lower(), refund_chain),
+    (lambda x: "bug" in x["question"].lower(), technical_chain),
+    general_chain,  # default/fallback
+)
+```
+
+> For anything involving loops, multi-step agent behavior, or persisted state, use **LangGraph** instead — `RunnableBranch` is for simple, stateless, one-shot routing only.
+
+### 2.8 Configurable Fields & Alternatives
+
+`.configurable_fields()` and `.configurable_alternatives()` let you swap parameters (temperature, model choice) or entire components (a different prompt, a different vector store) **at call time** via `config`, without rebuilding the chain.
+
+```python
+model = ChatOpenAI(model="gpt-4o-mini").configurable_alternatives(
+    ConfigurableField(id="model_choice"),
+    default_key="fast",
+    accurate=ChatOpenAI(model="gpt-4o"),
+)
+
+chain = prompt | model | StrOutputParser()
+chain.invoke({"question": "..."}, config={"configurable": {"model_choice": "accurate"}})
+```
+
+### 2.9 `.bind()`, `.with_retry()`, `.with_fallbacks()`
+
+- `.bind(stop=["\n"])` — pre-fills call-time keyword arguments (like a partial) without changing the chain's declared input schema.
+- `.with_retry(stop_after_attempt=3)` — automatically retries on failure (e.g. transient API errors).
+- `.with_fallbacks([backup_chain])` — if the primary runnable raises, automatically tries the fallback instead — commonly used to fall back to a cheaper/different model provider on error.
+
+```python
+resilient_model = model.with_retry(stop_after_attempt=3).with_fallbacks([backup_model])
+```
+
+### 2.10 Batching, Streaming, and Async
+
+Because every component shares the `Runnable` interface, these all "just work" without extra code on any LCEL chain:
+
+```python
+chain.invoke({"question": "..."})                 # one call
+chain.batch([{"question": "A"}, {"question": "B"}])  # parallel batch
+for chunk in chain.stream({"question": "..."}):     # token-by-token
+    print(chunk, end="")
+await chain.ainvoke({"question": "..."})            # async
+```
+
+### 2.11 `RunnableWithMessageHistory`
+
+Wraps a chain to automatically load and append conversation history around each call, keyed by a session/thread identifier — LCEL's answer to conversational memory (covered in depth in the LangChain guide, section 2.6).
+
+### 2.12 Astream Events (Fine-Grained Streaming)
+
+`.stream()` gives you only the *final* output streamed incrementally. `.astream_events()` gives you **every** internal event — when the retriever starts/ends, when the model starts producing tokens, when a tool is called — as a structured event stream. This is what you need to build a UI showing "Searching documents..." → "Generating answer..." rather than just raw tokens.
+
+```python
+async for event in chain.astream_events({"question": "..."}, version="v2"):
+    if event["event"] == "on_chat_model_stream":
+        print(event["data"]["chunk"].content, end="")
+    elif event["event"] == "on_retriever_end":
+        print("Retrieved", len(event["data"]["output"]), "docs")
+```
+
+---
+
+## 3. Project Setup
+
+```bash
+python -m venv venv
+source venv/bin/activate
+
+pip install fastapi uvicorn[standard] \
+    langchain-core langchain-openai langchain-community \
+    python-dotenv pydantic
+```
+
+`.env`:
+```
+OPENAI_API_KEY=sk-...
+```
+
+---
+
+## 4. Your First LCEL Chain
+
+```python
+from langchain_openai import ChatOpenAI
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+
+model = ChatOpenAI(model="gpt-4o-mini", temperature=0.3)
+prompt = ChatPromptTemplate.from_template("Explain {topic} in one sentence.")
+chain = prompt | model | StrOutputParser()
+
+print(chain.invoke({"topic": "LCEL"}))
+```
+
+---
+
+## 5. FastAPI + LCEL: Basic Endpoint
+
+```python
+# main.py
+from fastapi import FastAPI
+from pydantic import BaseModel
+from dotenv import load_dotenv
+from langchain_openai import ChatOpenAI
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+
+load_dotenv()
+app = FastAPI(title="LCEL + FastAPI Demo")
+
+model = ChatOpenAI(model="gpt-4o-mini", temperature=0.2)
+chain = ChatPromptTemplate.from_template("Answer concisely: {question}") | model | StrOutputParser()
+
+class ChatRequest(BaseModel):
+    question: str
+
+@app.post("/chat")
+async def chat(req: ChatRequest):
+    answer = await chain.ainvoke({"question": req.question})
+    return {"answer": answer}
+```
+
+---
+
+## 6. FastAPI + LCEL: Streaming Tokens (SSE)
+
+```python
+from fastapi.responses import StreamingResponse
+import json
+
+@app.post("/chat/stream")
+async def chat_stream(req: ChatRequest):
+    async def event_generator():
+        async for chunk in chain.astream({"question": req.question}):
+            yield f"data: {json.dumps({'token': chunk})}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+```
+
+---
+
+## 7. FastAPI + LCEL: Parallel Sub-Chains
+
+Run several independent LLM calls concurrently and merge results — e.g. summarizing and extracting keywords from the same text in one request instead of two round trips.
+
+```python
+from langchain_core.runnables import RunnableParallel, RunnablePassthrough
+
+summary_chain = ChatPromptTemplate.from_template("Summarize in one sentence: {text}") | model | StrOutputParser()
+keywords_chain = ChatPromptTemplate.from_template("List 5 keywords from: {text}") | model | StrOutputParser()
+
+analysis_chain = RunnableParallel(
+    summary=summary_chain,
+    keywords=keywords_chain,
+    original=RunnablePassthrough(),
+)
+
+class AnalyzeRequest(BaseModel):
+    text: str
+
+@app.post("/analyze")
+async def analyze(req: AnalyzeRequest):
+    result = await analysis_chain.ainvoke({"text": req.text})
+    return result  # {"summary": "...", "keywords": "...", "original": {"text": "..."}}
+```
+
+Both sub-chains run concurrently, roughly halving latency versus calling them one after another.
+
+---
+
+## 8. FastAPI + LCEL: Conditional Routing Chain
+
+```python
+from langchain_core.runnables import RunnableBranch
+
+refund_chain = ChatPromptTemplate.from_template("As a billing agent, help with: {question}") | model | StrOutputParser()
+technical_chain = ChatPromptTemplate.from_template("As a technical support agent, help with: {question}") | model | StrOutputParser()
+general_chain = ChatPromptTemplate.from_template("As a general support agent, help with: {question}") | model | StrOutputParser()
+
+support_router = RunnableBranch(
+    (lambda x: "refund" in x["question"].lower() or "billing" in x["question"].lower(), refund_chain),
+    (lambda x: "error" in x["question"].lower() or "bug" in x["question"].lower(), technical_chain),
+    general_chain,
+)
+
+@app.post("/support")
+async def support(req: ChatRequest):
+    answer = await support_router.ainvoke({"question": req.question})
+    return {"answer": answer}
+```
+
+> Once routing needs more than a couple of keyword-based branches, or needs to loop/retry, migrate this to LangGraph — `RunnableBranch` is intentionally simple.
+
+---
+
+## 9. FastAPI + LCEL: Retries & Fallback Models
+
+```python
+from langchain_anthropic import ChatAnthropic
+
+primary_model = ChatOpenAI(model="gpt-4o-mini").with_retry(stop_after_attempt=3)
+backup_model = ChatAnthropic(model="claude-sonnet-4-6")
+
+resilient_chain = (
+    ChatPromptTemplate.from_template("Answer: {question}")
+    | primary_model.with_fallbacks([backup_model])
+    | StrOutputParser()
+)
+
+@app.post("/chat/resilient")
+async def chat_resilient(req: ChatRequest):
+    answer = await resilient_chain.ainvoke({"question": req.question})
+    return {"answer": answer}
+```
+
+If OpenAI throttles or errors after 3 retries, the request transparently falls over to Anthropic instead of failing the API call.
+
+---
+
+## 10. FastAPI + LCEL: Fine-Grained Event Streaming (Tool Calls + Tokens)
+
+Stream structured status updates ("Searching...", "Generating...") alongside tokens — useful for chat UIs that want more than raw text.
+
+```python
+@app.post("/chat/events")
+async def chat_events(req: ChatRequest):
+    async def event_generator():
+        async for event in rag_chain.astream_events({"input": req.question}, version="v2"):
+            kind = event["event"]
+            if kind == "on_retriever_start":
+                yield f"data: {json.dumps({'status': 'searching'})}\n\n"
+            elif kind == "on_retriever_end":
+                n = len(event["data"]["output"])
+                yield f"data: {json.dumps({'status': f'found {n} sources'})}\n\n"
+            elif kind == "on_chat_model_stream":
+                token = event["data"]["chunk"].content
+                if token:
+                    yield f"data: {json.dumps({'token': token})}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+```
+
+---
+
+## 11. Production Concerns
+
+- **Prefer `RunnableParallel` over sequential calls** whenever sub-tasks are independent — it's a near-free latency win.
+- **Always add `.with_retry()` on the model step** at minimum; add `.with_fallbacks()` for anything customer-facing where provider outages are unacceptable.
+- **Use `.astream_events()` for real chat UIs**, not just `.astream()` — users expect to see "searching," "thinking," or tool-call status, not silence followed by a wall of text.
+- **Don't over-nest `RunnableBranch`**: past 2–3 conditions, or if branches need to loop or share evolving state, move to LangGraph — LCEL branching has no persistence or loop support.
+- **Configurable fields for A/B testing**: use `.configurable_alternatives()` to swap models/prompts per request without redeploying, useful for gradual rollouts.
+- **Batch when you can**: `.batch()`/`.abatch()` is more efficient than looping `.invoke()` calls when processing many independent inputs (e.g. a bulk-classify endpoint).
+- **Type your chain's input/output**: LCEL chains support `.with_types()` and integrate with Pydantic schemas — use this so FastAPI request/response models line up with what the chain actually expects.
+- **Trace everything**: pair LCEL chains with LangSmith (`LANGCHAIN_TRACING_V2=true`) — since every component is a `Runnable`, tracing captures the full nested pipeline automatically with zero extra code.
+
+---
+
+## 12. Checklist — Topics You Must Master
+
+- [ ] The `Runnable` interface and why uniform interfaces enable free streaming/batching/async
+- [ ] The `|` pipe operator and `RunnableSequence`
+- [ ] `RunnableParallel` and the implicit dict-to-parallel coercion
+- [ ] `RunnableLambda` and implicit function wrapping inside chains
+- [ ] `RunnablePassthrough` and `RunnablePassthrough.assign()`
+- [ ] `RunnableBranch` for simple conditional routing — and knowing when to graduate to LangGraph instead
+- [ ] `.configurable_fields()` / `.configurable_alternatives()` for runtime-swappable parameters/components
+- [ ] `.bind()`, `.with_retry()`, `.with_fallbacks()`
+- [ ] `.invoke()` / `.batch()` / `.stream()` and their async counterparts, on every chain
+- [ ] `RunnableWithMessageHistory` for conversational memory
+- [ ] `.astream_events()` for fine-grained, structured event streaming (tool calls, retriever spans, token stream)
+- [ ] FastAPI integration: SSE token streaming, parallel sub-chain endpoints, routing endpoints, resilient (retry+fallback) endpoints, structured event streaming
+- [ ] Production concerns: latency via parallelism, resilience via retries/fallbacks, A/B testing via configurable alternatives, tracing via LangSmith

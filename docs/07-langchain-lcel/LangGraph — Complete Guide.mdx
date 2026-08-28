@@ -1,0 +1,504 @@
+# LangGraph — Complete Guide
+
+## Table of Contents
+
+1. [What is LangGraph & Why it Exists](#1-what-is-langgraph--why-it-exists)
+2. [Core Concepts You Must Know](#2-core-concepts-you-must-know)
+   - 2.1 [State](#21-state)
+   - 2.2 [Nodes](#22-nodes)
+   - 2.3 [Edges (Normal, Conditional, Entry/Finish)](#23-edges-normal-conditional-entryfinish)
+   - 2.4 [The Graph Object (`StateGraph` → `CompiledGraph`)](#24-the-graph-object-stategraph--compiledgraph)
+   - 2.5 [Reducers & Annotated State](#25-reducers--annotated-state)
+   - 2.6 [Checkpointing & Persistence](#26-checkpointing--persistence)
+   - 2.7 [Threads & Memory](#27-threads--memory)
+   - 2.8 [Human-in-the-Loop (Interrupts)](#28-human-in-the-loop-interrupts)
+   - 2.9 [Prebuilt ReAct Agent](#29-prebuilt-react-agent)
+   - 2.10 [Multi-Agent Patterns](#210-multi-agent-patterns)
+   - 2.11 [Streaming](#211-streaming)
+   - 2.12 [LangGraph vs. Plain LCEL Chains](#212-langgraph-vs-plain-lcel-chains)
+3. [Project Setup](#3-project-setup)
+4. [Your First Graph: A Simple Chatbot](#4-your-first-graph-a-simple-chatbot)
+5. [FastAPI + LangGraph: Basic Invoke Endpoint](#5-fastapi--langgraph-basic-invoke-endpoint)
+6. [FastAPI + LangGraph: Streaming Endpoint (SSE)](#6-fastapi--langgraph-streaming-endpoint-sse)
+7. [FastAPI + LangGraph: Persistent Threads (Conversation Memory)](#7-fastapi--langgraph-persistent-threads-conversation-memory)
+8. [FastAPI + LangGraph: Tool-Using Agent](#8-fastapi--langgraph-tool-using-agent)
+9. [FastAPI + LangGraph: Conditional Routing Graph](#9-fastapi--langgraph-conditional-routing-graph)
+10. [FastAPI + LangGraph: Human-in-the-Loop Approval](#10-fastapi--langgraph-human-in-the-loop-approval)
+11. [Production Concerns](#11-production-concerns)
+12. [Checklist — Topics You Must Master](#12-checklist--topics-you-must-master)
+
+---
+
+## 1. What is LangGraph & Why it Exists
+
+Plain LCEL chains (`prompt | model | parser`) are **linear** — data flows straight through, step by step, with no branching, no loops, and no easy way to pause and resume. That's fine for a single Q&A call, but real agentic applications need:
+
+- **Loops** — "keep calling tools until the model says it's done"
+- **Branching** — "if the user's intent is X, go here; if Y, go there"
+- **Persistent state** — a conversation or task that spans many turns, possibly across server restarts
+- **Human-in-the-loop** — pause execution, wait for a human to approve/edit, then resume
+- **Multi-agent collaboration** — several specialized "agents" (each really just a node) handing off work to each other
+
+**LangGraph** models your application as a **graph**: a set of **nodes** (units of work — usually Python functions or LCEL runnables) connected by **edges** (which node runs next). It maintains an explicit, typed **state** object that flows through every node, and it can **checkpoint** that state after every step — meaning you can pause, crash, and resume exactly where you left off. This is why LangGraph is now the LangChain team's recommended way to build agents, replacing the older `AgentExecutor` class.
+
+Mental model: **LCEL is for pipelines. LangGraph is for state machines.**
+
+---
+
+## 2. Core Concepts You Must Know
+
+### 2.1 State
+
+The state is a shared data structure (typically a `TypedDict` or Pydantic model) that every node reads from and writes to. It's the "memory" of a single graph run.
+
+```python
+from typing import TypedDict, Annotated
+from langgraph.graph.message import add_messages
+
+class AgentState(TypedDict):
+    messages: Annotated[list, add_messages]
+    user_id: str
+```
+
+### 2.2 Nodes
+
+A node is just a function that takes the current state and returns a **partial update** to it.
+
+```python
+def call_model(state: AgentState) -> dict:
+    response = model.invoke(state["messages"])
+    return {"messages": [response]}
+```
+
+### 2.3 Edges (Normal, Conditional, Entry/Finish)
+
+- **Normal edge**: always go from node A to node B.
+- **Conditional edge**: a routing function inspects the state and decides which node to go to next (or whether to end).
+- **`START`/`END`**: special constants marking the graph's entry and exit points.
+
+```python
+from langgraph.graph import StateGraph, START, END
+
+def should_continue(state: AgentState) -> str:
+    last_message = state["messages"][-1]
+    if getattr(last_message, "tool_calls", None):
+        return "tools"
+    return END
+```
+
+### 2.4 The Graph Object (`StateGraph` → `CompiledGraph`)
+
+You build a graph with `StateGraph`, add nodes/edges, then `.compile()` it into a runnable object that itself implements the same `Runnable` interface as LCEL (`invoke`, `stream`, `ainvoke`, `astream`).
+
+```python
+graph_builder = StateGraph(AgentState)
+graph_builder.add_node("model", call_model)
+graph_builder.add_edge(START, "model")
+graph_builder.add_edge("model", END)
+graph = graph_builder.compile()
+```
+
+### 2.5 Reducers & Annotated State
+
+By default, a node's returned update **overwrites** that key in state. A **reducer** (like `add_messages` above) changes that behavior — e.g. `add_messages` appends new messages to the list instead of replacing it, and also handles deduping/merging by message ID. You can write your own reducer for custom merge logic (e.g. summing counters, merging dicts).
+
+### 2.6 Checkpointing & Persistence
+
+A **checkpointer** saves the full state after every node runs, keyed by a `thread_id`. This is what makes graphs resumable and gives you conversation memory "for free" — no manual history-list management.
+
+```python
+from langgraph.checkpoint.memory import MemorySaver
+
+checkpointer = MemorySaver()  # in-memory, for dev only
+graph = graph_builder.compile(checkpointer=checkpointer)
+```
+
+For production, use a durable checkpointer: `PostgresSaver`, `SqliteSaver`, or Redis-backed implementations, so state survives restarts and works across multiple server replicas.
+
+### 2.7 Threads & Memory
+
+A `thread_id` identifies one continuous conversation/session. Pass it via `config` on every call — the checkpointer automatically loads prior state for that thread and appends to it.
+
+```python
+config = {"configurable": {"thread_id": "user-42"}}
+graph.invoke({"messages": [("human", "Hi, I'm Sam")]}, config=config)
+graph.invoke({"messages": [("human", "What's my name?")]}, config=config)  # remembers "Sam"
+```
+
+### 2.8 Human-in-the-Loop (Interrupts)
+
+`interrupt_before` / `interrupt_after` (or the newer `interrupt()` function inside a node) pause graph execution before/after a specific node, letting a human inspect or edit state before resuming — critical for approving risky actions like sending an email or executing a payment.
+
+```python
+graph = graph_builder.compile(checkpointer=checkpointer, interrupt_before=["execute_action"])
+```
+
+### 2.9 Prebuilt ReAct Agent
+
+For the common "LLM decides which tools to call, loops until done" pattern, LangGraph ships a ready-made graph so you don't have to hand-build the tool-calling loop:
+
+```python
+from langgraph.prebuilt import create_react_agent
+
+agent = create_react_agent(model, tools=[my_tool], checkpointer=checkpointer)
+```
+
+Internally this is exactly a small `StateGraph` with a "call model" node, a "call tools" node, and a conditional edge between them — worth understanding once, then reusing.
+
+### 2.10 Multi-Agent Patterns
+
+Common topologies:
+- **Supervisor**: a router node/LLM decides which specialized sub-agent node handles the request next.
+- **Hierarchical**: supervisors of supervisors, for large task decomposition.
+- **Network/swarm**: agents can hand off to each other directly, not just through a central router.
+
+Each "agent" is typically just a subgraph or node wrapping its own `create_react_agent`-style loop with its own tools/prompt.
+
+### 2.11 Streaming
+
+`.stream()` / `.astream()` on a compiled graph can emit different granularities:
+- `stream_mode="values"` — full state after each node
+- `stream_mode="updates"` — just the diff each node returned
+- `stream_mode="messages"` — token-by-token LLM output, ideal for chat UIs
+
+```python
+async for chunk in graph.astream({"messages": [("human", "Hi")]}, config, stream_mode="messages"):
+    ...
+```
+
+### 2.12 LangGraph vs. Plain LCEL Chains
+
+| | LCEL Chain | LangGraph |
+|---|---|---|
+| Flow | Linear pipeline | Graph (branches, loops) |
+| State | Passed through, no persistence by default | Explicit, checkpointed state |
+| Memory | Manual (`RunnableWithMessageHistory`) | Built-in via checkpointer + thread_id |
+| Human-in-the-loop | Not natively supported | Native via interrupts |
+| Best for | Single-shot RAG, simple Q&A, formatting pipelines | Agents, multi-step workflows, anything needing loops/pausing |
+
+Use LCEL inside LangGraph nodes freely — they're complementary, not competing.
+
+---
+
+## 3. Project Setup
+
+```bash
+python -m venv venv
+source venv/bin/activate
+
+pip install fastapi uvicorn[standard] \
+    langgraph langchain-core langchain-openai \
+    langgraph-checkpoint-postgres psycopg[binary] \
+    python-dotenv pydantic
+```
+
+`.env`:
+```
+OPENAI_API_KEY=sk-...
+LANGCHAIN_TRACING_V2=true
+LANGCHAIN_API_KEY=ls-...
+```
+
+---
+
+## 4. Your First Graph: A Simple Chatbot
+
+```python
+# graph.py
+from typing import TypedDict, Annotated
+from langgraph.graph import StateGraph, START, END
+from langgraph.graph.message import add_messages
+from langgraph.checkpoint.memory import MemorySaver
+from langchain_openai import ChatOpenAI
+
+class State(TypedDict):
+    messages: Annotated[list, add_messages]
+
+model = ChatOpenAI(model="gpt-4o-mini", temperature=0.3)
+
+def chatbot(state: State) -> dict:
+    return {"messages": [model.invoke(state["messages"])]}
+
+builder = StateGraph(State)
+builder.add_node("chatbot", chatbot)
+builder.add_edge(START, "chatbot")
+builder.add_edge("chatbot", END)
+
+checkpointer = MemorySaver()
+graph = builder.compile(checkpointer=checkpointer)
+```
+
+---
+
+## 5. FastAPI + LangGraph: Basic Invoke Endpoint
+
+```python
+# main.py
+from fastapi import FastAPI
+from pydantic import BaseModel
+from dotenv import load_dotenv
+from graph import graph
+
+load_dotenv()
+app = FastAPI(title="LangGraph + FastAPI Demo")
+
+class ChatRequest(BaseModel):
+    thread_id: str
+    message: str
+
+class ChatResponse(BaseModel):
+    answer: str
+
+@app.post("/chat", response_model=ChatResponse)
+async def chat(req: ChatRequest):
+    config = {"configurable": {"thread_id": req.thread_id}}
+    result = await graph.ainvoke({"messages": [("human", req.message)]}, config=config)
+    return ChatResponse(answer=result["messages"][-1].content)
+```
+
+---
+
+## 6. FastAPI + LangGraph: Streaming Endpoint (SSE)
+
+```python
+from fastapi.responses import StreamingResponse
+import json
+
+@app.post("/chat/stream")
+async def chat_stream(req: ChatRequest):
+    config = {"configurable": {"thread_id": req.thread_id}}
+
+    async def event_generator():
+        async for msg_chunk, metadata in graph.astream(
+            {"messages": [("human", req.message)]},
+            config=config,
+            stream_mode="messages",
+        ):
+            if msg_chunk.content:
+                yield f"data: {json.dumps({'token': msg_chunk.content})}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+```
+
+`stream_mode="messages"` yields `(message_chunk, metadata)` tuples so you can filter by node name (`metadata["langgraph_node"]`) if only one node's output should reach the client.
+
+---
+
+## 7. FastAPI + LangGraph: Persistent Threads (Conversation Memory)
+
+Swap `MemorySaver` for a durable, multi-worker-safe checkpointer:
+
+```python
+# graph.py (production variant)
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+
+async def build_graph():
+    async with AsyncPostgresSaver.from_conn_string(
+        "postgresql://user:pass@localhost:5432/langgraph"
+    ) as checkpointer:
+        await checkpointer.setup()  # creates tables on first run
+        return builder.compile(checkpointer=checkpointer)
+```
+
+```python
+# main.py — build once at startup, reuse across requests
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    app.state.graph = await build_graph()
+    yield
+
+app = FastAPI(lifespan=lifespan)
+
+@app.post("/chat")
+async def chat(req: ChatRequest):
+    config = {"configurable": {"thread_id": req.thread_id}}
+    result = await app.state.graph.ainvoke({"messages": [("human", req.message)]}, config=config)
+    return {"answer": result["messages"][-1].content}
+```
+
+Now the same `thread_id` recovers full history even after a server restart, and multiple Uvicorn workers/replicas share the same conversation state since it lives in Postgres, not process memory.
+
+To inspect or reset history: `graph.get_state(config)` returns the current checkpointed state; `graph.update_state(config, values)` lets you edit it manually (e.g. an admin "clear conversation" endpoint).
+
+---
+
+## 8. FastAPI + LangGraph: Tool-Using Agent
+
+```python
+# agent.py
+from langgraph.prebuilt import create_react_agent
+from langchain_core.tools import tool
+from langgraph.checkpoint.memory import MemorySaver
+
+@tool
+def get_order_status(order_id: str) -> str:
+    """Look up the status of a customer order by its ID."""
+    return f"Order {order_id} is out for delivery."
+
+@tool
+def calculate_discount(price: float, percent: float) -> float:
+    """Calculate the discounted price given an original price and a discount percent."""
+    return round(price * (1 - percent / 100), 2)
+
+agent_checkpointer = MemorySaver()
+agent = create_react_agent(
+    model,
+    tools=[get_order_status, calculate_discount],
+    checkpointer=agent_checkpointer,
+)
+```
+
+```python
+# main.py (addition)
+from agent import agent
+
+@app.post("/agent")
+async def run_agent(req: ChatRequest):
+    config = {"configurable": {"thread_id": req.thread_id}}
+    result = await agent.ainvoke({"messages": [("human", req.message)]}, config=config)
+    return {"answer": result["messages"][-1].content}
+```
+
+`create_react_agent` already wires up the "call model → maybe call tools → loop back → repeat until no more tool calls" graph for you.
+
+---
+
+## 9. FastAPI + LangGraph: Conditional Routing Graph
+
+A support-ticket triage example showing real branching — not just a tool loop.
+
+```python
+# routing_graph.py
+from typing import TypedDict, Literal
+from langgraph.graph import StateGraph, START, END
+
+class TicketState(TypedDict):
+    message: str
+    category: str
+    response: str
+
+def classify(state: TicketState) -> dict:
+    result = model.invoke(
+        f"Classify this support message as 'billing', 'technical', or 'general': {state['message']}"
+    )
+    return {"category": result.content.strip().lower()}
+
+def route(state: TicketState) -> Literal["billing", "technical", "general"]:
+    return state["category"] if state["category"] in ("billing", "technical") else "general"
+
+def handle_billing(state: TicketState) -> dict:
+    return {"response": "Routing you to billing support..."}
+
+def handle_technical(state: TicketState) -> dict:
+    return {"response": "Routing you to technical support..."}
+
+def handle_general(state: TicketState) -> dict:
+    return {"response": "Routing you to general support..."}
+
+builder = StateGraph(TicketState)
+builder.add_node("classify", classify)
+builder.add_node("billing", handle_billing)
+builder.add_node("technical", handle_technical)
+builder.add_node("general", handle_general)
+
+builder.add_edge(START, "classify")
+builder.add_conditional_edges("classify", route, {
+    "billing": "billing",
+    "technical": "technical",
+    "general": "general",
+})
+builder.add_edge("billing", END)
+builder.add_edge("technical", END)
+builder.add_edge("general", END)
+
+routing_graph = builder.compile()
+```
+
+```python
+@app.post("/ticket")
+async def triage_ticket(req: ChatRequest):
+    result = await routing_graph.ainvoke({"message": req.message})
+    return {"category": result["category"], "response": result["response"]}
+```
+
+---
+
+## 10. FastAPI + LangGraph: Human-in-the-Loop Approval
+
+Pause before a sensitive action (e.g. issuing a refund) and let a human approve via a separate endpoint.
+
+```python
+# hitl_graph.py
+from langgraph.checkpoint.memory import MemorySaver
+
+def propose_refund(state: AgentState) -> dict:
+    return {"messages": [("ai", "I'll issue a $50 refund. Awaiting approval.")]}
+
+def execute_refund(state: AgentState) -> dict:
+    return {"messages": [("ai", "Refund issued.")]}
+
+builder = StateGraph(AgentState)
+builder.add_node("propose", propose_refund)
+builder.add_node("execute", execute_refund)
+builder.add_edge(START, "propose")
+builder.add_edge("propose", "execute")
+builder.add_edge("execute", END)
+
+hitl_checkpointer = MemorySaver()
+hitl_graph = builder.compile(checkpointer=hitl_checkpointer, interrupt_before=["execute"])
+```
+
+```python
+@app.post("/refund/start")
+async def start_refund(req: ChatRequest):
+    config = {"configurable": {"thread_id": req.thread_id}}
+    result = await hitl_graph.ainvoke({"messages": [("human", req.message)]}, config=config)
+    # execution paused before "execute" — surface this to a human reviewer
+    return {"status": "awaiting_approval", "proposal": result["messages"][-1].content}
+
+@app.post("/refund/approve")
+async def approve_refund(req: BaseModel):
+    config = {"configurable": {"thread_id": req.thread_id}}
+    result = await hitl_graph.ainvoke(None, config=config)  # None resumes from the interrupt
+    return {"status": "completed", "result": result["messages"][-1].content}
+```
+
+Calling `.ainvoke(None, config)` resumes a graph exactly where it was interrupted, using the checkpointed state — no need to resend the original input.
+
+---
+
+## 11. Production Concerns
+
+- **Checkpointer choice**: never ship `MemorySaver` to production — use `PostgresSaver`/`SqliteSaver` (single instance) or a Postgres/Redis-backed saver for multi-replica deployments.
+- **Thread ID design**: usually `f"{user_id}:{conversation_id}"` — make sure it's unique per logical conversation, not per request.
+- **Recursion limits**: agentic loops can run away; set `config={"recursion_limit": 25}` to cap steps.
+- **Async everywhere**: use `ainvoke`/`astream` in FastAPI routes; use `AsyncPostgresSaver` not the sync variant.
+- **Observability**: enable LangSmith tracing to visualize node-by-node execution — invaluable for debugging branching graphs.
+- **Interrupt handling in APIs**: design a clear two-endpoint (or webhook) pattern for "start" vs. "resume" whenever a graph can pause.
+- **State size**: keep state lean — trim message history (e.g. summarize old turns) so checkpoints don't grow unbounded.
+- **Testing**: unit test individual node functions directly (they're plain functions); test routing functions separately from LLM calls by feeding fixed state dicts.
+- **Concurrency**: a compiled graph object is safe to reuse across requests/threads — build it once (e.g. in FastAPI's `lifespan`), don't rebuild per request.
+
+---
+
+## 12. Checklist — Topics You Must Master
+
+- [ ] The mental shift from linear LCEL chains to stateful graphs
+- [ ] `StateGraph`, `TypedDict`/Pydantic state schemas, `.compile()`
+- [ ] Nodes as functions returning partial state updates
+- [ ] Normal edges vs. conditional edges (`add_conditional_edges`), `START`/`END`
+- [ ] Reducers, especially `add_messages`, and writing custom reducers
+- [ ] Checkpointers: `MemorySaver` (dev) vs. `PostgresSaver`/`SqliteSaver`/Redis (prod)
+- [ ] Threads (`thread_id`) as the unit of persistent conversation/session
+- [ ] `graph.get_state()` / `graph.update_state()` for inspecting and editing history
+- [ ] Human-in-the-loop: `interrupt_before`/`interrupt_after`, resuming with `.invoke(None, config)`
+- [ ] `create_react_agent` and what it's doing under the hood
+- [ ] Multi-agent topologies: supervisor, hierarchical, swarm/handoff
+- [ ] Streaming modes: `values`, `updates`, `messages` — and when to use each
+- [ ] Recursion limits and guarding against infinite agent loops
+- [ ] LangGraph vs. LCEL — when to reach for which
+- [ ] FastAPI integration: lifespan-managed graph construction, SSE streaming, start/resume endpoint pairs for interrupts
+- [ ] Production concerns: durable checkpointing, multi-replica state sharing, state size management, LangSmith tracing
