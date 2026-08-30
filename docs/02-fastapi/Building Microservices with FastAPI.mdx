@@ -1,0 +1,469 @@
+# Building Microservices with FastAPI
+
+## Table of Contents
+
+- [1. Introduction](#1-introduction)
+- [2. Monolith vs Microservices](#2-monolith-vs-microservices)
+- [3. Reference Architecture](#3-reference-architecture)
+- [4. Project Structure per Service](#4-project-structure-per-service)
+- [5. Service-to-Service Communication](#5-service-to-service-communication)
+  - [5.1 Synchronous (REST via httpx)](#51-synchronous-rest-via-httpx)
+  - [5.2 Synchronous (gRPC)](#52-synchronous-grpc)
+  - [5.3 Asynchronous (Message Broker)](#53-asynchronous-message-broker)
+- [6. API Gateway Pattern](#6-api-gateway-pattern)
+- [7. Service Discovery & Config](#7-service-discovery--config)
+- [8. Database per Service](#8-database-per-service)
+- [9. Authentication Across Services](#9-authentication-across-services)
+- [10. Resilience: Timeouts, Retries, Circuit Breakers](#10-resilience-timeouts-retries-circuit-breakers)
+- [11. Observability](#11-observability)
+- [12. Containerization & Orchestration](#12-containerization--orchestration)
+- [13. Common Pitfalls](#13-common-pitfalls)
+
+---
+
+## 1. Introduction
+
+A **microservice architecture** splits an application into small,
+independently deployable services, each owning a bounded piece of
+business logic and its own data store. FastAPI is a natural fit because
+it's lightweight, async-first, has automatic OpenAPI docs per service, and
+starts fast in containers.
+
+This doc covers the practical patterns needed to go from "a FastAPI app"
+to "a FastAPI service that plays well in a distributed system."
+
+---
+
+## 2. Monolith vs Microservices
+
+| Aspect | Monolith | Microservices |
+|---|---|---|
+| Deployment | One unit | Independent per service |
+| Scaling | Whole app scales together | Scale hot services independently |
+| Database | Usually one shared DB | Database-per-service |
+| Failure isolation | One bug can crash everything | Failures can be contained |
+| Complexity | Simple to start | Operational overhead (network, discovery, tracing) |
+| Team ownership | Shared codebase | Teams own services end-to-end |
+
+Rule of thumb: **start with a modular monolith**; split into microservices
+once a bounded context has genuinely different scaling, deployment, or
+ownership needs.
+
+---
+
+## 3. Reference Architecture
+
+```
+                         ┌─────────────────┐
+                         │   API Gateway    │  (routing, auth, rate limit)
+                         └───────┬─────────┘
+              ┌──────────────────┼──────────────────┐
+              ▼                  ▼                  ▼
+      ┌───────────────┐  ┌───────────────┐  ┌───────────────┐
+      │ users-service │  │ orders-service│  │ billing-service│
+      │   (FastAPI)   │  │   (FastAPI)   │  │   (FastAPI)    │
+      └───────┬───────┘  └───────┬───────┘  └───────┬────────┘
+              ▼                  ▼                  ▼
+        ┌──────────┐       ┌──────────┐       ┌──────────┐
+        │ users_db │       │orders_db │       │billing_db│
+        └──────────┘       └──────────┘       └──────────┘
+                     ▲            ▲
+                     └────────────┘
+                message broker (Kafka / RabbitMQ / Redis Streams)
+```
+
+Each box is its own FastAPI app, own repo (or mono-repo package), own
+container image, own database.
+
+---
+
+## 4. Project Structure per Service
+
+```
+orders-service/
+├── app/
+│   ├── main.py            # FastAPI() instance, routers included here
+│   ├── api/
+│   │   └── v1/
+│   │       └── orders.py  # path operations
+│   ├── core/
+│   │   ├── config.py      # pydantic-settings, env vars
+│   │   └── security.py    # JWT verification
+│   ├── db/
+│   │   ├── session.py
+│   │   └── models.py
+│   ├── schemas/
+│   │   └── order.py
+│   ├── services/
+│   │   └── order_service.py  # business logic, calls other services
+│   └── clients/
+│       └── users_client.py   # HTTP client wrapper for users-service
+├── tests/
+├── Dockerfile
+├── requirements.txt
+└── alembic/                  # migrations, scoped to this service's DB
+```
+
+```python
+# app/core/config.py
+from pydantic_settings import BaseSettings
+
+class Settings(BaseSettings):
+    service_name: str = "orders-service"
+    database_url: str
+    users_service_url: str = "http://users-service:8000"
+    jwt_secret: str
+    broker_url: str = "redis://redis:6379/0"
+
+    class Config:
+        env_file = ".env"
+
+settings = Settings()
+```
+
+---
+
+## 5. Service-to-Service Communication
+
+### 5.1 Synchronous (REST via httpx)
+
+The simplest pattern: one service calls another's HTTP API directly using
+an async client.
+
+```python
+# app/clients/users_client.py
+import httpx
+from app.core.config import settings
+
+class UsersClient:
+    def __init__(self):
+        self._base_url = settings.users_service_url
+
+    async def get_user(self, user_id: int) -> dict | None:
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            resp = await client.get(f"{self._base_url}/users/{user_id}")
+            if resp.status_code == 404:
+                return None
+            resp.raise_for_status()
+            return resp.json()
+
+users_client = UsersClient()
+```
+
+```python
+# app/api/v1/orders.py
+from fastapi import APIRouter, HTTPException
+from app.clients.users_client import users_client
+from app.schemas.order import OrderCreate, Order
+
+router = APIRouter(prefix="/orders", tags=["orders"])
+
+@router.post("/", response_model=Order)
+async def create_order(order: OrderCreate):
+    user = await users_client.get_user(order.user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User does not exist")
+    # ... persist order, referencing order.user_id only (no shared table!)
+    return {"id": 1, **order.model_dump()}
+```
+
+### 5.2 Synchronous (gRPC)
+
+For high-throughput internal calls, gRPC + Protobuf beats REST/JSON on
+latency and payload size. FastAPI can run a gRPC server alongside its HTTP
+app, or a service can be purely gRPC internally while exposing REST at the
+gateway.
+
+```proto
+// users.proto
+service UsersService {
+  rpc GetUser (UserRequest) returns (UserReply);
+}
+message UserRequest { int32 id = 1; }
+message UserReply   { int32 id = 1; string email = 2; }
+```
+
+```python
+# grpc client used inside orders-service
+import grpc
+from generated import users_pb2, users_pb2_grpc
+
+async def get_user_grpc(user_id: int):
+    async with grpc.aio.insecure_channel("users-service:50051") as channel:
+        stub = users_pb2_grpc.UsersServiceStub(channel)
+        reply = await stub.GetUser(users_pb2.UserRequest(id=user_id))
+        return reply
+```
+
+### 5.3 Asynchronous (Message Broker)
+
+For events that don't need an immediate response (e.g. "order placed" →
+billing should react eventually), publish to a broker instead of calling
+directly. This decouples services and improves resilience.
+
+```python
+# app/services/order_service.py
+import json
+import redis.asyncio as redis
+from app.core.config import settings
+
+r = redis.from_url(settings.broker_url)
+
+async def publish_order_created(order: dict):
+    await r.publish("order.created", json.dumps(order))
+```
+
+```python
+# billing-service: a background consumer, started via FastAPI lifespan
+import json
+import redis.asyncio as redis
+from contextlib import asynccontextmanager
+from fastapi import FastAPI
+
+async def consume_orders():
+    r = redis.from_url("redis://redis:6379/0")
+    pubsub = r.pubsub()
+    await pubsub.subscribe("order.created")
+    async for message in pubsub.listen():
+        if message["type"] == "message":
+            order = json.loads(message["data"])
+            # create invoice, etc.
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    import asyncio
+    task = asyncio.create_task(consume_orders())
+    yield
+    task.cancel()
+
+app = FastAPI(lifespan=lifespan)
+```
+
+> For production workloads prefer **Kafka** or **RabbitMQ** over raw Redis
+> pub/sub — they add durability, consumer groups, and replay.
+
+---
+
+## 6. API Gateway Pattern
+
+Clients should not call each microservice directly. Put a gateway in
+front that handles routing, auth, and rate limiting. This can itself be a
+thin FastAPI app.
+
+```python
+# gateway/main.py
+import httpx
+from fastapi import FastAPI, Request
+
+app = FastAPI()
+
+ROUTES = {
+    "users": "http://users-service:8000",
+    "orders": "http://orders-service:8000",
+}
+
+@app.api_route("/{service}/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
+async def proxy(service: str, path: str, request: Request):
+    base_url = ROUTES.get(service)
+    if not base_url:
+        return {"error": "unknown service"}, 404
+
+    async with httpx.AsyncClient() as client:
+        resp = await client.request(
+            request.method,
+            f"{base_url}/{path}",
+            headers=dict(request.headers),
+            content=await request.body(),
+        )
+    return resp.json()
+```
+
+In production, prefer a dedicated gateway (Kong, Traefik, NGINX, or an
+ASGI-native gateway) over hand-rolling one, but the FastAPI proxy above is
+useful for local dev and demos.
+
+---
+
+## 7. Service Discovery & Config
+
+- **Static (simplest)**: service URLs in environment variables, resolved
+  by Docker Compose / Kubernetes DNS (`http://orders-service:8000`).
+- **Dynamic**: a registry like **Consul** or Kubernetes' own service
+  discovery, queried at startup or per-request.
+
+```python
+# pydantic-settings picks values from env vars automatically
+class Settings(BaseSettings):
+    users_service_url: str = "http://users-service:8000"
+```
+
+Kubernetes gives you this for free: a `Service` named `users-service`
+is resolvable by DNS from any pod in the cluster.
+
+---
+
+## 8. Database per Service
+
+Each microservice owns its schema exclusively — no service reaches into
+another's tables. Cross-service reads happen via API calls or by keeping
+a **denormalized local copy** updated through events.
+
+```python
+# orders-service model: stores only the foreign reference, not a join
+class Order(Base):
+    __tablename__ = "orders"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, nullable=False)  # no ForeignKey — different DB!
+    total = Column(Numeric)
+```
+
+This is the microservice equivalent of the "N:1" relationship from a
+single-database app — except the "foreign key" is now just a plain
+integer with no DB-level constraint, and referential integrity must be
+enforced by application logic or eventual consistency.
+
+---
+
+## 9. Authentication Across Services
+
+Use a shared, stateless mechanism — typically **JWT** — so each service
+can verify identity independently without calling an auth service on
+every request.
+
+```python
+# app/core/security.py
+import jwt
+from fastapi import Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordBearer
+from app.core.config import settings
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
+
+def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
+    try:
+        payload = jwt.decode(token, settings.jwt_secret, algorithms=["HS256"])
+        return payload
+    except jwt.InvalidTokenError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+        )
+```
+
+Every downstream service reuses this same dependency — the token is
+issued once (by an `auth-service` or the gateway) and trusted everywhere
+via a shared signing secret or public key (RS256).
+
+---
+
+## 10. Resilience: Timeouts, Retries, Circuit Breakers
+
+Network calls between services **will** fail. Always set timeouts, add
+retries with backoff, and fail fast with a circuit breaker so one slow
+service doesn't cascade into a full outage.
+
+```python
+import httpx
+from tenacity import retry, stop_after_attempt, wait_exponential
+
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=0.5))
+async def call_with_retry(url: str):
+    async with httpx.AsyncClient(timeout=2.0) as client:
+        resp = await client.get(url)
+        resp.raise_for_status()
+        return resp.json()
+```
+
+For circuit breaking, libraries like `pybreaker` or `aiobreaker` wrap
+calls so repeated failures "open" the circuit and return errors
+immediately for a cool-down period instead of hammering a dying service.
+
+---
+
+## 11. Observability
+
+- **Structured logging** with a `request_id` propagated across services
+  (via header, e.g. `X-Request-ID`).
+- **Distributed tracing** with OpenTelemetry — a single trace shows a
+  request's path across the gateway and every downstream service.
+- **Metrics** (Prometheus) — expose `/metrics` per service.
+
+```python
+from fastapi import FastAPI, Request
+import uuid
+
+app = FastAPI()
+
+@app.middleware("http")
+async def add_request_id(request: Request, call_next):
+    request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = request_id
+    return response
+```
+
+```python
+# OpenTelemetry auto-instrumentation
+# pip install opentelemetry-instrumentation-fastapi
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+FastAPIInstrumentor.instrument_app(app)
+```
+
+---
+
+## 12. Containerization & Orchestration
+
+```dockerfile
+# Dockerfile (per service)
+FROM python:3.12-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY app ./app
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+```
+
+```yaml
+# docker-compose.yml (local dev)
+services:
+  users-service:
+    build: ./users-service
+    environment:
+      - DATABASE_URL=postgresql://user:pass@users_db/users
+    depends_on: [users_db]
+
+  orders-service:
+    build: ./orders-service
+    environment:
+      - DATABASE_URL=postgresql://user:pass@orders_db/orders
+      - USERS_SERVICE_URL=http://users-service:8000
+    depends_on: [orders_db, users-service]
+
+  users_db:
+    image: postgres:16
+  orders_db:
+    image: postgres:16
+```
+
+In production, each service becomes its own Kubernetes `Deployment` +
+`Service`, scaled independently via HPA (Horizontal Pod Autoscaler) based
+on CPU/RPS.
+
+---
+
+## 13. Common Pitfalls
+
+- **Sharing a database across services** — defeats the purpose of
+  microservices and recreates monolith coupling with extra network hops.
+- **Synchronous chains of calls** (gateway → A → B → C) — one slow link
+  blocks the whole request; prefer async events where the response
+  doesn't need to be immediate.
+- **No timeouts on inter-service HTTP calls** — a hung downstream service
+  will hang the caller indefinitely without one.
+- **Skipping distributed tracing until it hurts** — debugging a
+  multi-service request without correlated logs/traces is extremely slow.
+- **Splitting too early** — premature microservices add deployment and
+  network complexity before the team or domain boundaries justify it.
+- **Inconsistent auth per service** — reimplementing token verification
+  differently in each service leads to security gaps; share a common
+  auth library/dependency instead.

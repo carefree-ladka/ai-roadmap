@@ -1,0 +1,422 @@
+# Database Relationship Mappings
+
+## Table of Contents
+
+- [1. Introduction](#1-introduction)
+- [2. Project Setup](#2-project-setup)
+- [3. One-to-Many (1:N)](#3-one-to-many-1n)
+  - [3.1 Theory](#31-theory)
+  - [3.2 Models](#32-models)
+  - [3.3 Schemas](#33-schemas)
+  - [3.4 FastAPI Routes](#34-fastapi-routes)
+- [4. Many-to-One (N:1)](#4-many-to-one-n1)
+  - [4.1 Theory](#41-theory)
+  - [4.2 Code Snippet](#42-code-snippet)
+- [5. Many-to-Many (N:N)](#5-many-to-many-nn)
+  - [5.1 Theory](#51-theory)
+  - [5.2 Association Table](#52-association-table)
+  - [5.3 Models](#53-models)
+  - [5.4 Schemas](#54-schemas)
+  - [5.5 FastAPI Routes](#55-fastapi-routes)
+- [6. One-to-One (1:1) — Bonus](#6-one-to-one-11--bonus)
+- [7. Choosing the Right Relationship](#7-choosing-the-right-relationship)
+- [8. Common Pitfalls](#8-common-pitfalls)
+
+---
+
+## 1. Introduction
+
+Relational databases model real-world associations between entities using three
+fundamental cardinalities:
+
+| Relationship | Example |
+|---|---|
+| **One-to-Many (1:N)** | One `Author` writes many `Book`s |
+| **Many-to-One (N:1)** | Many `Book`s belong to one `Author` (same relation, opposite side) |
+| **Many-to-Many (N:N)** | Many `Student`s enroll in many `Course`s |
+| **One-to-One (1:1)** | One `User` has one `Profile` |
+
+In FastAPI, these are implemented at the **SQLAlchemy ORM layer** (models +
+`relationship()`), exposed through **Pydantic schemas**, and surfaced via
+**path operations**. 1:N and N:1 are really the *same foreign key* viewed
+from each side; N:N requires an extra association (junction) table.
+
+---
+
+## 2. Project Setup
+
+```bash
+pip install fastapi uvicorn sqlalchemy pydantic
+```
+
+```python
+# database.py
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker, declarative_base
+
+SQLALCHEMY_DATABASE_URL = "sqlite:///./app.db"
+
+engine = create_engine(
+    SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
+)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base = declarative_base()
+
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+```
+
+---
+
+## 3. One-to-Many (1:N)
+
+### 3.1 Theory
+
+A **One-to-Many** relationship means one row in the "parent" table can be
+referenced by *many* rows in the "child" table. The foreign key **always
+lives on the "many" side**.
+
+```
+Author (1) ───────< (N) Book
+   id                 author_id (FK)
+```
+
+SQLAlchemy expresses this with `relationship()` on the parent (returning a
+list) and a `ForeignKey` column on the child.
+
+### 3.2 Models
+
+```python
+# models.py
+from sqlalchemy import Column, Integer, String, ForeignKey
+from sqlalchemy.orm import relationship
+from database import Base
+
+
+class Author(Base):
+    __tablename__ = "authors"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+
+    # One Author -> Many Books
+    books = relationship("Book", back_populates="author", cascade="all, delete-orphan")
+
+
+class Book(Base):
+    __tablename__ = "books"
+
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String, nullable=False)
+    author_id = Column(Integer, ForeignKey("authors.id"))  # FK lives here
+
+    # Many Books -> One Author
+    author = relationship("Author", back_populates="books")
+```
+
+### 3.3 Schemas
+
+```python
+# schemas.py
+from pydantic import BaseModel, ConfigDict
+
+
+class BookBase(BaseModel):
+    title: str
+
+
+class BookCreate(BookBase):
+    pass
+
+
+class Book(BookBase):
+    id: int
+    author_id: int
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AuthorBase(BaseModel):
+    name: str
+
+
+class AuthorCreate(AuthorBase):
+    pass
+
+
+class Author(AuthorBase):
+    id: int
+    books: list[Book] = []          # nested list -> the "Many" side
+    model_config = ConfigDict(from_attributes=True)
+```
+
+### 3.4 FastAPI Routes
+
+```python
+# main.py
+from fastapi import FastAPI, Depends, HTTPException
+from sqlalchemy.orm import Session
+import models, schemas
+from database import engine, get_db
+
+models.Base.metadata.create_all(bind=engine)
+app = FastAPI()
+
+
+@app.post("/authors/", response_model=schemas.Author)
+def create_author(author: schemas.AuthorCreate, db: Session = Depends(get_db)):
+    db_author = models.Author(**author.model_dump())
+    db.add(db_author)
+    db.commit()
+    db.refresh(db_author)
+    return db_author
+
+
+@app.post("/authors/{author_id}/books/", response_model=schemas.Book)
+def create_book_for_author(
+    author_id: int, book: schemas.BookCreate, db: Session = Depends(get_db)
+):
+    author = db.get(models.Author, author_id)
+    if not author:
+        raise HTTPException(status_code=404, detail="Author not found")
+    db_book = models.Book(**book.model_dump(), author_id=author_id)
+    db.add(db_book)
+    db.commit()
+    db.refresh(db_book)
+    return db_book
+
+
+@app.get("/authors/{author_id}", response_model=schemas.Author)
+def read_author(author_id: int, db: Session = Depends(get_db)):
+    author = db.get(models.Author, author_id)
+    if not author:
+        raise HTTPException(status_code=404, detail="Author not found")
+    return author  # includes nested `books` list automatically
+```
+
+---
+
+## 4. Many-to-One (N:1)
+
+### 4.1 Theory
+
+**Many-to-One is the mirror image of One-to-Many** — it's the *same*
+foreign key, just viewed from the child's perspective. Many `Book` rows
+point to one `Author`. There is no separate schema pattern; it's the
+`author` scalar attribute defined on `Book` above (§3.2).
+
+The key conceptual distinction:
+
+| Side | Attribute type | Cardinality label |
+|---|---|---|
+| Parent (`Author`) | `list[Book]` | 1:N |
+| Child (`Book`) | single `Author` object | N:1 |
+
+### 4.2 Code Snippet
+
+Exposing the "N:1" direction — fetching a book and getting its single
+parent author inline:
+
+```python
+@app.get("/books/{book_id}", response_model=schemas.Book)
+def read_book(book_id: int, db: Session = Depends(get_db)):
+    book = db.get(models.Book, book_id)
+    if not book:
+        raise HTTPException(status_code=404, detail="Book not found")
+    return book
+
+
+# If you want the author nested inside the book response,
+# extend the schema:
+class BookWithAuthor(BookBase):
+    id: int
+    author: AuthorBase          # single object -> the "One" side
+    model_config = ConfigDict(from_attributes=True)
+
+
+@app.get("/books/{book_id}/full", response_model=BookWithAuthor)
+def read_book_with_author(book_id: int, db: Session = Depends(get_db)):
+    book = db.get(models.Book, book_id)
+    if not book:
+        raise HTTPException(status_code=404, detail="Book not found")
+    return book
+```
+
+---
+
+## 5. Many-to-Many (N:N)
+
+### 5.1 Theory
+
+A **Many-to-Many** relationship means many rows on each side can relate to
+many rows on the other. Neither table can hold the foreign key directly
+because a single column can't reference multiple rows — instead, an
+**association (junction) table** stores pairs of foreign keys.
+
+```
+Student (N) ───< enrollment >─── (N) Course
+   id          student_id, course_id        id
+```
+
+### 5.2 Association Table
+
+```python
+# models.py
+from sqlalchemy import Table, Column, Integer, ForeignKey
+from database import Base
+
+enrollment = Table(
+    "enrollment",
+    Base.metadata,
+    Column("student_id", Integer, ForeignKey("students.id"), primary_key=True),
+    Column("course_id", Integer, ForeignKey("courses.id"), primary_key=True),
+)
+```
+
+Use a plain `Table` (not a mapped class) when the junction table has **no
+extra columns** of its own. If you need extra fields (e.g. `enrolled_on`,
+`grade`), map it as a full model instead — see the note at the end of §5.3.
+
+### 5.3 Models
+
+```python
+class Student(Base):
+    __tablename__ = "students"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+
+    courses = relationship("Course", secondary=enrollment, back_populates="students")
+
+
+class Course(Base):
+    __tablename__ = "courses"
+
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String, nullable=False)
+
+    students = relationship("Student", secondary=enrollment, back_populates="courses")
+```
+
+> **Extra columns on the join table?** Replace the `Table` with a mapped
+> class (e.g. `Enrollment`) that has its own `student_id`, `course_id`,
+> plus extra fields, and link it via two One-to-Many/Many-to-One
+> relationships instead of `secondary=`.
+
+### 5.4 Schemas
+
+```python
+class CourseBase(BaseModel):
+    title: str
+
+
+class Course(CourseBase):
+    id: int
+    model_config = ConfigDict(from_attributes=True)
+
+
+class StudentBase(BaseModel):
+    name: str
+
+
+class StudentCreate(StudentBase):
+    pass
+
+
+class Student(StudentBase):
+    id: int
+    courses: list[Course] = []
+    model_config = ConfigDict(from_attributes=True)
+```
+
+### 5.5 FastAPI Routes
+
+```python
+@app.post("/students/", response_model=schemas.Student)
+def create_student(student: schemas.StudentCreate, db: Session = Depends(get_db)):
+    db_student = models.Student(**student.model_dump())
+    db.add(db_student)
+    db.commit()
+    db.refresh(db_student)
+    return db_student
+
+
+@app.post("/students/{student_id}/enroll/{course_id}", response_model=schemas.Student)
+def enroll_student(student_id: int, course_id: int, db: Session = Depends(get_db)):
+    student = db.get(models.Student, student_id)
+    course = db.get(models.Course, course_id)
+    if not student or not course:
+        raise HTTPException(status_code=404, detail="Student or Course not found")
+
+    student.courses.append(course)   # ORM writes to the junction table
+    db.commit()
+    db.refresh(student)
+    return student
+
+
+@app.get("/students/{student_id}", response_model=schemas.Student)
+def read_student(student_id: int, db: Session = Depends(get_db)):
+    student = db.get(models.Student, student_id)
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+    return student
+```
+
+---
+
+## 6. One-to-One (1:1) — Bonus
+
+A One-to-One relationship is a One-to-Many with a **`uselist=False`** flag
+and a **unique constraint** on the foreign key, so only one child row can
+ever point to a given parent.
+
+```python
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String, unique=True, nullable=False)
+
+    profile = relationship("Profile", back_populates="user", uselist=False)
+
+
+class Profile(Base):
+    __tablename__ = "profiles"
+
+    id = Column(Integer, primary_key=True, index=True)
+    bio = Column(String)
+    user_id = Column(Integer, ForeignKey("users.id"), unique=True)  # unique = 1:1
+
+    user = relationship("User", back_populates="profile")
+```
+
+---
+
+## 7. Choosing the Right Relationship
+
+| Question | Answer points to |
+|---|---|
+| Can a child row belong to only one parent, and a parent have many children? | **1:N / N:1** |
+| Can a child belong to at most one parent, uniquely? | **1:1** |
+| Can rows on both sides freely associate with multiple rows on the other side? | **N:N** |
+| Does the association itself carry data (dates, status, roles)? | **N:N via mapped junction model**, not `secondary=` |
+
+---
+
+## 8. Common Pitfalls
+
+- **Forgetting `back_populates`** (or `backref`) — leads to one-directional
+  navigation only, and stale in-memory state after commits.
+- **N+1 queries** — use `joinedload()`/`selectinload()` from
+  `sqlalchemy.orm` when eagerly fetching related rows in list endpoints.
+- **Circular Pydantic schemas** — if `Author` includes `books` and `Book`
+  includes `author`, define separate "flat" and "nested" schema variants
+  to avoid infinite recursion.
+- **Missing `unique=True`** on a 1:1 foreign key — without it, SQLAlchemy
+  will silently allow multiple children per parent, turning it into 1:N.
+- **Using `secondary=` when the join table needs extra columns** — this
+  will not work; map the association table as its own model instead.
