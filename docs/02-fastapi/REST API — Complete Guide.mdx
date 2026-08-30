@@ -1,0 +1,518 @@
+# REST API — Complete Guide
+
+## Table of Contents
+
+1. [Introduction](#1-introduction)
+2. [Core Theory: What Makes an API "RESTful"](#2-core-theory-what-makes-an-api-restful)
+3. [Resources & URI Design](#3-resources--uri-design)
+4. [HTTP Methods (Verbs)](#4-http-methods-verbs)
+5. [HTTP Status Codes](#5-http-status-codes)
+6. [Request & Response Design](#6-request--response-design)
+7. [Richardson Maturity Model](#7-richardson-maturity-model)
+8. [Versioning Strategies](#8-versioning-strategies)
+9. [Filtering, Sorting, Pagination](#9-filtering-sorting-pagination)
+10. [Authentication & Authorization](#10-authentication--authorization)
+11. [Error Handling](#11-error-handling)
+12. [Caching](#12-caching)
+13. [Rate Limiting](#13-rate-limiting)
+14. [HATEOAS](#14-hateoas)
+15. [Idempotency & Safety](#15-idempotency--safety)
+16. [Documentation (OpenAPI/Swagger)](#16-documentation-openapiswagger)
+17. [Example: A Small REST API (FastAPI)](#17-example-a-small-rest-api-fastapi)
+18. [Security Checklist](#18-security-checklist)
+19. [Best Practices & Common Pitfalls](#19-best-practices--common-pitfalls)
+20. [Summary](#20-summary)
+
+---
+
+## 1. Introduction
+
+**REST** (Representational State Transfer) is an architectural style for designing networked applications, introduced by Roy Fielding in his 2000 doctoral dissertation. A **REST API** exposes **resources** (things — users, orders, products) over HTTP, using standard HTTP methods to act on them, and standard status codes and media types to communicate results.
+
+REST isn't a protocol or a formal standard — it's a set of architectural constraints. An API can call itself "REST" while violating several of these constraints (most real-world APIs do, to some degree), which is why understanding the underlying theory matters more than memorizing a checklist.
+
+---
+
+## 2. Core Theory: What Makes an API "RESTful"
+
+Fielding defined REST via six architectural constraints:
+
+| Constraint | Meaning |
+|---|---|
+| **Client–Server** | Separation of concerns: the client (UI, mobile app) and server (data storage, business logic) evolve independently, connected only by the API contract. |
+| **Statelessness** | Each request from a client must contain all the information needed to process it. The server holds no client session state between requests — session state (if any) lives on the client (e.g., a token). |
+| **Cacheability** | Responses must implicitly or explicitly declare themselves cacheable or not, so clients/intermediaries can reuse data and reduce round-trips. |
+| **Uniform Interface** | The single most defining constraint — see below. |
+| **Layered System** | A client can't tell (and shouldn't need to) whether it's talking directly to the server or through intermediaries (load balancers, gateways, caches). |
+| **Code on Demand** *(optional)* | Servers can optionally extend client behavior by sending executable code (e.g., JavaScript) — rarely used in typical JSON APIs. |
+
+### The Uniform Interface, in turn, has four sub-constraints:
+
+1. **Identification of resources** — each resource (a user, an order) is identified by a URI.
+2. **Manipulation of resources through representations** — clients don't manipulate the resource directly; they exchange representations of it (typically JSON) and the server translates that into internal state changes.
+3. **Self-descriptive messages** — each message includes enough information to describe how to process it (e.g., `Content-Type: application/json`).
+4. **HATEOAS** (Hypermedia as the Engine of Application State) — responses include links describing what the client can do next. This is the most commonly skipped constraint in practice (see Section 14).
+
+### Why this theory matters
+
+Statelessness is what lets you horizontally scale an API behind a load balancer without sticky sessions. The uniform interface is what lets a single client codebase talk to wildly different resources (users, orders, invoices) using the same verbs and status-code semantics, instead of learning a bespoke protocol per resource.
+
+---
+
+## 3. Resources & URI Design
+
+A **resource** is any noun your API exposes: a user, an order, a comment. URIs should identify resources, not actions.
+
+```
+✅ GET  /users/42
+✅ GET  /users/42/orders
+✅ POST /orders
+❌ GET  /getUser?id=42
+❌ POST /createOrder
+```
+
+### Naming conventions
+
+- Use **plural nouns** for collections: `/users`, not `/user`.
+- Use **nesting** for clear ownership: `/users/42/orders` (orders belonging to user 42).
+- Avoid deep nesting beyond 2 levels — `/users/42/orders/7/items/3` gets unwieldy; prefer `/order-items/3` with the parent IDs as fields if the resource has its own identity.
+- Use **kebab-case** for multi-word path segments: `/shipping-addresses`, not `/shippingAddresses` or `/shipping_addresses`.
+- Keep **verbs out of URIs** — the HTTP method is the verb; the URI is the noun. `/orders/7/cancel` is a common, pragmatic exception for actions that don't map cleanly to CRUD (see Section 4).
+
+---
+
+## 4. HTTP Methods (Verbs)
+
+| Method | Purpose | Safe? | Idempotent? | Typical Body |
+|---|---|---|---|---|
+| `GET` | Retrieve a resource or collection | ✅ | ✅ | None |
+| `POST` | Create a new resource, or trigger a non-idempotent action | ❌ | ❌ | Resource data |
+| `PUT` | Replace a resource entirely | ❌ | ✅ | Full resource |
+| `PATCH` | Partially update a resource | ❌ | ❌ (by spec, though often implemented idempotently) | Partial resource |
+| `DELETE` | Remove a resource | ❌ | ✅ | None (usually) |
+| `HEAD` | Like `GET` but headers only, no body | ✅ | ✅ | None |
+| `OPTIONS` | Discover allowed methods/CORS preflight | ✅ | ✅ | None |
+
+**Safe** means the method doesn't change server state (read-only). **Idempotent** means calling it N times has the same effect as calling it once — important for retry logic on flaky networks.
+
+```
+GET    /users          → list users
+POST   /users          → create a user
+GET    /users/42       → fetch user 42
+PUT    /users/42       → replace user 42 entirely
+PATCH  /users/42       → update part of user 42
+DELETE /users/42       → delete user 42
+```
+
+For actions that don't fit CRUD (e.g., "cancel an order," "send a password reset"), model them as a `POST` to a sub-resource: `POST /orders/7/cancel`, `POST /users/42/password-reset`.
+
+---
+
+## 5. HTTP Status Codes
+
+Status codes are part of the uniform interface — clients should be able to branch on the code class without parsing the body.
+
+| Range | Class | Common Codes |
+|---|---|---|
+| `2xx` | Success | `200 OK`, `201 Created`, `202 Accepted`, `204 No Content` |
+| `3xx` | Redirection | `301 Moved Permanently`, `304 Not Modified` |
+| `4xx` | Client Error | `400 Bad Request`, `401 Unauthorized`, `403 Forbidden`, `404 Not Found`, `405 Method Not Allowed`, `409 Conflict`, `422 Unprocessable Entity`, `429 Too Many Requests` |
+| `5xx` | Server Error | `500 Internal Server Error`, `502 Bad Gateway`, `503 Service Unavailable` |
+
+### Choosing the right code
+
+- `200 OK` — successful `GET`/`PUT`/`PATCH` with a body.
+- `201 Created` — successful `POST` that creates a resource; include a `Location` header pointing at the new resource.
+- `204 No Content` — successful request with no body to return (common for `DELETE`).
+- `400 Bad Request` — malformed request (bad JSON, missing required field).
+- `401 Unauthorized` — missing or invalid credentials (really means "unauthenticated").
+- `403 Forbidden` — authenticated, but not allowed to perform this action.
+- `404 Not Found` — resource doesn't exist.
+- `409 Conflict` — request conflicts with current state (e.g., duplicate unique field, version mismatch).
+- `422 Unprocessable Entity` — well-formed request, but semantically invalid (failed validation).
+- `429 Too Many Requests` — rate limit exceeded.
+- `500 Internal Server Error` — unhandled server-side failure; never leak stack traces here.
+
+---
+
+## 6. Request & Response Design
+
+### Content negotiation
+
+```http
+POST /users HTTP/1.1
+Content-Type: application/json
+Accept: application/json
+
+{
+  "email": "jane@example.com",
+  "name": "Jane Doe"
+}
+```
+
+`Content-Type` describes what you're sending; `Accept` describes what representation you want back. JSON (`application/json`) is the de facto standard for modern REST APIs.
+
+### Consistent envelope (or lack thereof)
+
+Two common approaches — pick one and stay consistent:
+
+**Bare resource** (simpler, common for pure REST):
+```json
+{ "id": 42, "email": "jane@example.com", "name": "Jane Doe" }
+```
+
+**Enveloped** (useful when you need consistent metadata like pagination):
+```json
+{
+  "data": { "id": 42, "email": "jane@example.com", "name": "Jane Doe" },
+  "meta": { "requestId": "a1b2c3" }
+}
+```
+
+### Naming fields
+
+Pick one casing convention (commonly `camelCase` for JSON APIs) and apply it consistently across every endpoint — mixed casing across resources is a frequent source of client bugs.
+
+---
+
+## 7. Richardson Maturity Model
+
+A framework (by Leonard Richardson) for grading how "RESTful" an API actually is:
+
+| Level | Name | Description |
+|---|---|---|
+| **0** | Swamp of POX | Single URI, single HTTP method (usually `POST`), all actions carried in the body (RPC-over-HTTP / SOAP-style). |
+| **1** | Resources | Multiple URIs, one per resource, but still often just one HTTP method used for everything. |
+| **2** | HTTP Verbs | Proper use of `GET`/`POST`/`PUT`/`DELETE` and status codes per resource — this is where the overwhelming majority of "REST APIs" in production actually sit. |
+| **3** | Hypermedia Controls (HATEOAS) | Responses include links describing available next actions/state transitions — the "purest" form of REST, rarely fully implemented. |
+
+Most APIs described as "RESTful" in industry are **Level 2** — which is a perfectly legitimate, pragmatic target.
+
+---
+
+## 8. Versioning Strategies
+
+APIs change; clients can't always update in lockstep. Common strategies:
+
+| Strategy | Example | Trade-off |
+|---|---|---|
+| **URI path** | `/v1/users`, `/v2/users` | Most visible and cache-friendly; technically "breaks" the idea that a URI identifies one resource forever, but is the most common approach in practice. |
+| **Query parameter** | `/users?version=1` | Easy to default, but easy to forget/omit. |
+| **Custom header** | `X-API-Version: 1` | Keeps URIs clean; less discoverable, harder to test via a plain browser link. |
+| **`Accept` header (content negotiation)** | `Accept: application/vnd.myapi.v1+json` | "Purest" REST approach; more complex to implement and document. |
+
+**Practical recommendation:** URI-path versioning (`/v1/...`) for its simplicity and discoverability, reserved for **breaking** changes only. Add new optional fields or new endpoints without bumping the version — only bump when you remove/rename a field, change a type, or change behavior in a way that breaks existing clients.
+
+---
+
+## 9. Filtering, Sorting, Pagination
+
+```
+GET /orders?status=shipped&sort=-createdAt&page=2&limit=25
+```
+
+- **Filtering**: `?status=shipped&customerId=42` — filter fields as query params.
+- **Sorting**: `?sort=-createdAt,name` — prefix with `-` for descending; comma-separate for multiple keys.
+- **Pagination** — two common styles:
+
+**Offset-based** (simple, but can skip/duplicate rows under concurrent writes):
+```json
+{
+  "data": [ ... ],
+  "meta": { "page": 2, "limit": 25, "total": 341 }
+}
+```
+
+**Cursor-based** (stable under concurrent writes, standard for large/real-time datasets):
+```json
+{
+  "data": [ ... ],
+  "meta": { "nextCursor": "eyJpZCI6MTAwfQ==" }
+}
+```
+
+```
+GET /orders?limit=25&cursor=eyJpZCI6MTAwfQ==
+```
+
+Prefer cursor-based pagination for large or frequently-mutated collections; offset-based is fine for small, mostly-static datasets like admin UIs.
+
+---
+
+## 10. Authentication & Authorization
+
+| Scheme | How it works | Typical use |
+|---|---|---|
+| **API Key** | Static secret sent via header (`X-API-Key`) or query param | Server-to-server, simple integrations |
+| **Basic Auth** | `Authorization: Basic base64(user:pass)` | Rare in production; only ever over HTTPS |
+| **Bearer Token (OAuth2 / JWT)** | `Authorization: Bearer <token>` | Most common for modern APIs — token issued after login/OAuth flow |
+| **OAuth 2.0** | Delegated authorization via an auth server issuing short-lived access tokens (+ refresh tokens) | Third-party integrations, "Login with X" |
+| **mTLS** | Both client and server present certificates | High-security service-to-service communication |
+
+```http
+GET /orders HTTP/1.1
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+**Authentication** answers "who are you?" (`401` if it fails). **Authorization** answers "are you allowed to do this?" (`403` if it fails) — keep these concerns and their error codes distinct.
+
+---
+
+## 11. Error Handling
+
+Return a consistent, machine-parseable error shape across every endpoint:
+
+```json
+{
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "The 'email' field must be a valid email address.",
+    "details": [
+      { "field": "email", "issue": "invalid_format" }
+    ],
+    "requestId": "a1b2c3"
+  }
+}
+```
+
+Guidelines:
+
+- Use the right status code class (`4xx` client's fault, `5xx` server's fault) — don't return `200 OK` with an error buried in the body.
+- Include a stable `code` (machine-readable) separate from `message` (human-readable) — the code lets clients branch logic without string-matching messages, which can change.
+- Include a `requestId`/correlation ID to make support and log-tracing possible.
+- Never leak stack traces, SQL, or internal paths in production error responses.
+
+---
+
+## 12. Caching
+
+REST's cacheability constraint is expressed through standard HTTP headers:
+
+```http
+Cache-Control: public, max-age=3600
+ETag: "33a64df551425fcc55e4d42a148795d9f25f89d"
+Last-Modified: Wed, 21 Aug 2026 07:28:00 GMT
+```
+
+- **`Cache-Control`** — how long and by whom a response can be cached (`no-store`, `private`, `public, max-age=N`).
+- **`ETag`** — a fingerprint of the resource; clients send it back via `If-None-Match` on the next request, and the server replies `304 Not Modified` if unchanged, saving bandwidth.
+- **`Last-Modified`** / **`If-Modified-Since`** — a coarser, timestamp-based alternative to ETags.
+
+```http
+GET /users/42 HTTP/1.1
+If-None-Match: "33a64df551425fcc55e4d42a148795d9f25f89d"
+
+HTTP/1.1 304 Not Modified
+```
+
+---
+
+## 13. Rate Limiting
+
+Protects the API from abuse and manages capacity. Communicated via response headers so clients can self-throttle:
+
+```http
+X-RateLimit-Limit: 1000
+X-RateLimit-Remaining: 42
+X-RateLimit-Reset: 1735689600
+```
+
+When exceeded:
+
+```http
+HTTP/1.1 429 Too Many Requests
+Retry-After: 30
+```
+
+Common algorithms: **fixed window**, **sliding window**, **token bucket**, **leaky bucket** — token bucket is the most common choice for allowing short bursts while enforcing a steady average rate.
+
+---
+
+## 14. HATEOAS
+
+Hypermedia responses embed the *possible next actions* as links, so clients don't need to hardcode URI structure:
+
+```json
+{
+  "id": 7,
+  "status": "processing",
+  "total": 129.99,
+  "_links": {
+    "self": { "href": "/orders/7" },
+    "cancel": { "href": "/orders/7/cancel", "method": "POST" },
+    "customer": { "href": "/customers/42" }
+  }
+}
+```
+
+A client sees `status: "processing"` and can check whether a `cancel` link is present rather than hardcoding "orders can be cancelled only in this status." In practice, most public APIs skip full HATEOAS (Level 2 on the Richardson model is the pragmatic norm) but partial hypermedia — like a `nextCursor` link for pagination — is common and worth adopting even in an otherwise plain JSON API.
+
+---
+
+## 15. Idempotency & Safety
+
+Beyond the HTTP-spec idempotency of `PUT`/`DELETE`, real systems often need **application-level idempotency** for `POST` (e.g., "charge this card" should never double-charge on a client retry):
+
+```http
+POST /payments HTTP/1.1
+Idempotency-Key: 6b1f8c2e-9c3b-4e0a-9f2d-2b9a1e7c9f10
+
+{ "amount": 2000, "currency": "usd" }
+```
+
+The server stores the key alongside the result of the first successful request; if the same key arrives again, it returns the cached result instead of re-executing the operation. This is standard practice in payment APIs (Stripe popularized the header name/pattern) and worth adopting for any non-idempotent operation that a client might retry after a timeout.
+
+---
+
+## 16. Documentation (OpenAPI/Swagger)
+
+**OpenAPI** (formerly Swagger) is the standard machine-readable schema for describing REST APIs — endpoints, parameters, request/response schemas, auth — which then drives interactive docs, client SDK generation, and contract testing.
+
+```yaml
+openapi: 3.0.3
+info:
+  title: Orders API
+  version: 1.0.0
+paths:
+  /orders/{orderId}:
+    get:
+      summary: Get an order by ID
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Order found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Order"
+        "404":
+          description: Order not found
+components:
+  schemas:
+    Order:
+      type: object
+      properties:
+        id:
+          type: integer
+        status:
+          type: string
+        total:
+          type: number
+```
+
+Frameworks like FastAPI generate this spec automatically from your route/type annotations, and serve interactive docs (Swagger UI / ReDoc) at `/docs` with zero extra config.
+
+---
+
+## 17. Example: A Small REST API (FastAPI)
+
+A minimal but complete REST resource, applying the conventions above (proper verbs, status codes, pagination, consistent error shape):
+
+```python
+from fastapi import FastAPI, HTTPException, Query, status
+from pydantic import BaseModel
+
+app = FastAPI(title="Orders API", version="1.0.0")
+
+class OrderCreate(BaseModel):
+    customer_id: int
+    total: float
+
+class Order(OrderCreate):
+    id: int
+    status: str = "processing"
+
+# in-memory store for illustration only
+_orders: dict[int, Order] = {}
+_next_id = 1
+
+@app.post("/v1/orders", response_model=Order, status_code=status.HTTP_201_CREATED)
+def create_order(payload: OrderCreate):
+    global _next_id
+    order = Order(id=_next_id, **payload.model_dump())
+    _orders[order.id] = order
+    _next_id += 1
+    return order
+
+@app.get("/v1/orders", response_model=list[Order])
+def list_orders(status_filter: str | None = Query(default=None, alias="status"),
+                 limit: int = 25, offset: int = 0):
+    results = list(_orders.values())
+    if status_filter:
+        results = [o for o in results if o.status == status_filter]
+    return results[offset: offset + limit]
+
+@app.get("/v1/orders/{order_id}", response_model=Order)
+def get_order(order_id: int):
+    order = _orders.get(order_id)
+    if order is None:
+        raise HTTPException(status_code=404, detail="Order not found")
+    return order
+
+@app.post("/v1/orders/{order_id}/cancel", response_model=Order)
+def cancel_order(order_id: int):
+    order = _orders.get(order_id)
+    if order is None:
+        raise HTTPException(status_code=404, detail="Order not found")
+    order.status = "cancelled"
+    return order
+
+@app.delete("/v1/orders/{order_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_order(order_id: int):
+    if order_id not in _orders:
+        raise HTTPException(status_code=404, detail="Order not found")
+    del _orders[order_id]
+```
+
+This demonstrates: `/v1` path versioning, plural nested-free resource naming, correct verb/status pairing (`201` on create, `204` on delete), a `cancel` action modeled as `POST` to a sub-resource, and query-param filtering/pagination.
+
+---
+
+## 18. Security Checklist
+
+- **Always use HTTPS/TLS** — never send credentials or tokens over plain HTTP.
+- **Validate and sanitize all input** — never trust client-supplied data, including path/query params.
+- **Use short-lived access tokens + refresh tokens** rather than long-lived static API keys where possible.
+- **Enforce authorization on every endpoint**, not just authentication — a valid token doesn't mean the caller can access *this* resource.
+- **Set restrictive CORS policies** — don't default to `Access-Control-Allow-Origin: *` for APIs handling sensitive data.
+- **Rate-limit and throttle** — protects against brute force and abuse.
+- **Avoid exposing internal IDs** where enumeration is a risk — consider UUIDs over sequential integers for public-facing resource IDs.
+- **Never return sensitive fields** (password hashes, internal flags) in API responses — enforce this via response schemas, not manual omission.
+- **Log and monitor** authentication failures and unusual access patterns.
+
+---
+
+## 19. Best Practices & Common Pitfalls
+
+- **Design URIs around resources, not actions** — let HTTP verbs carry the action.
+- **Be consistent** — casing, pluralization, error shape, pagination style, date formats (`ISO 8601`, e.g. `2026-08-30T10:00:00Z`) should be uniform across every endpoint.
+- **Don't overload `POST`** for everything — it hides intent and disables the safety/idempotency guarantees clients rely on for `GET`/`PUT`/`DELETE`.
+- **Version deliberately** — don't bump versions for additive, backward-compatible changes.
+- **Paginate every collection endpoint from day one** — retrofitting pagination after clients depend on unpaginated responses is painful.
+- **Return `Location` header on `201 Created`** pointing to the new resource's URI.
+- **Don't conflate `401` and `403`** — clients (and your own debugging) benefit from the distinction between "not logged in" and "logged in but not allowed."
+- **Document as you build** — an OpenAPI spec that's autogenerated from code (FastAPI, tRPC-adjacent tools) stays truthful; a hand-maintained doc drifts.
+
+---
+
+## 20. Summary
+
+| Concept | Key Idea |
+|---|---|
+| **Resources** | Nouns, identified by URIs; verbs come from HTTP methods |
+| **Statelessness** | Every request is self-contained; no server-side session state |
+| **Status Codes** | Communicate outcome class without parsing the body |
+| **Versioning** | URI-path versioning for breaking changes only |
+| **Pagination** | Cursor-based for large/mutating data; offset-based for small/static data |
+| **Auth** | Authentication (`401`) vs. Authorization (`403`) are distinct concerns |
+| **Caching** | `ETag`/`Cache-Control` let clients and intermediaries avoid redundant work |
+| **Idempotency** | Required by spec for `PUT`/`DELETE`; add explicitly for risky `POST`s |
+| **HATEOAS** | The "purest" REST constraint; partially adopted (e.g., pagination links) even by pragmatic Level-2 APIs |
+| **Documentation** | OpenAPI as the single source of truth, ideally autogenerated from code |
+
+A well-designed REST API is really just disciplined, consistent use of HTTP as it was designed to be used — resources as nouns, methods as verbs, status codes as outcomes — layered with the practical concerns (auth, pagination, versioning, rate limiting) that make it production-ready.

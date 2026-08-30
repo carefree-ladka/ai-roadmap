@@ -1,0 +1,631 @@
+# SQLAlchemy with FastAPI
+
+## Table of Contents
+
+1. [Introduction](#1-introduction)
+2. [Core Concepts & Theory](#2-core-concepts--theory)
+3. [Installation & Project Setup](#3-installation--project-setup)
+4. [Database Connection & Session Management](#4-database-connection--session-management)
+5. [Defining Models (ORM Layer)](#5-defining-models-orm-layer)
+6. [Pydantic Schemas](#6-pydantic-schemas)
+7. [Relationships (One-to-Many, Many-to-Many)](#7-relationships-one-to-many-many-to-many)
+8. [CRUD Operations](#8-crud-operations)
+9. [Wiring CRUD into FastAPI Routes](#9-wiring-crud-into-fastapi-routes)
+10. [Async Gotchas & Patterns](#10-async-gotchas--patterns)
+11. [Alembic Migrations](#11-alembic-migrations)
+12. [When You'd Still Use Sync SQLAlchemy](#12-when-youd-still-use-sync-sqlalchemy)
+13. [Best Practices & Common Pitfalls](#13-best-practices--common-pitfalls)
+14. [Summary](#14-summary)
+
+---
+
+## 1. Introduction
+
+**SQLAlchemy** is Python's most widely used SQL toolkit and Object Relational Mapper (ORM). It gives you two layers to work with:
+
+- **SQLAlchemy Core** — a low-level, expression-language API for building SQL statements programmatically.
+- **SQLAlchemy ORM** — a higher-level API that maps Python classes to database tables, letting you work with objects instead of raw SQL.
+
+**FastAPI** is a modern, async-first Python web framework. Since FastAPI's request handling, dependency injection, and event loop are all built around `async`/`await`, the modern, recommended way to pair it with SQLAlchemy is to use SQLAlchemy's **async engine and `AsyncSession`** end-to-end, rather than a sync `Session` wrapped in a threadpool.
+
+This guide is **async-first** throughout, using:
+
+- **SQLAlchemy 2.0 style** — type-hinted `Mapped` / `mapped_column` declarative models and the unified `select()` query style.
+- **`create_async_engine` / `AsyncSession`** — non-blocking database I/O that plays natively with FastAPI's event loop.
+- **`asyncpg`** as the Postgres driver (swap for `aiosqlite` or `asyncmy`/`aiomysql` for SQLite/MySQL).
+
+A brief sync comparison is included in Section 12 for cases where sync still makes sense.
+
+---
+
+## 2. Core Concepts & Theory
+
+| Concept | Description |
+|---|---|
+| **Engine** | The entry point to the database. Manages a connection pool and dialect. In async mode, `create_async_engine` wraps an async DBAPI driver (e.g. `asyncpg`). Created once per application. |
+| **Session** | A "workspace" for ORM objects. Tracks changes (unit of work pattern), and flushes/commits them to the DB. `AsyncSession` exposes the same concepts as coroutines (`await session.commit()`, etc.). One session per request in a web app. |
+| **Declarative Base** | A base class that all your ORM models inherit from. SQLAlchemy uses it to map classes to tables via metadata. |
+| **Model** | A Python class mapped to a table. Each class attribute (via `mapped_column`) maps to a column. |
+| **Metadata** | A registry of `Table` objects, schema information collected from your models. Used by Alembic for migrations. |
+| **Unit of Work** | The Session tracks new/dirty/deleted objects in memory and issues SQL only when you `flush()` or `commit()` (`await` in async mode). |
+| **Identity Map** | Within a session, each row is represented by exactly one Python object, keyed by primary key — avoids duplicate objects for the same row. |
+| **Lazy vs Eager Loading** | Controls *when* related objects are fetched. In async mode, implicit lazy loading is dangerous (see Section 10) — eager loading via `selectinload`/`joinedload` is the norm. |
+| **Event Loop Non-Blocking I/O** | The reason to go async: `await` on a query yields control back to FastAPI's event loop while waiting on the DB, letting one worker process handle many concurrent requests instead of blocking a thread per request. |
+
+### The Request Lifecycle in an Async Web App
+
+```
+Request comes in
+      │
+      ▼
+FastAPI dependency opens an AsyncSession (async context manager)
+      │
+      ▼
+Route handler awaits queries/inserts/updates via the AsyncSession
+      │  (event loop is free to serve other requests while awaiting I/O)
+      ▼
+AsyncSession commits (or rolls back on error) — awaited
+      │
+      ▼
+AsyncSession closes, connection returned to the async pool
+      │
+      ▼
+Response sent back
+```
+
+---
+
+## 3. Installation & Project Setup
+
+```bash
+pip install fastapi uvicorn "sqlalchemy>=2.0" alembic pydantic-settings
+pip install asyncpg          # async Postgres driver
+# pip install aiosqlite      # if using SQLite
+# pip install asyncmy        # if using MySQL
+```
+
+Recommended project layout:
+
+```
+myapp/
+├── alembic/
+│   ├── versions/
+│   └── env.py
+├── alembic.ini
+├── app/
+│   ├── __init__.py
+│   ├── main.py
+│   ├── database.py       # async engine + session setup
+│   ├── models.py         # SQLAlchemy ORM models
+│   ├── schemas.py        # Pydantic schemas
+│   ├── crud.py           # async CRUD functions
+│   ├── deps.py           # FastAPI dependencies
+│   └── routers/
+│       └── items.py
+└── requirements.txt
+```
+
+---
+
+## 4. Database Connection & Session Management
+
+`app/database.py`:
+
+```python
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from sqlalchemy.orm import DeclarativeBase
+
+DATABASE_URL = "postgresql+asyncpg://user:password@localhost:5432/mydb"
+
+# The async Engine manages a pool of async connections
+engine = create_async_engine(DATABASE_URL, echo=False, pool_pre_ping=True)
+
+# AsyncSessionLocal is a factory that creates new AsyncSession objects
+AsyncSessionLocal = async_sessionmaker(
+    bind=engine,
+    autoflush=False,
+    expire_on_commit=False,  # avoids lazy-load-after-commit issues, see Section 10
+)
+
+class Base(DeclarativeBase):
+    """Base class for all ORM models."""
+    pass
+```
+
+`app/deps.py` — a FastAPI dependency that yields an `AsyncSession` per request and always closes it:
+
+```python
+from typing import AsyncGenerator
+from app.database import AsyncSessionLocal
+
+async def get_db() -> AsyncGenerator:
+    async with AsyncSessionLocal() as session:
+        yield session
+```
+
+Key points:
+
+- `postgresql+asyncpg://` — the driver in the URL must be async-capable. `psycopg2` (sync) will not work with `create_async_engine`.
+- `pool_pre_ping=True` tests connections before reuse (avoids "server closed the connection unexpectedly" errors) — works the same in async mode.
+- `expire_on_commit=False` is important: by default SQLAlchemy expires object attributes after `commit()` so they reload lazily on next access. In async code, an implicit lazy load outside an awaited context raises `MissingGreenlet`. Turning this off keeps attributes readable post-commit without a surprise reload.
+- `async with AsyncSessionLocal() as session` guarantees the session is closed (and any open transaction rolled back if not committed) even if an exception occurs mid-request.
+
+---
+
+## 5. Defining Models (ORM Layer)
+
+Model definitions are identical whether you use sync or async SQLAlchemy — the async/sync distinction lives in the engine/session layer, not in how models are declared.
+
+`app/models.py`:
+
+```python
+from datetime import datetime
+from sqlalchemy import String, ForeignKey, func
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from app.database import Base
+
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    hashed_password: Mapped[str] = mapped_column(String(255))
+    is_active: Mapped[bool] = mapped_column(default=True)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+    items: Mapped[list["Item"]] = relationship(back_populates="owner", cascade="all, delete-orphan")
+
+
+class Item(Base):
+    __tablename__ = "items"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    title: Mapped[str] = mapped_column(String(200), index=True)
+    description: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    owner_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+
+    owner: Mapped["User"] = relationship(back_populates="items")
+```
+
+Key points:
+
+- `Mapped[type]` gives static typing and tells SQLAlchemy the column's Python type.
+- `mapped_column(...)` configures DB-specific details (length, constraints, defaults, indexes).
+- `relationship()` is a Python-level convenience (not a DB column) that lets you navigate `user.items` or `item.owner` — but in async mode, accessing it lazily (without eager loading) outside an `await`-aware context will fail (see Section 10).
+
+---
+
+## 6. Pydantic Schemas
+
+Keep your **API contract** (Pydantic) separate from your **DB model** (SQLAlchemy). This avoids leaking internal fields (like `hashed_password`) and lets request/response shapes evolve independently — this is unaffected by sync vs async.
+
+`app/schemas.py`:
+
+```python
+from pydantic import BaseModel, ConfigDict, EmailStr
+
+class ItemBase(BaseModel):
+    title: str
+    description: str | None = None
+
+class ItemCreate(ItemBase):
+    pass
+
+class ItemUpdate(BaseModel):
+    title: str | None = None
+    description: str | None = None
+
+class ItemOut(ItemBase):
+    id: int
+    owner_id: int
+    model_config = ConfigDict(from_attributes=True)  # allows .model_validate(orm_obj)
+
+class UserBase(BaseModel):
+    email: EmailStr
+
+class UserCreate(UserBase):
+    password: str
+
+class UserOut(UserBase):
+    id: int
+    is_active: bool
+    items: list[ItemOut] = []
+    model_config = ConfigDict(from_attributes=True)
+```
+
+`from_attributes=True` (formerly `orm_mode`) lets Pydantic read data off ORM object attributes instead of requiring a dict.
+
+---
+
+## 7. Relationships (One-to-Many, Many-to-Many)
+
+### One-to-Many (User → Items)
+
+Already covered — one `User` has many `Item`s via the `owner_id` foreign key.
+
+### Many-to-Many (Items ↔ Tags)
+
+```python
+from sqlalchemy import Table, Column, ForeignKey
+
+item_tag_association = Table(
+    "item_tag",
+    Base.metadata,
+    Column("item_id", ForeignKey("items.id"), primary_key=True),
+    Column("tag_id", ForeignKey("tags.id"), primary_key=True),
+)
+
+class Tag(Base):
+    __tablename__ = "tags"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(50), unique=True)
+
+    items: Mapped[list["Item"]] = relationship(
+        secondary=item_tag_association, back_populates="tags"
+    )
+
+# Add to Item:
+# tags: Mapped[list["Tag"]] = relationship(secondary=item_tag_association, back_populates="items")
+```
+
+### Loading strategies (critical in async mode)
+
+In sync SQLAlchemy, an unloaded relationship silently triggers a fresh query when you access it. In **async SQLAlchemy, this implicit lazy load is not safe** — accessing `user.items` outside of an active await context raises `MissingGreenlet`. Always **eager-load** relationships you intend to use, right in the original query:
+
+```python
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
+
+stmt = select(User).options(selectinload(User.items))
+result = await db.execute(stmt)
+users = result.scalars().all()
+
+for user in users:
+    print(user.items)  # already loaded — safe, no additional query
+```
+
+- `selectinload` — issues a second `SELECT ... WHERE id IN (...)` for the related rows. Good default for one-to-many/many-to-many; avoids row duplication.
+- `joinedload` — uses a `LEFT OUTER JOIN` in the same query. Good for many-to-one/one-to-one where the "many" side isn't ballooning row count.
+
+---
+
+## 8. CRUD Operations
+
+`app/crud.py` — SQLAlchemy 2.0 `select()` style, fully async:
+
+```python
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+from app import models, schemas
+
+# ---------- CREATE ----------
+async def create_item(db: AsyncSession, item: schemas.ItemCreate, owner_id: int) -> models.Item:
+    db_item = models.Item(**item.model_dump(), owner_id=owner_id)
+    db.add(db_item)
+    await db.commit()
+    await db.refresh(db_item)  # populates auto-generated fields like id
+    return db_item
+
+# ---------- READ ----------
+async def get_item(db: AsyncSession, item_id: int) -> models.Item | None:
+    return await db.get(models.Item, item_id)  # primary-key lookup shortcut
+
+async def get_items(db: AsyncSession, skip: int = 0, limit: int = 100) -> list[models.Item]:
+    stmt = select(models.Item).offset(skip).limit(limit)
+    result = await db.scalars(stmt)
+    return list(result.all())
+
+async def get_items_by_owner(db: AsyncSession, owner_id: int) -> list[models.Item]:
+    stmt = select(models.Item).where(models.Item.owner_id == owner_id)
+    result = await db.scalars(stmt)
+    return list(result.all())
+
+async def get_user_with_items(db: AsyncSession, user_id: int) -> models.User | None:
+    stmt = select(models.User).where(models.User.id == user_id).options(selectinload(models.User.items))
+    result = await db.scalars(stmt)
+    return result.first()
+
+# ---------- UPDATE ----------
+async def update_item(db: AsyncSession, item_id: int, updates: schemas.ItemUpdate) -> models.Item | None:
+    db_item = await db.get(models.Item, item_id)
+    if db_item is None:
+        return None
+    for field, value in updates.model_dump(exclude_unset=True).items():
+        setattr(db_item, field, value)
+    await db.commit()
+    await db.refresh(db_item)
+    return db_item
+
+# ---------- DELETE ----------
+async def delete_item(db: AsyncSession, item_id: int) -> bool:
+    db_item = await db.get(models.Item, item_id)
+    if db_item is None:
+        return False
+    await db.delete(db_item)
+    await db.commit()
+    return True
+
+# ---------- CREATE with integrity-error handling ----------
+async def create_user(db: AsyncSession, user: schemas.UserCreate, hashed_password: str) -> models.User:
+    db_user = models.User(email=user.email, hashed_password=hashed_password)
+    db.add(db_user)
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise
+    await db.refresh(db_user)
+    return db_user
+```
+
+`exclude_unset=True` in `model_dump()` ensures a PATCH-style update only touches fields the client actually sent. Every DB-touching call (`commit`, `refresh`, `execute`, `scalars`, `get`, `delete`) is `await`ed — that's the core mechanical difference from sync code.
+
+---
+
+## 9. Wiring CRUD into FastAPI Routes
+
+`app/routers/items.py`:
+
+```python
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.ext.asyncio import AsyncSession
+from app import crud, schemas
+from app.deps import get_db
+
+router = APIRouter(prefix="/items", tags=["items"])
+
+@router.post("/", response_model=schemas.ItemOut, status_code=status.HTTP_201_CREATED)
+async def create_item(item: schemas.ItemCreate, owner_id: int, db: AsyncSession = Depends(get_db)):
+    return await crud.create_item(db, item, owner_id)
+
+@router.get("/", response_model=list[schemas.ItemOut])
+async def list_items(skip: int = 0, limit: int = 100, db: AsyncSession = Depends(get_db)):
+    return await crud.get_items(db, skip, limit)
+
+@router.get("/{item_id}", response_model=schemas.ItemOut)
+async def read_item(item_id: int, db: AsyncSession = Depends(get_db)):
+    db_item = await crud.get_item(db, item_id)
+    if db_item is None:
+        raise HTTPException(status_code=404, detail="Item not found")
+    return db_item
+
+@router.patch("/{item_id}", response_model=schemas.ItemOut)
+async def patch_item(item_id: int, updates: schemas.ItemUpdate, db: AsyncSession = Depends(get_db)):
+    db_item = await crud.update_item(db, item_id, updates)
+    if db_item is None:
+        raise HTTPException(status_code=404, detail="Item not found")
+    return db_item
+
+@router.delete("/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_item(item_id: int, db: AsyncSession = Depends(get_db)):
+    if not await crud.delete_item(db, item_id):
+        raise HTTPException(status_code=404, detail="Item not found")
+```
+
+`app/main.py`:
+
+```python
+from contextlib import asynccontextmanager
+from fastapi import FastAPI
+from app.database import Base, engine
+from app.routers import items
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # For prototypes only — use Alembic migrations in production (Section 11)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    yield
+    await engine.dispose()
+
+app = FastAPI(title="SQLAlchemy + FastAPI Demo (Async)", lifespan=lifespan)
+app.include_router(items.router)
+```
+
+Note `conn.run_sync(Base.metadata.create_all)` — `create_all` itself is a sync-only method, so under an async engine it's run via `run_sync` on an async connection. `engine.dispose()` on shutdown cleanly closes the connection pool.
+
+---
+
+## 10. Async Gotchas & Patterns
+
+These are the differences that actually bite people moving from sync to async SQLAlchemy:
+
+1. **No implicit lazy loading.** Accessing an unloaded `relationship()` attribute outside an active `await` raises `MissingGreenlet`. Always eager-load with `selectinload`/`joinedload` in the query that will need the relationship.
+
+2. **`expire_on_commit=False` is close to mandatory.** Without it, every attribute is marked expired after `commit()`, and the next attribute access tries to lazily refresh from the DB — which, again, isn't safe outside an awaited context.
+
+3. **One `AsyncSession` per request, never shared across `asyncio` tasks.** Each session is tied to one logical unit of work; if you fan out with `asyncio.gather()`, give each concurrent task its own session, not one session shared between coroutines.
+
+4. **All CRUD-facing methods change to coroutines.** `session.execute()`, `session.get()`, `session.commit()`, `session.refresh()`, `session.delete()` — all become `await session.execute(...)`, etc. `session.add()` stays synchronous (it just registers the object in memory; no I/O yet).
+
+5. **`scalars()` needs `await` before you can call `.all()`/`.first()`.** In sync code you write `db.execute(stmt).scalars().all()` in one line; in async code it's `result = await db.execute(stmt)` then `result.scalars().all()` (or the `db.scalars(stmt)` shortcut which returns an awaitable directly).
+
+6. **Alembic's migration runner is sync by design** — see Section 11 for how `env.py` bridges this.
+
+---
+
+## 11. Alembic Migrations
+
+Alembic's own migration execution is still fundamentally synchronous, but it fully supports async application engines via a small async-to-sync bridge in `env.py`.
+
+### Setup
+
+```bash
+alembic init -t async alembic
+```
+
+The `-t async` template generates an `env.py` already wired for an async engine — this is the modern, recommended way to init Alembic in an async app (as opposed to the plain `alembic init alembic`, which assumes a sync engine).
+
+### `alembic/env.py` (async template, adapted to your app)
+
+```python
+import asyncio
+from logging.config import fileConfig
+from sqlalchemy import pool
+from sqlalchemy.ext.asyncio import async_engine_from_config
+from alembic import context
+
+from app.database import Base, DATABASE_URL
+from app import models  # noqa: ensures models are registered on Base.metadata
+
+config = context.config
+config.set_main_option("sqlalchemy.url", DATABASE_URL)
+
+if config.config_file_name is not None:
+    fileConfig(config.config_file_name)
+
+target_metadata = Base.metadata
+
+def do_run_migrations(connection):
+    context.configure(connection=connection, target_metadata=target_metadata)
+    with context.begin_transaction():
+        context.run_migrations()
+
+async def run_async_migrations():
+    connectable = async_engine_from_config(
+        config.get_section(config.config_ini_section, {}),
+        prefix="sqlalchemy.",
+        poolclass=pool.NullPool,
+    )
+    async with connectable.connect() as connection:
+        await connection.run_sync(do_run_migrations)
+    await connectable.dispose()
+
+def run_migrations_online():
+    asyncio.run(run_async_migrations())
+
+run_migrations_online()
+```
+
+`NullPool` is used here because Alembic runs are short-lived, one-shot processes — no need to keep a connection pool alive.
+
+### Autogenerate a migration
+
+```bash
+alembic revision --autogenerate -m "create users and items tables"
+```
+
+Produces a versioned file in `alembic/versions/`:
+
+```python
+"""create users and items tables
+
+Revision ID: a1b2c3d4e5f6
+Revises:
+Create Date: 2026-08-30 10:00:00.000000
+"""
+from alembic import op
+import sqlalchemy as sa
+
+revision = "a1b2c3d4e5f6"
+down_revision = None
+branch_labels = None
+depends_on = None
+
+def upgrade() -> None:
+    op.create_table(
+        "users",
+        sa.Column("id", sa.Integer(), primary_key=True),
+        sa.Column("email", sa.String(255), nullable=False),
+        sa.Column("hashed_password", sa.String(255), nullable=False),
+        sa.Column("is_active", sa.Boolean(), server_default=sa.true()),
+        sa.Column("created_at", sa.DateTime(), server_default=sa.func.now()),
+        sa.UniqueConstraint("email"),
+    )
+    op.create_table(
+        "items",
+        sa.Column("id", sa.Integer(), primary_key=True),
+        sa.Column("title", sa.String(200), nullable=False),
+        sa.Column("description", sa.String(500), nullable=True),
+        sa.Column("owner_id", sa.Integer(), sa.ForeignKey("users.id"), nullable=False),
+    )
+
+def downgrade() -> None:
+    op.drop_table("items")
+    op.drop_table("users")
+```
+
+### Apply / roll back
+
+```bash
+alembic upgrade head        # apply all pending migrations
+alembic downgrade -1        # roll back one revision
+alembic current             # show current DB revision
+alembic history              # list all revisions
+```
+
+### Adding a column later
+
+```bash
+alembic revision --autogenerate -m "add is_admin to users"
+```
+
+```python
+def upgrade() -> None:
+    op.add_column("users", sa.Column("is_admin", sa.Boolean(), server_default=sa.false()))
+
+def downgrade() -> None:
+    op.drop_column("users", "is_admin")
+```
+
+Always review autogenerated migrations before applying — Alembic doesn't always detect every change correctly (e.g., column type changes, some constraint renames).
+
+---
+
+## 12. When You'd Still Use Sync SQLAlchemy
+
+Async isn't strictly better in every situation — it's a trade of some simplicity for concurrency headroom:
+
+- **Simple/low-traffic CRUD apps, internal tools, admin panels** — a sync engine with a properly sized connection pool is easier to reason about and debug, and won't be your bottleneck at low-to-moderate concurrency.
+- **Heavy use of libraries without async support** — if your ORM layer needs to interoperate tightly with sync-only code (some legacy reporting tools, certain ETL libraries), a sync session avoids constant `run_sync` bridging.
+- **CPU-bound work mixed into request handling** — async only helps with I/O-bound waiting; if your handlers do heavy in-process computation, threads/processes matter more than async I/O.
+
+If you do go sync, the only real differences are: `create_engine` instead of `create_async_engine`, `sessionmaker`/`Session` instead of `async_sessionmaker`/`AsyncSession`, a plain `psycopg2` (or similar) URL, and dropping every `await`. Model definitions, Pydantic schemas, and Alembic's `upgrade()`/`downgrade()` bodies are identical either way.
+
+---
+
+## 13. Best Practices & Common Pitfalls
+
+- **One `AsyncSession` per request** — never share a session across requests or concurrent `asyncio` tasks.
+- **Eager-load relationships explicitly** (`selectinload`/`joinedload`) — implicit lazy loading isn't safe in async mode.
+- **`expire_on_commit=False`** on your session factory to avoid `MissingGreenlet` errors from expired attributes.
+- **Never rely on `create_all()` in production** — use Alembic so every environment's schema is versioned and reproducible.
+- **Keep Pydantic schemas separate from ORM models** — never return an ORM object with sensitive fields directly; go through a schema.
+- **Use `await db.get(Model, pk)`** for primary-key lookups instead of building a `select().where(...)` — it's more direct and can use the identity map.
+- **Handle `IntegrityError`** for unique constraint violations rather than pre-checking existence (avoids race conditions):
+
+```python
+from sqlalchemy.exc import IntegrityError
+
+try:
+    db.add(new_user)
+    await db.commit()
+except IntegrityError:
+    await db.rollback()
+    raise HTTPException(status_code=409, detail="Email already registered")
+```
+
+- **Set `pool_pre_ping=True`** to avoid stale-connection errors after DB restarts or idle timeouts.
+- **Don't mix sync and async engines** in the same app unless isolated and clearly justified.
+- **Index foreign keys and frequently filtered columns** — SQLAlchemy won't do this for you automatically.
+- **Use `cascade="all, delete-orphan"`** deliberately — it deletes child rows when the parent is deleted or the relationship is cleared; confirm that's the intended behavior.
+- **Dispose of the engine on shutdown** (`await engine.dispose()`) to cleanly close pooled connections.
+
+---
+
+## 14. Summary
+
+| Layer | Responsibility |
+|---|---|
+| **Async Engine** | Manages a pool of non-blocking connections to the physical DB via an async DBAPI driver (`asyncpg`, `aiosqlite`, etc.) |
+| **AsyncSession** | Unit-of-work workspace for ORM objects, per request, exposed as awaitable methods |
+| **Models** | Python classes mapped to tables (SQLAlchemy 2.0 `Mapped`/`mapped_column`) — identical in sync or async |
+| **Schemas** | Pydantic classes defining the API's request/response shape |
+| **CRUD functions** | `async def` functions encapsulating all DB access logic, called from routes with `await` |
+| **Routes** | Thin `async def` FastAPI handlers that await CRUD functions and map results to schemas |
+| **Alembic** | Versioned, reversible schema migrations, run through a sync-bridge inside an async-aware `env.py` |
+
+The modern pattern — async Engine → AsyncSession → Models → Schemas → async CRUD → async Routes, backed by Alembic's async template — lets FastAPI's event loop handle many concurrent DB-bound requests efficiently, while keeping the same clean, testable structure as the sync approach.
