@@ -1,32 +1,43 @@
+
 # Database Relationship Mappings
+
+Modern SQLAlchemy 2.0 style: `DeclarativeBase`, `Mapped`, `mapped_column`,
+`AsyncSession`, and explicit eager loading.
 
 ## Table of Contents
 
 - [1. Introduction](#1-introduction)
 - [2. Project Setup](#2-project-setup)
-- [3. One-to-Many (1:N)](#3-one-to-many-1n)
+  - [2.1 Install Dependencies](#21-install-dependencies)
+  - [2.2 Declarative Base](#22-declarative-base)
+  - [2.3 Async Engine and Session](#23-async-engine-and-session)
+  - [2.4 App Lifespan and DB Dependency](#24-app-lifespan-and-db-dependency)
+- [3. One-to-Many (1:N)](#3-one-to-many-1)
   - [3.1 Theory](#31-theory)
   - [3.2 Models](#32-models)
   - [3.3 Schemas](#33-schemas)
-  - [3.4 FastAPI Routes](#34-fastapi-routes)
+  - [3.4 Async Routes](#34-async-routes)
 - [4. Many-to-One (N:1)](#4-many-to-one-n1)
   - [4.1 Theory](#41-theory)
   - [4.2 Code Snippet](#42-code-snippet)
-- [5. Many-to-Many (N:N)](#5-many-to-many-nn)
+- [5. Many-to-Many (N:N)](#5-many-to-many-n)
   - [5.1 Theory](#51-theory)
   - [5.2 Association Table](#52-association-table)
   - [5.3 Models](#53-models)
   - [5.4 Schemas](#54-schemas)
-  - [5.5 FastAPI Routes](#55-fastapi-routes)
-- [6. One-to-One (1:1) — Bonus](#6-one-to-one-11--bonus)
-- [7. Choosing the Right Relationship](#7-choosing-the-right-relationship)
-- [8. Common Pitfalls](#8-common-pitfalls)
+  - [5.5 Async Routes](#55-async-routes)
+  - [5.6 Association Object Pattern](#56-association-object-pattern)
+- [6. One-to-One (1:1)](#6-one-to-one-11)
+- [7. Loading Strategies Under Asyncio](#7-loading-strategies-under-asyncio)
+- [8. Choosing the Right Relationship](#8-choosing-the-right-relationship)
+- [9. Common Pitfalls](#9-common-pitfalls)
+- [10. Legacy vs Modern Cheat Sheet](#10-legacy-vs-modern-cheat-sheet)
 
 ---
 
 ## 1. Introduction
 
-Relational databases model real-world associations between entities using three
+Relational databases model real-world associations between entities using a few
 fundamental cardinalities:
 
 | Relationship | Example |
@@ -36,39 +47,119 @@ fundamental cardinalities:
 | **Many-to-Many (N:N)** | Many `Student`s enroll in many `Course`s |
 | **One-to-One (1:1)** | One `User` has one `Profile` |
 
-In FastAPI, these are implemented at the **SQLAlchemy ORM layer** (models +
+In FastAPI these are implemented at the **SQLAlchemy ORM layer** (mapped classes +
 `relationship()`), exposed through **Pydantic schemas**, and surfaced via
-**path operations**. 1:N and N:1 are really the *same foreign key* viewed
-from each side; N:N requires an extra association (junction) table.
+**path operations**. 1:N and N:1 are really the *same foreign key* viewed from
+each side; N:N requires an extra association (junction) table.
+
+Two things change once you go async:
+
+1. **Cardinality is declared through the type annotation.** `Mapped[list[Book]]`
+   means a collection, `Mapped[Author]` means a scalar. SQLAlchemy infers
+   `uselist` and nullability from the annotation, so you rarely pass those flags.
+2. **Lazy loading is no longer free.** Under asyncio, touching an unloaded
+   relationship raises `MissingGreenlet` because implicit IO is not allowed. You
+   must load relationships *deliberately* with `selectinload()` / `joinedload()`.
+   This is a feature: N+1 queries become loud errors instead of silent latency.
 
 ---
 
 ## 2. Project Setup
 
+### 2.1 Install Dependencies
+
 ```bash
-pip install fastapi uvicorn sqlalchemy pydantic
+pip install "fastapi[standard]" "sqlalchemy[asyncio]" aiosqlite pydantic
 ```
+
+`aiosqlite` is the async SQLite driver. For Postgres use `asyncpg` instead and a
+`postgresql+asyncpg://` URL.
+
+### 2.2 Declarative Base
+
+`declarative_base()` is the legacy factory. Modern code subclasses
+`DeclarativeBase`, which gives real static typing. Mixing in `AsyncAttrs` adds
+an `awaitable_attrs` accessor so you can load a relationship on demand without
+reaching for `run_sync`.
+
+```python
+# models/base.py
+from sqlalchemy.ext.asyncio import AsyncAttrs
+from sqlalchemy.orm import DeclarativeBase
+
+
+class Base(AsyncAttrs, DeclarativeBase):
+    """Declarative base for every mapped class."""
+```
+
+### 2.3 Async Engine and Session
 
 ```python
 # database.py
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, declarative_base
+from collections.abc import AsyncIterator
 
-SQLALCHEMY_DATABASE_URL = "sqlite:///./app.db"
-
-engine = create_engine(
-    SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
+from sqlalchemy.ext.asyncio import (
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
 )
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base = declarative_base()
+
+DATABASE_URL = "sqlite+aiosqlite:///./app.db"
+
+engine = create_async_engine(DATABASE_URL, echo=False)
+
+# async_sessionmaker replaces sessionmaker(class_=AsyncSession)
+SessionLocal = async_sessionmaker(
+    engine,
+    expire_on_commit=False,  # critical: see §9
+    autoflush=False,
+)
 
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+async def get_db() -> AsyncIterator[AsyncSession]:
+    async with SessionLocal() as session:
+        yield session
+```
+
+:::warning[`expire_on_commit=False` is not optional here]
+By default SQLAlchemy expires every attribute after `commit()`. In a sync app the
+next attribute access silently re-fetches the row. Under asyncio that refresh is
+implicit IO, so it raises `MissingGreenlet` the moment Pydantic serializes your
+response. Setting `expire_on_commit=False` keeps loaded state usable after commit.
+:::
+
+### 2.4 App Lifespan and DB Dependency
+
+`create_all()` at import time blocks the event loop and runs on every import. Use
+a `lifespan` context manager instead, and alias the dependency with `Annotated`
+so route signatures stay readable.
+
+```python
+# main.py
+from contextlib import asynccontextmanager
+from typing import Annotated
+
+from fastapi import Depends, FastAPI, HTTPException, status
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from database import engine, get_db
+from models.base import Base
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    async with engine.begin() as conn:
+        # run_sync bridges sync DDL into the async connection.
+        # In production use Alembic migrations instead.
+        await conn.run_sync(Base.metadata.create_all)
+    yield
+    await engine.dispose()
+
+
+app = FastAPI(lifespan=lifespan)
+
+# Reusable dependency alias
+DBSession = Annotated[AsyncSession, Depends(get_db)]
 ```
 
 ---
@@ -78,52 +169,85 @@ def get_db():
 ### 3.1 Theory
 
 A **One-to-Many** relationship means one row in the "parent" table can be
-referenced by *many* rows in the "child" table. The foreign key **always
-lives on the "many" side**.
+referenced by *many* rows in the "child" table. The foreign key **always lives
+on the "many" side**.
 
-```
+```text
 Author (1) ───────< (N) Book
    id                 author_id (FK)
 ```
 
-SQLAlchemy expresses this with `relationship()` on the parent (returning a
-list) and a `ForeignKey` column on the child.
+In 2.0 you declare the parent side as `Mapped[list[Book]]` and the child side as
+`Mapped[Author]`. The annotation *is* the cardinality declaration.
 
 ### 3.2 Models
 
 ```python
-# models.py
-from sqlalchemy import Column, Integer, String, ForeignKey
-from sqlalchemy.orm import relationship
-from database import Base
+# models/library.py
+from __future__ import annotations
+
+from sqlalchemy import ForeignKey, String
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from models.base import Base
 
 
 class Author(Base):
     __tablename__ = "authors"
 
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String, nullable=False)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(120), index=True)
 
-    # One Author -> Many Books
-    books = relationship("Book", back_populates="author", cascade="all, delete-orphan")
+    # One Author -> Many Books. list[...] => collection, so uselist=True.
+    books: Mapped[list[Book]] = relationship(
+        back_populates="author",
+        cascade="all, delete-orphan",
+        lazy="raise",  # fail loudly instead of lazy-loading (see §7)
+    )
 
 
 class Book(Base):
     __tablename__ = "books"
 
-    id = Column(Integer, primary_key=True, index=True)
-    title = Column(String, nullable=False)
-    author_id = Column(Integer, ForeignKey("authors.id"))  # FK lives here
+    id: Mapped[int] = mapped_column(primary_key=True)
+    title: Mapped[str] = mapped_column(String(200))
 
-    # Many Books -> One Author
-    author = relationship("Author", back_populates="books")
+    # Mapped[int] (not Optional) => NOT NULL, inferred from the annotation
+    author_id: Mapped[int] = mapped_column(
+        ForeignKey("authors.id", ondelete="CASCADE"), index=True
+    )
+
+    # Many Books -> One Author. Scalar annotation => uselist=False.
+    author: Mapped[Author] = relationship(back_populates="books", lazy="raise")
 ```
+
+Three things the annotations do for you:
+
+| Annotation | Inferred |
+|---|---|
+| `Mapped[int]` | `Integer`, `nullable=False` |
+| `Mapped[str \| None]` | `String`, `nullable=True` |
+| `Mapped[list[Book]]` | collection relationship (`uselist=True`) |
+| `Mapped[Author]` | scalar relationship (`uselist=False`) |
+
+`from __future__ import annotations` lets you reference `Book` before it is
+defined; SQLAlchemy resolves the name from its registry at mapper configuration
+time.
 
 ### 3.3 Schemas
 
+Keep a **flat** variant and a **nested** variant of every entity. That single
+habit prevents both recursion errors and accidental over-fetching.
+
 ```python
-# schemas.py
+# schemas/library.py
 from pydantic import BaseModel, ConfigDict
+
+
+class ORMModel(BaseModel):
+    """Shared config: read attributes off ORM instances."""
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 class BookBase(BaseModel):
@@ -134,10 +258,11 @@ class BookCreate(BookBase):
     pass
 
 
-class Book(BookBase):
+class BookRead(ORMModel, BookBase):
+    """Flat book: no relationship traversal."""
+
     id: int
     author_id: int
-    model_config = ConfigDict(from_attributes=True)
 
 
 class AuthorBase(BaseModel):
@@ -148,55 +273,91 @@ class AuthorCreate(AuthorBase):
     pass
 
 
-class Author(AuthorBase):
+class AuthorRead(ORMModel, AuthorBase):
+    """Flat author."""
+
     id: int
-    books: list[Book] = []          # nested list -> the "Many" side
-    model_config = ConfigDict(from_attributes=True)
+
+
+class AuthorWithBooks(AuthorRead):
+    """Nested: requires `books` to be eagerly loaded."""
+
+    books: list[BookRead] = []
 ```
 
-### 3.4 FastAPI Routes
+### 3.4 Async Routes
 
 ```python
-# main.py
-from fastapi import FastAPI, Depends, HTTPException
-from sqlalchemy.orm import Session
-import models, schemas
-from database import engine, get_db
+# routers/authors.py
+from fastapi import APIRouter, HTTPException, status
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
-models.Base.metadata.create_all(bind=engine)
-app = FastAPI()
+import schemas
+from main import DBSession
+from models.library import Author, Book
 
-
-@app.post("/authors/", response_model=schemas.Author)
-def create_author(author: schemas.AuthorCreate, db: Session = Depends(get_db)):
-    db_author = models.Author(**author.model_dump())
-    db.add(db_author)
-    db.commit()
-    db.refresh(db_author)
-    return db_author
+router = APIRouter(prefix="/authors", tags=["authors"])
 
 
-@app.post("/authors/{author_id}/books/", response_model=schemas.Book)
-def create_book_for_author(
-    author_id: int, book: schemas.BookCreate, db: Session = Depends(get_db)
+@router.post("", response_model=schemas.AuthorRead, status_code=status.HTTP_201_CREATED)
+async def create_author(payload: schemas.AuthorCreate, db: DBSession):
+    author = Author(**payload.model_dump())
+    db.add(author)
+    await db.commit()
+    await db.refresh(author)
+    return author
+
+
+@router.get("/{author_id}", response_model=schemas.AuthorWithBooks)
+async def read_author(author_id: int, db: DBSession):
+    # options= loads `books` in the same round trip, so the nested
+    # response model can serialize it without implicit IO.
+    author = await db.get(
+        Author, author_id, options=[selectinload(Author.books)]
+    )
+    if author is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Author not found")
+    return author
+
+
+@router.get("", response_model=list[schemas.AuthorWithBooks])
+async def list_authors(db: DBSession, limit: int = 20, offset: int = 0):
+    stmt = (
+        select(Author)
+        .options(selectinload(Author.books))  # 2 queries total, not 1 + N
+        .order_by(Author.id)
+        .limit(limit)
+        .offset(offset)
+    )
+    result = await db.scalars(stmt)
+    return result.all()
+
+
+@router.post(
+    "/{author_id}/books",
+    response_model=schemas.BookRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_book_for_author(
+    author_id: int, payload: schemas.BookCreate, db: DBSession
 ):
-    author = db.get(models.Author, author_id)
-    if not author:
-        raise HTTPException(status_code=404, detail="Author not found")
-    db_book = models.Book(**book.model_dump(), author_id=author_id)
-    db.add(db_book)
-    db.commit()
-    db.refresh(db_book)
-    return db_book
+    if await db.get(Author, author_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Author not found")
 
-
-@app.get("/authors/{author_id}", response_model=schemas.Author)
-def read_author(author_id: int, db: Session = Depends(get_db)):
-    author = db.get(models.Author, author_id)
-    if not author:
-        raise HTTPException(status_code=404, detail="Author not found")
-    return author  # includes nested `books` list automatically
+    book = Book(**payload.model_dump(), author_id=author_id)
+    db.add(book)
+    await db.commit()
+    await db.refresh(book)
+    return book  # BookRead is flat, so no eager loading needed
 ```
+
+:::tip[Why `selectinload` over `joinedload` for collections]
+`joinedload` on a 1:N emits one query with a LEFT OUTER JOIN, which duplicates
+parent rows across the wire and breaks `LIMIT` semantics. `selectinload` issues a
+second `IN (...)` query, keeps pagination correct, and is the default choice for
+collections. Reach for `joinedload` on **many-to-one** scalars instead.
+:::
 
 ---
 
@@ -204,47 +365,58 @@ def read_author(author_id: int, db: Session = Depends(get_db)):
 
 ### 4.1 Theory
 
-**Many-to-One is the mirror image of One-to-Many** — it's the *same*
-foreign key, just viewed from the child's perspective. Many `Book` rows
-point to one `Author`. There is no separate schema pattern; it's the
-`author` scalar attribute defined on `Book` above (§3.2).
+**Many-to-One is the mirror image of One-to-Many.** It's the *same* foreign key,
+viewed from the child's perspective. Many `Book` rows point to one `Author`.
+There is no separate table pattern; it's the `author` scalar attribute declared
+on `Book` in §3.2.
 
-The key conceptual distinction:
-
-| Side | Attribute type | Cardinality label |
-|---|---|---|
-| Parent (`Author`) | `list[Book]` | 1:N |
-| Child (`Book`) | single `Author` object | N:1 |
+| Side | Annotation | Cardinality label | Best eager loader |
+|---|---|---|---|
+| Parent (`Author`) | `Mapped[list[Book]]` | 1:N | `selectinload` |
+| Child (`Book`) | `Mapped[Author]` | N:1 | `joinedload` |
 
 ### 4.2 Code Snippet
 
-Exposing the "N:1" direction — fetching a book and getting its single
-parent author inline:
+```python
+# schemas/library.py
+class BookWithAuthor(ORMModel, BookBase):
+    id: int
+    author: AuthorRead  # scalar => the "One" side (flat, so no recursion)
+```
 
 ```python
-@app.get("/books/{book_id}", response_model=schemas.Book)
-def read_book(book_id: int, db: Session = Depends(get_db)):
-    book = db.get(models.Book, book_id)
-    if not book:
-        raise HTTPException(status_code=404, detail="Book not found")
+# routers/books.py
+from sqlalchemy.orm import joinedload
+
+router = APIRouter(prefix="/books", tags=["books"])
+
+
+@router.get("/{book_id}", response_model=schemas.BookRead)
+async def read_book(book_id: int, db: DBSession):
+    book = await db.get(Book, book_id)
+    if book is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Book not found")
     return book
 
 
-# If you want the author nested inside the book response,
-# extend the schema:
-class BookWithAuthor(BookBase):
-    id: int
-    author: AuthorBase          # single object -> the "One" side
-    model_config = ConfigDict(from_attributes=True)
-
-
-@app.get("/books/{book_id}/full", response_model=BookWithAuthor)
-def read_book_with_author(book_id: int, db: Session = Depends(get_db)):
-    book = db.get(models.Book, book_id)
-    if not book:
-        raise HTTPException(status_code=404, detail="Book not found")
+@router.get("/{book_id}/full", response_model=schemas.BookWithAuthor)
+async def read_book_with_author(book_id: int, db: DBSession):
+    # joinedload is ideal here: a scalar N:1 adds no row duplication.
+    book = await db.get(Book, book_id, options=[joinedload(Book.author)])
+    if book is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Book not found")
     return book
 ```
+
+If you only need the relationship in one place and don't want to restructure the
+query, `AsyncAttrs` gives you an escape hatch:
+
+```python
+book = await db.get(Book, book_id)
+author = await book.awaitable_attrs.author  # emits the lazy load, awaitably
+```
+
+Use it sparingly. Inside a loop it is still an N+1.
 
 ---
 
@@ -252,34 +424,41 @@ def read_book_with_author(book_id: int, db: Session = Depends(get_db)):
 
 ### 5.1 Theory
 
-A **Many-to-Many** relationship means many rows on each side can relate to
-many rows on the other. Neither table can hold the foreign key directly
-because a single column can't reference multiple rows — instead, an
-**association (junction) table** stores pairs of foreign keys.
+A **Many-to-Many** relationship means many rows on each side can relate to many
+rows on the other. Neither table can hold the foreign key directly because a
+single column can't reference multiple rows. Instead an **association (junction)
+table** stores pairs of foreign keys.
 
-```
+```text
 Student (N) ───< enrollment >─── (N) Course
    id          student_id, course_id        id
 ```
 
 ### 5.2 Association Table
 
+A pure join table has no mapped class, so it stays a Core `Table` with `Column`
+objects. This is still correct in 2.0 — `mapped_column` is only for mapped
+classes.
+
 ```python
-# models.py
-from sqlalchemy import Table, Column, Integer, ForeignKey
-from database import Base
+# models/school.py
+from sqlalchemy import Column, ForeignKey, Table
+
+from models.base import Base
 
 enrollment = Table(
     "enrollment",
     Base.metadata,
-    Column("student_id", Integer, ForeignKey("students.id"), primary_key=True),
-    Column("course_id", Integer, ForeignKey("courses.id"), primary_key=True),
+    Column("student_id", ForeignKey("students.id", ondelete="CASCADE"), primary_key=True),
+    Column("course_id", ForeignKey("courses.id", ondelete="CASCADE"), primary_key=True),
 )
 ```
 
-Use a plain `Table` (not a mapped class) when the junction table has **no
-extra columns** of its own. If you need extra fields (e.g. `enrolled_on`,
-`grade`), map it as a full model instead — see the note at the end of §5.3.
+The composite primary key doubles as a uniqueness guarantee: a student can't be
+enrolled in the same course twice.
+
+Use a plain `Table` when the junction has **no extra columns** of its own. If it
+carries data (`enrolled_on`, `grade`, `role`), map it as a class instead — see §5.6.
 
 ### 5.3 Models
 
@@ -287,25 +466,28 @@ extra columns** of its own. If you need extra fields (e.g. `enrolled_on`,
 class Student(Base):
     __tablename__ = "students"
 
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String, nullable=False)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(120), index=True)
 
-    courses = relationship("Course", secondary=enrollment, back_populates="students")
+    courses: Mapped[list[Course]] = relationship(
+        secondary=enrollment, back_populates="students", lazy="raise"
+    )
 
 
 class Course(Base):
     __tablename__ = "courses"
 
-    id = Column(Integer, primary_key=True, index=True)
-    title = Column(String, nullable=False)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    title: Mapped[str] = mapped_column(String(200))
 
-    students = relationship("Student", secondary=enrollment, back_populates="courses")
+    students: Mapped[list[Student]] = relationship(
+        secondary=enrollment, back_populates="courses", lazy="raise"
+    )
 ```
 
-> **Extra columns on the join table?** Replace the `Table` with a mapped
-> class (e.g. `Enrollment`) that has its own `student_id`, `course_id`,
-> plus extra fields, and link it via two One-to-Many/Many-to-One
-> relationships instead of `secondary=`.
+Note there is no `cascade="all, delete-orphan"` here. On an N:N you almost never
+want deleting a student to delete the shared `Course` rows; SQLAlchemy already
+cleans up the junction rows for you.
 
 ### 5.4 Schemas
 
@@ -314,9 +496,8 @@ class CourseBase(BaseModel):
     title: str
 
 
-class Course(CourseBase):
+class CourseRead(ORMModel, CourseBase):
     id: int
-    model_config = ConfigDict(from_attributes=True)
 
 
 class StudentBase(BaseModel):
@@ -327,96 +508,262 @@ class StudentCreate(StudentBase):
     pass
 
 
-class Student(StudentBase):
+class StudentRead(ORMModel, StudentBase):
     id: int
-    courses: list[Course] = []
-    model_config = ConfigDict(from_attributes=True)
+
+
+class StudentWithCourses(StudentRead):
+    courses: list[CourseRead] = []
 ```
 
-### 5.5 FastAPI Routes
+### 5.5 Async Routes
 
 ```python
-@app.post("/students/", response_model=schemas.Student)
-def create_student(student: schemas.StudentCreate, db: Session = Depends(get_db)):
-    db_student = models.Student(**student.model_dump())
-    db.add(db_student)
-    db.commit()
-    db.refresh(db_student)
-    return db_student
+router = APIRouter(prefix="/students", tags=["students"])
 
 
-@app.post("/students/{student_id}/enroll/{course_id}", response_model=schemas.Student)
-def enroll_student(student_id: int, course_id: int, db: Session = Depends(get_db)):
-    student = db.get(models.Student, student_id)
-    course = db.get(models.Course, course_id)
-    if not student or not course:
-        raise HTTPException(status_code=404, detail="Student or Course not found")
-
-    student.courses.append(course)   # ORM writes to the junction table
-    db.commit()
-    db.refresh(student)
+@router.post("", response_model=schemas.StudentRead, status_code=status.HTTP_201_CREATED)
+async def create_student(payload: schemas.StudentCreate, db: DBSession):
+    student = Student(**payload.model_dump())
+    db.add(student)
+    await db.commit()
+    await db.refresh(student)
     return student
 
 
-@app.get("/students/{student_id}", response_model=schemas.Student)
-def read_student(student_id: int, db: Session = Depends(get_db)):
-    student = db.get(models.Student, student_id)
-    if not student:
-        raise HTTPException(status_code=404, detail="Student not found")
+@router.post("/{student_id}/enroll/{course_id}", response_model=schemas.StudentWithCourses)
+async def enroll_student(student_id: int, course_id: int, db: DBSession):
+    # The collection must be loaded before you can mutate it under asyncio.
+    student = await db.get(
+        Student, student_id, options=[selectinload(Student.courses)]
+    )
+    course = await db.get(Course, course_id)
+    if student is None or course is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Student or Course not found")
+
+    if course not in student.courses:  # idempotent; avoids an IntegrityError
+        student.courses.append(course)  # ORM writes the junction row
+        await db.commit()
+
     return student
+
+
+@router.get("/{student_id}", response_model=schemas.StudentWithCourses)
+async def read_student(student_id: int, db: DBSession):
+    student = await db.get(
+        Student, student_id, options=[selectinload(Student.courses)]
+    )
+    if student is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Student not found")
+    return student
+```
+
+### 5.6 Association Object Pattern
+
+When the association itself carries data, drop `secondary=` and map the junction
+as a real class. An N:N then becomes **two 1:N relationships** plus an optional
+read-only shortcut.
+
+```python
+from datetime import date
+
+from sqlalchemy import UniqueConstraint
+
+
+class Enrollment(Base):
+    __tablename__ = "enrollments"
+    __table_args__ = (UniqueConstraint("student_id", "course_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    student_id: Mapped[int] = mapped_column(ForeignKey("students.id", ondelete="CASCADE"))
+    course_id: Mapped[int] = mapped_column(ForeignKey("courses.id", ondelete="CASCADE"))
+
+    # the extra payload that forced this pattern
+    enrolled_on: Mapped[date]
+    grade: Mapped[str | None] = mapped_column(String(2))  # Optional => nullable
+
+    student: Mapped[Student] = relationship(back_populates="enrollments", lazy="raise")
+    course: Mapped[Course] = relationship(back_populates="enrollments", lazy="raise")
+
+
+class Student(Base):
+    __tablename__ = "students"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(120))
+
+    enrollments: Mapped[list[Enrollment]] = relationship(
+        back_populates="student", cascade="all, delete-orphan", lazy="raise"
+    )
+
+    # Convenience read-only view across the association object.
+    # viewonly=True is required: writes must go through Enrollment.
+    courses: Mapped[list[Course]] = relationship(
+        secondary="enrollments", viewonly=True, lazy="raise"
+    )
+```
+
+Creating an enrollment now means creating a row, which is what lets you attach
+the extra fields:
+
+```python
+@router.post("/{student_id}/enroll/{course_id}", status_code=status.HTTP_201_CREATED)
+async def enroll(student_id: int, course_id: int, db: DBSession):
+    db.add(Enrollment(student_id=student_id, course_id=course_id, enrolled_on=date.today()))
+    await db.commit()
+```
+
+To traverse two hops in one go, chain the loader options:
+
+```python
+stmt = select(Student).options(
+    selectinload(Student.enrollments).joinedload(Enrollment.course)
+)
 ```
 
 ---
 
-## 6. One-to-One (1:1) — Bonus
+## 6. One-to-One (1:1)
 
-A One-to-One relationship is a One-to-Many with a **`uselist=False`** flag
-and a **unique constraint** on the foreign key, so only one child row can
-ever point to a given parent.
+A One-to-One is a One-to-Many constrained on both ends. Two things make it 1:1:
+
+1. A **scalar annotation** on the parent (`Mapped[Profile | None]`), which is how
+   2.0 expresses what `uselist=False` used to say.
+2. A **unique constraint** on the child's foreign key, so the database itself
+   guarantees only one child per parent.
 
 ```python
 class User(Base):
     __tablename__ = "users"
 
-    id = Column(Integer, primary_key=True, index=True)
-    email = Column(String, unique=True, nullable=False)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    email: Mapped[str] = mapped_column(String(255), unique=True)
 
-    profile = relationship("Profile", back_populates="user", uselist=False)
+    # Scalar (not list) => one-to-one. Optional => the profile may not exist yet.
+    profile: Mapped[Profile | None] = relationship(
+        back_populates="user", cascade="all, delete-orphan", lazy="raise"
+    )
 
 
 class Profile(Base):
     __tablename__ = "profiles"
 
-    id = Column(Integer, primary_key=True, index=True)
-    bio = Column(String)
-    user_id = Column(Integer, ForeignKey("users.id"), unique=True)  # unique = 1:1
+    id: Mapped[int] = mapped_column(primary_key=True)
+    bio: Mapped[str | None] = mapped_column(String(500))
 
-    user = relationship("User", back_populates="profile")
+    # unique=True is what actually enforces 1:1 at the DB level
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), unique=True
+    )
+
+    user: Mapped[User] = relationship(back_populates="profile", lazy="raise")
+```
+
+For a 1:1, `joinedload` is the right loader — a single row on each side means the
+join adds no duplication:
+
+```python
+user = await db.get(User, user_id, options=[joinedload(User.profile)])
 ```
 
 ---
 
-## 7. Choosing the Right Relationship
+## 7. Loading Strategies Under Asyncio
 
-| Question | Answer points to |
-|---|---|
-| Can a child row belong to only one parent, and a parent have many children? | **1:N / N:1** |
-| Can a child belong to at most one parent, uniquely? | **1:1** |
-| Can rows on both sides freely associate with multiple rows on the other side? | **N:N** |
-| Does the association itself carry data (dates, status, roles)? | **N:N via mapped junction model**, not `secondary=` |
+This is the section that matters most when porting a sync app. Under asyncio,
+SQLAlchemy cannot emit IO from an attribute access, so **every relationship you
+serialize must be loaded on purpose**.
+
+| Strategy | How | When |
+|---|---|---|
+| `selectinload()` | second `SELECT ... WHERE id IN (...)` | collections (1:N, N:N); safe with `LIMIT` |
+| `joinedload()` | `LEFT OUTER JOIN` in the same query | scalars (N:1, 1:1) |
+| `lazy="selectin"` | same as above, declared on the relationship | a relationship you *always* need |
+| `lazy="raise"` | raises instead of loading | the default you want while developing |
+| `awaitable_attrs` | `await obj.awaitable_attrs.books` | one-off access outside a query |
+| `db.refresh(obj, ["books"])` | re-`SELECT` named attributes | after a write, to load a relationship |
+
+Setting `lazy="raise"` on your relationships converts a whole class of production
+latency bugs into loud failures during development. When you hit the error, the
+fix is to add the loader option to the query, not to remove the flag.
+
+Loader options compose down the object graph:
+
+```python
+stmt = (
+    select(Author)
+    .options(
+        selectinload(Author.books).joinedload(Book.publisher)
+    )
+    .where(Author.name.ilike("%tolkien%"))
+)
+authors = (await db.scalars(stmt)).all()
+```
 
 ---
 
-## 8. Common Pitfalls
+## 8. Choosing the Right Relationship
 
-- **Forgetting `back_populates`** (or `backref`) — leads to one-directional
-  navigation only, and stale in-memory state after commits.
-- **N+1 queries** — use `joinedload()`/`selectinload()` from
-  `sqlalchemy.orm` when eagerly fetching related rows in list endpoints.
-- **Circular Pydantic schemas** — if `Author` includes `books` and `Book`
-  includes `author`, define separate "flat" and "nested" schema variants
-  to avoid infinite recursion.
-- **Missing `unique=True`** on a 1:1 foreign key — without it, SQLAlchemy
-  will silently allow multiple children per parent, turning it into 1:N.
-- **Using `secondary=` when the join table needs extra columns** — this
-  will not work; map the association table as its own model instead.
+| Question | Answer points to |
+|---|---|
+| Can a child row belong to only one parent, and a parent have many children? | **1:N / N:1** (FK on the child) |
+| Can a child belong to at most one parent, uniquely? | **1:1** (FK on the child + `unique=True`) |
+| Can rows on both sides freely associate with multiple rows on the other? | **N:N** via `secondary=` |
+| Does the association itself carry data (dates, status, roles)? | **N:N as a mapped association object**, not `secondary=` |
+| Do you need to query or filter *on* the association? | **Association object** — you can't filter a bare `secondary=` table cleanly |
+
+---
+
+## 9. Common Pitfalls
+
+- **`MissingGreenlet: greenlet_spawn has not been called`** — the signature error
+  of async SQLAlchemy. You touched an unloaded relationship, deferred column, or
+  expired attribute. Fix it with a loader option on the query, not by switching
+  back to a sync session.
+- **Leaving `expire_on_commit=True`** — every attribute expires after `commit()`,
+  so FastAPI's serialization step triggers implicit IO and blows up. Always pass
+  `expire_on_commit=False` to `async_sessionmaker`.
+- **`await db.refresh(obj)` does not load relationships** — it refreshes column
+  attributes. Pass the names explicitly: `await db.refresh(obj, ["books"])`.
+- **`joinedload` on a collection plus `LIMIT`** — the JOIN duplicates parent rows,
+  so `LIMIT 10` truncates mid-parent. Use `selectinload` for collections, or
+  `.unique()` on the result when you must join.
+- **N+1 queries** — a loop over `authors` touching `author.books` issues one query
+  per author. `lazy="raise"` surfaces this immediately.
+- **Forgetting `back_populates`** — you get one-directional navigation and stale
+  in-memory state after writes. In 2.0 prefer `back_populates` on both sides over
+  the older `backref`.
+- **Circular Pydantic schemas** — if `AuthorWithBooks` nests `BookWithAuthor` and
+  vice versa, serialization recurses forever. Keep flat `*Read` models and only
+  nest one level deep.
+- **Missing `unique=True` on a 1:1 foreign key** — without it the database happily
+  accepts multiple children, silently turning your 1:1 into a 1:N.
+- **Using `secondary=` when the join table needs extra columns** — it won't work.
+  Map the association as its own class (§5.6).
+- **Mutating a `viewonly=True` relationship** — SQLAlchemy silently ignores the
+  change. Write through the association object instead.
+- **Sharing one `AsyncSession` across `asyncio.gather()`** — `AsyncSession` is
+  stateful and not safe for concurrent tasks. Give each task its own session.
+- **`create_all()` at import time** — blocking IO during startup and no migration
+  history. Use `lifespan` for demos and Alembic for anything real.
+
+---
+
+## 10. Legacy vs Modern Cheat Sheet
+
+| Legacy (1.x style) | Modern (2.0 style) |
+|---|---|
+| `Base = declarative_base()` | `class Base(AsyncAttrs, DeclarativeBase): ...` |
+| `id = Column(Integer, primary_key=True)` | `id: Mapped[int] = mapped_column(primary_key=True)` |
+| `name = Column(String, nullable=False)` | `name: Mapped[str]` |
+| `bio = Column(String, nullable=True)` | `bio: Mapped[str \| None]` |
+| `books = relationship("Book")` | `books: Mapped[list[Book]] = relationship()` |
+| `profile = relationship("Profile", uselist=False)` | `profile: Mapped[Profile \| None] = relationship()` |
+| `create_engine(...)` | `create_async_engine(...)` |
+| `sessionmaker(bind=engine)` | `async_sessionmaker(engine, expire_on_commit=False)` |
+| `db.query(Author).filter_by(...)` | `await db.scalars(select(Author).where(...))` |
+| `db.query(Author).get(1)` | `await db.get(Author, 1)` |
+| `db: Session = Depends(get_db)` | `db: Annotated[AsyncSession, Depends(get_db)]` |
+| `@app.on_event("startup")` | `FastAPI(lifespan=...)` |
+| implicit lazy loading | explicit `selectinload()` / `joinedload()` |
+| `class Config: orm_mode = True` | `model_config = ConfigDict(from_attributes=True)` |
