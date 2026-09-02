@@ -1,0 +1,1113 @@
+# Python LLD Roadmap
+
+## Table of Contents
+
+1. [How to Use This Roadmap](#1-how-to-use-this-roadmap)
+2. [Python OOP Foundations](#2-python-oop-foundations)
+   - 2.1 [Classes & Objects](#21-classes--objects)
+   - 2.2 [Inheritance & MRO](#22-inheritance--mro)
+   - 2.3 [Composition vs Inheritance](#23-composition-vs-inheritance)
+   - 2.4 [Polymorphism & Duck Typing](#24-polymorphism--duck-typing)
+   - 2.5 [Encapsulation](#25-encapsulation)
+   - 2.6 [Abstraction (ABC)](#26-abstraction-abc)
+   - 2.7 [Magic Methods](#27-magic-methods)
+   - 2.8 [Dataclasses](#28-dataclasses)
+3. [UML Basics](#3-uml-basics)
+   - 3.1 [Class Diagrams](#31-class-diagrams)
+   - 3.2 [Relationships: Association, Aggregation, Composition, Inheritance, Dependency](#32-relationships)
+   - 3.3 [Sequence Diagrams](#33-sequence-diagrams)
+4. [SOLID Principles](#4-solid-principles)
+5. [Design Patterns](#5-design-patterns)
+   - 5.1 [Creational](#51-creational-patterns)
+   - 5.2 [Structural](#52-structural-patterns)
+   - 5.3 [Behavioral](#53-behavioral-patterns)
+6. [Python-Specific LLD Concepts](#6-python-specific-lld-concepts)
+   - 6.1 [ABC vs Protocol](#61-abc-vs-protocol)
+   - 6.2 [Dependency Injection](#62-dependency-injection)
+   - 6.3 [Repository Pattern](#63-repository-pattern)
+   - 6.4 [Service Layer Pattern](#64-service-layer-pattern)
+   - 6.5 [DTOs with Pydantic](#65-dtos-with-pydantic)
+7. [Backend Architecture Patterns (FastAPI)](#7-backend-architecture-patterns-fastapi)
+8. [Classic LLD Problems](#8-classic-lld-problems)
+   - 8.1 [Easy: Parking Lot (worked example)](#81-parking-lot-worked-example)
+   - 8.2 [Medium: Elevator System (worked example)](#82-elevator-system-worked-example)
+   - 8.3 [Full Problem List by Difficulty](#83-full-problem-list-by-difficulty)
+9. [Python Features That Improve LLD](#9-python-features-that-improve-lld)
+10. [14-Day Interview Practice Plan](#10-14-day-interview-practice-plan)
+11. [Mock Interview Checklist](#11-mock-interview-checklist)
+
+---
+
+## 1. How to Use This Roadmap
+
+LLD interviews test whether you can turn a vague prompt ("design a parking lot") into clean, extensible, testable classes in ~30–40 minutes of talking + coding. The evaluation criteria are usually:
+
+- **Correctness** — does the design satisfy the stated requirements?
+- **OOP fundamentals** — right use of inheritance/composition, encapsulation of state.
+- **Extensibility** — can you add a new payment type / vehicle type without rewriting everything? (this is where SOLID + patterns show up)
+- **Communication** — do you clarify requirements, state assumptions, and narrate your design before coding?
+
+Work through Sections 2 → 7 in order once. Then spend the rest of your prep cycling through Section 8's problems, applying everything above.
+
+---
+
+## 2. Python OOP Foundations
+
+### 2.1 Classes & Objects
+
+Interview focus: constructors, instance vs class variables, `self`.
+
+```python
+class BankAccount:
+    bank_name = "Interview Bank"  # class variable — shared across instances
+
+    def __init__(self, owner: str, balance: float = 0.0):
+        self.owner = owner            # instance variable
+        self._balance = balance       # protected by convention
+
+    def deposit(self, amount: float) -> None:
+        if amount <= 0:
+            raise ValueError("Deposit must be positive")
+        self._balance += amount
+
+    def withdraw(self, amount: float) -> None:
+        if amount > self._balance:
+            raise ValueError("Insufficient funds")
+        self._balance -= amount
+
+    @property
+    def balance(self) -> float:
+        return self._balance
+```
+
+**Practice questions**
+- Design a `User` model.
+- Design a `BankAccount` with deposit/withdraw/transfer.
+- Design an `Order` with line items and a computed total.
+
+### 2.2 Inheritance & MRO
+
+```python
+class Vehicle:
+    def __init__(self, plate: str):
+        self.plate = plate
+
+    def honk(self) -> str:
+        return "Beep"
+
+class Car(Vehicle):
+    def honk(self) -> str:               # method overriding
+        return "Car horn: Beep Beep"
+
+class ElectricCar(Car):
+    def honk(self) -> str:
+        base = super().honk()            # cooperative call up the chain
+        return f"{base} (silent engine)"
+```
+
+- **Multi-level inheritance**: `ElectricCar → Car → Vehicle`.
+- **Multiple inheritance**: `class A(B, C)` — Python resolves method lookup via **MRO** (C3 linearization). Inspect it with `ElectricCar.__mro__` or `ElectricCar.mro()`.
+- Interviewers often ask: *"What happens if both parents define the same method?"* — answer using MRO, not "whichever is defined first" hand-waving.
+
+### 2.3 Composition vs Inheritance
+
+**"Is-a" → inheritance. "Has-a" → composition.** Favor composition when behavior needs to be swapped at runtime or when the relationship isn't a true subtype.
+
+```python
+class Engine:
+    def start(self) -> str:
+        return "Engine started"
+
+class Car:
+    def __init__(self, engine: Engine):
+        self.engine = engine          # Car "has-a" Engine (composition)
+
+    def start(self) -> str:
+        return self.engine.start()
+```
+
+This is the foundation of the **Strategy pattern** (Section 5.3) — instead of subclassing `Car` for every engine type, you inject the engine.
+
+### 2.4 Polymorphism & Duck Typing
+
+```python
+class Notifier:
+    def send(self, message: str) -> None: ...
+
+class EmailNotifier(Notifier):
+    def send(self, message: str) -> None:
+        print(f"Email: {message}")
+
+class SmsNotifier(Notifier):
+    def send(self, message: str) -> None:
+        print(f"SMS: {message}")
+
+def notify_all(notifiers: list[Notifier], message: str) -> None:
+    for n in notifiers:
+        n.send(message)   # each object responds in its own way
+```
+
+Duck typing: Python doesn't require a shared base class for this to work — any object with a `.send(message)` method qualifies. This is why `Protocol` (Section 6.1) matters in Python LLD more than in Java/C++ LLD.
+
+### 2.5 Encapsulation
+
+| Convention | Meaning |
+|---|---|
+| `name` | public |
+| `_name` | protected — "internal use", not enforced |
+| `__name` | private — name-mangled to `_ClassName__name`, harder to access accidentally |
+
+```python
+class Wallet:
+    def __init__(self, balance: float):
+        self.__balance = balance          # name-mangled
+
+    def get_balance(self) -> float:
+        return self.__balance
+```
+
+### 2.6 Abstraction (ABC)
+
+```python
+from abc import ABC, abstractmethod
+
+class PaymentProcessor(ABC):
+    @abstractmethod
+    def pay(self, amount: float) -> bool: ...
+
+class CreditCardProcessor(PaymentProcessor):
+    def pay(self, amount: float) -> bool:
+        print(f"Charging ${amount} to credit card")
+        return True
+
+# PaymentProcessor()  # TypeError: Can't instantiate abstract class
+```
+
+### 2.7 Magic Methods
+
+```python
+class Money:
+    def __init__(self, amount: float, currency: str = "USD"):
+        self.amount = amount
+        self.currency = currency
+
+    def __repr__(self) -> str:
+        return f"Money({self.amount!r}, {self.currency!r})"
+
+    def __str__(self) -> str:
+        return f"{self.amount} {self.currency}"
+
+    def __eq__(self, other) -> bool:
+        return isinstance(other, Money) and (self.amount, self.currency) == (other.amount, other.currency)
+
+    def __hash__(self) -> int:
+        return hash((self.amount, self.currency))
+
+    def __add__(self, other: "Money") -> "Money":
+        if self.currency != other.currency:
+            raise ValueError("Currency mismatch")
+        return Money(self.amount + other.amount, self.currency)
+```
+
+Rule of thumb interviewers check: **if you override `__eq__`, override `__hash__` too**, or the object becomes unhashable / breaks set & dict usage.
+
+### 2.8 Dataclasses
+
+```python
+from dataclasses import dataclass, field
+
+@dataclass
+class Address:
+    street: str
+    city: str
+
+@dataclass
+class User:
+    name: str
+    email: str
+    addresses: list[Address] = field(default_factory=list)
+    is_active: bool = True
+```
+
+`@dataclass` auto-generates `__init__`, `__repr__`, and `__eq__`. Use `@dataclass(frozen=True)` for immutable value objects (great for DTOs and entities used as dict keys).
+
+---
+
+## 3. UML Basics
+
+You don't need to memorize every UML notation — **class diagrams** are what interviewers actually look at (on a whiteboard or verbally).
+
+### 3.1 Class Diagrams
+
+A class box has three compartments: **name**, **attributes**, **methods**.
+
+```
+┌─────────────────────────┐
+│        ParkingLot        │
+├─────────────────────────┤
+│ - levels: List[Level]    │
+│ - name: str               │
+├─────────────────────────┤
+│ + park_vehicle(v): Ticket │
+│ + unpark(ticket): float   │
+└─────────────────────────┘
+```
+
+Visibility symbols: `+` public, `-` private, `#` protected, `~` package.
+
+### 3.2 Relationships
+
+This is the part most candidates get wrong — know the difference cold.
+
+| Relationship | Meaning | Lifetime coupling | Python cue | UML arrow |
+|---|---|---|---|---|
+| **Association** | Objects know about / use each other | Independent lifetimes | A field or parameter referencing another class | plain line `A ── B` |
+| **Aggregation** | "Has-a", whole-part, but part can exist without whole | Independent lifetimes | `self.items: list[Item]` set from outside | line with hollow diamond `A ◇── B` |
+| **Composition** | "Has-a", whole-part, part's life is owned by whole | Part destroyed when whole is destroyed | Whole creates the part in `__init__` | line with filled diamond `A ◆── B` |
+| **Inheritance (generalization)** | "Is-a" | N/A | `class Dog(Animal)` | line with hollow triangle `A ──▷ B` |
+| **Realization / Implementation** | Class implements an interface/ABC | N/A | `class X(ABC)` subclass | dashed line, hollow triangle |
+| **Dependency** | One class uses another temporarily (e.g., as a method parameter) | N/A | function argument, not stored | dashed arrow `A - -> B` |
+
+```python
+# Aggregation: Library aggregates Books, but Books can exist without the Library
+class Library:
+    def __init__(self):
+        self.books: list["Book"] = []     # supplied/removed externally
+
+    def add_book(self, book: "Book") -> None:
+        self.books.append(book)
+
+
+# Composition: Car owns its Engine; Engine has no meaning outside a Car
+class Engine:
+    def __init__(self, horsepower: int):
+        self.horsepower = horsepower
+
+class Car:
+    def __init__(self, horsepower: int):
+        self.engine = Engine(horsepower)   # Car CREATES its Engine — composition
+```
+
+**Interview line to say out loud:** *"ParkingSpot aggregates a Vehicle while it's parked — the vehicle exists before and after parking, so this is aggregation, not composition."* Saying this unprompted signals strong fundamentals.
+
+### 3.3 Sequence Diagrams
+
+Used to show the *order of calls* between objects for one use case (e.g., "park a vehicle"):
+
+```
+Customer -> EntryGate: requestEntry(vehicle)
+EntryGate -> ParkingLot: findAvailableSpot(vehicle.type)
+ParkingLot -> ParkingSpot: assign(vehicle)
+ParkingLot -> Ticket: create(spot, vehicle, entryTime)
+EntryGate -> Customer: return ticket
+```
+
+You rarely need to draw this precisely in an interview — narrating the call order in this shape is usually enough.
+
+---
+
+## 4. SOLID Principles
+
+Interview expectation: **explain the principle AND refactor bad code into good code.**
+
+### S — Single Responsibility Principle
+*A class should have one reason to change.*
+
+```python
+# BAD: UserService does auth, persistence, and emailing
+class UserService:
+    def register(self, name, email):
+        # validate, save to db, send welcome email — 3 responsibilities
+        ...
+
+# GOOD: split responsibilities
+class UserRepository:
+    def save(self, user): ...
+
+class EmailService:
+    def send_welcome(self, user): ...
+
+class UserService:
+    def __init__(self, repo: UserRepository, email: EmailService):
+        self.repo = repo
+        self.email = email
+
+    def register(self, user):
+        self.repo.save(user)
+        self.email.send_welcome(user)
+```
+
+### O — Open/Closed Principle
+*Open for extension, closed for modification.*
+
+```python
+# BAD: adding a payment type means editing this function
+def process_payment(kind, amount):
+    if kind == "credit_card":
+        ...
+    elif kind == "paypal":
+        ...
+    # every new type -> another elif
+
+# GOOD: new payment types are added by writing new classes, not editing old ones
+class PaymentMethod(ABC):
+    @abstractmethod
+    def pay(self, amount: float) -> None: ...
+
+class CreditCardPayment(PaymentMethod):
+    def pay(self, amount: float) -> None: ...
+
+class PayPalPayment(PaymentMethod):
+    def pay(self, amount: float) -> None: ...
+
+def process_payment(method: PaymentMethod, amount: float) -> None:
+    method.pay(amount)
+```
+
+### L — Liskov Substitution Principle
+*Subclasses must be substitutable for their base class without breaking correctness.*
+
+```python
+# BAD: Square "is-a" Rectangle mathematically, but breaks behavior contracts
+class Rectangle:
+    def set_width(self, w): self.width = w
+    def set_height(self, h): self.height = h
+
+class Square(Rectangle):
+    def set_width(self, w):
+        self.width = self.height = w   # violates caller's expectations
+    def set_height(self, h):
+        self.width = self.height = h
+
+# GOOD: don't force an inheritance relationship that breaks the contract
+class Shape(ABC):
+    @abstractmethod
+    def area(self) -> float: ...
+
+class Rectangle(Shape):
+    def __init__(self, w, h): self.w, self.h = w, h
+    def area(self): return self.w * self.h
+
+class Square(Shape):
+    def __init__(self, side): self.side = side
+    def area(self): return self.side ** 2
+```
+
+### I — Interface Segregation Principle
+*Don't force classes to implement methods they don't need — keep interfaces small.*
+
+```python
+# BAD: fat interface
+class Worker(ABC):
+    @abstractmethod
+    def work(self): ...
+    @abstractmethod
+    def eat(self): ...   # a RobotWorker shouldn't need this
+
+# GOOD: split into focused Protocols
+from typing import Protocol
+
+class Workable(Protocol):
+    def work(self) -> None: ...
+
+class Eatable(Protocol):
+    def eat(self) -> None: ...
+
+class HumanWorker:
+    def work(self) -> None: ...
+    def eat(self) -> None: ...
+
+class RobotWorker:
+    def work(self) -> None: ...   # no eat() forced on it
+```
+
+### D — Dependency Inversion Principle
+*High-level modules shouldn't depend on low-level modules; both depend on abstractions. Inject dependencies rather than instantiating them internally.*
+
+```python
+# BAD: OrderService is tightly coupled to a concrete SQL repository
+class OrderService:
+    def __init__(self):
+        self.repo = SqlOrderRepository()   # hardcoded dependency
+
+# GOOD: depend on an abstraction, inject the implementation
+class OrderRepository(Protocol):
+    def save(self, order) -> None: ...
+
+class OrderService:
+    def __init__(self, repo: OrderRepository):
+        self.repo = repo   # any repo implementation works — SQL, Mongo, in-memory for tests
+```
+
+---
+
+## 5. Design Patterns
+
+### 5.1 Creational Patterns
+
+| Pattern | Used For |
+|---|---|
+| Factory | Create objects without exposing the concrete class to the caller |
+| Builder | Construct complex objects step by step |
+| Singleton | Configuration, logger, cache — exactly one instance |
+| Prototype | Clone existing objects instead of rebuilding from scratch |
+
+```python
+# --- Factory ---
+class Notification(ABC):
+    @abstractmethod
+    def notify(self, msg: str) -> None: ...
+
+class EmailNotification(Notification):
+    def notify(self, msg): print(f"Email: {msg}")
+
+class SmsNotification(Notification):
+    def notify(self, msg): print(f"SMS: {msg}")
+
+class NotificationFactory:
+    @staticmethod
+    def create(kind: str) -> Notification:
+        mapping = {"email": EmailNotification, "sms": SmsNotification}
+        if kind not in mapping:
+            raise ValueError(f"Unknown notification type: {kind}")
+        return mapping[kind]()
+
+
+# --- Builder ---
+class Pizza:
+    def __init__(self):
+        self.toppings: list[str] = []
+        self.size = "medium"
+
+    def __repr__(self):
+        return f"Pizza({self.size}, {self.toppings})"
+
+class PizzaBuilder:
+    def __init__(self):
+        self._pizza = Pizza()
+
+    def set_size(self, size: str) -> "PizzaBuilder":
+        self._pizza.size = size
+        return self
+
+    def add_topping(self, topping: str) -> "PizzaBuilder":
+        self._pizza.toppings.append(topping)
+        return self
+
+    def build(self) -> Pizza:
+        return self._pizza
+
+pizza = PizzaBuilder().set_size("large").add_topping("cheese").add_topping("olives").build()
+
+
+# --- Singleton ---
+class Logger:
+    _instance = None
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
+    def log(self, msg: str) -> None:
+        print(f"[LOG] {msg}")
+
+# In real interviews, mention that Python modules are naturally singletons too —
+# a module-level instance is often simpler than __new__ overriding.
+
+
+# --- Prototype ---
+import copy
+
+class Prototype:
+    def clone(self):
+        return copy.deepcopy(self)
+```
+
+### 5.2 Structural Patterns
+
+| Pattern | Example |
+|---|---|
+| Adapter | Wrap a third-party payment API to match your interface |
+| Decorator | Add caching / auth / logging around a function or object |
+| Facade | Hide several subsystems behind one simple API |
+| Proxy | Access control, lazy loading, caching in front of the real object |
+| Composite | Tree structures — folders/files, org charts |
+
+```python
+# --- Adapter ---
+class StripeAPI:                          # third-party, incompatible interface
+    def make_charge(self, cents: int): ...
+
+class PaymentGateway(ABC):
+    @abstractmethod
+    def pay(self, amount_dollars: float) -> None: ...
+
+class StripeAdapter(PaymentGateway):
+    def __init__(self, stripe: StripeAPI):
+        self.stripe = stripe
+
+    def pay(self, amount_dollars: float) -> None:
+        self.stripe.make_charge(int(amount_dollars * 100))
+
+
+# --- Decorator (functional style, very Pythonic) ---
+import functools, time
+
+def log_calls(func):
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        print(f"Calling {func.__name__}")
+        return func(*args, **kwargs)
+    return wrapper
+
+@log_calls
+def charge(amount): ...
+
+
+# --- Facade ---
+class InventoryService: ...
+class PaymentService: ...
+class ShippingService: ...
+
+class OrderFacade:
+    def __init__(self):
+        self.inventory = InventoryService()
+        self.payment = PaymentService()
+        self.shipping = ShippingService()
+
+    def place_order(self, order):
+        # one simple call hides three subsystem calls
+        ...
+
+
+# --- Proxy ---
+class RealImage:
+    def __init__(self, path): self.path = path; self._load()
+    def _load(self): print(f"Loading {self.path} from disk")
+    def display(self): print(f"Displaying {self.path}")
+
+class ImageProxy:
+    def __init__(self, path):
+        self.path = path
+        self._real: RealImage | None = None
+
+    def display(self):
+        if self._real is None:            # lazy load
+            self._real = RealImage(self.path)
+        self._real.display()
+
+
+# --- Composite ---
+class FileSystemNode(ABC):
+    @abstractmethod
+    def size(self) -> int: ...
+
+class File(FileSystemNode):
+    def __init__(self, name, size): self.name, self._size = name, size
+    def size(self): return self._size
+
+class Folder(FileSystemNode):
+    def __init__(self, name):
+        self.name = name
+        self.children: list[FileSystemNode] = []
+
+    def add(self, node: FileSystemNode) -> None:
+        self.children.append(node)
+
+    def size(self) -> int:
+        return sum(child.size() for child in self.children)
+```
+
+### 5.3 Behavioral Patterns
+
+| Pattern | Python Example |
+|---|---|
+| Strategy | Different payment/pricing algorithms swapped at runtime |
+| Observer | Email/SMS notifications on an event |
+| Command | Undo/redo operations |
+| State | Order lifecycle (created → paid → shipped → delivered) |
+| Mediator | Chat room routes messages between users |
+| Iterator | Custom iterable collections |
+
+```python
+# --- Strategy ---
+class DiscountStrategy(Protocol):
+    def apply(self, total: float) -> float: ...
+
+class NoDiscount:
+    def apply(self, total): return total
+
+class PercentageDiscount:
+    def __init__(self, pct): self.pct = pct
+    def apply(self, total): return total * (1 - self.pct / 100)
+
+class Cart:
+    def __init__(self, strategy: DiscountStrategy):
+        self.strategy = strategy
+    def checkout(self, total: float) -> float:
+        return self.strategy.apply(total)
+
+
+# --- Observer ---
+class Subject:
+    def __init__(self):
+        self._observers: list["Observer"] = []
+
+    def subscribe(self, observer: "Observer") -> None:
+        self._observers.append(observer)
+
+    def notify(self, event: str) -> None:
+        for obs in self._observers:
+            obs.update(event)
+
+class Observer(Protocol):
+    def update(self, event: str) -> None: ...
+
+class EmailObserver:
+    def update(self, event): print(f"Emailing about: {event}")
+
+class SmsObserver:
+    def update(self, event): print(f"Texting about: {event}")
+
+
+# --- Command ---
+class Command(ABC):
+    @abstractmethod
+    def execute(self) -> None: ...
+    @abstractmethod
+    def undo(self) -> None: ...
+
+class AddTextCommand(Command):
+    def __init__(self, doc: list, text: str):
+        self.doc, self.text = doc, text
+    def execute(self):
+        self.doc.append(self.text)
+    def undo(self):
+        self.doc.remove(self.text)
+
+
+# --- State ---
+class OrderState(ABC):
+    @abstractmethod
+    def next(self, order: "Order") -> None: ...
+
+class CreatedState(OrderState):
+    def next(self, order):
+        order.state = PaidState()
+
+class PaidState(OrderState):
+    def next(self, order):
+        order.state = ShippedState()
+
+class ShippedState(OrderState):
+    def next(self, order):
+        print("Already shipped — final state")
+
+class Order:
+    def __init__(self):
+        self.state: OrderState = CreatedState()
+    def advance(self):
+        self.state.next(self)
+
+
+# --- Iterator ---
+class BookShelf:
+    def __init__(self):
+        self.books: list[str] = []
+
+    def __iter__(self):
+        return iter(self.books)   # delegate to Python's built-in iterator protocol
+```
+
+---
+
+## 6. Python-Specific LLD Concepts
+
+These come up constantly in FastAPI / backend-focused LLD rounds.
+
+### 6.1 ABC vs Protocol
+
+| | `ABC` | `Protocol` |
+|---|---|---|
+| Requires explicit subclassing | Yes | No — structural typing (duck typing) |
+| Enforced at instantiation | Yes (`abstractmethod`) | No — only checked by static type checkers |
+| Use when | You control the class hierarchy and want a hard contract | You want a lightweight interface across unrelated classes |
+
+```python
+from abc import ABC, abstractmethod
+from typing import Protocol
+
+class PaymentProcessor(ABC):
+    @abstractmethod
+    def pay(self, amount: float): ...
+
+class Storage(Protocol):
+    def upload(self, file: bytes) -> str: ...
+
+class S3Storage:                # no explicit inheritance needed
+    def upload(self, file: bytes) -> str:
+        return "s3://bucket/key"
+
+def save(storage: Storage, file: bytes) -> str:   # accepts anything shaped like Storage
+    return storage.upload(file)
+```
+
+### 6.2 Dependency Injection
+
+```python
+class UserRepository:
+    def get(self, user_id: int): ...
+
+class UserService:
+    def __init__(self, repo: UserRepository):   # constructor injection
+        self.repo = repo
+
+# FastAPI wires this via Depends():
+# def get_user_service(repo: UserRepository = Depends(UserRepository)) -> UserService:
+#     return UserService(repo)
+```
+
+Know **constructor injection** cold — it's what makes classes testable (you can pass a fake/mock repository in unit tests).
+
+### 6.3 Repository Pattern
+
+```
+API → Service → Repository → Database
+```
+
+```python
+class UserRepository(Protocol):
+    def get(self, user_id: int) -> "User | None": ...
+    def save(self, user: "User") -> None: ...
+
+class InMemoryUserRepository:      # great for tests
+    def __init__(self):
+        self._data: dict[int, "User"] = {}
+    def get(self, user_id):
+        return self._data.get(user_id)
+    def save(self, user):
+        self._data[user.id] = user
+
+class SqlUserRepository:           # real implementation
+    def get(self, user_id): ...
+    def save(self, user): ...
+```
+
+### 6.4 Service Layer Pattern
+
+```
+Router → Service → Repository
+```
+
+Business logic belongs in the **service**, not the route handler:
+
+```python
+class UserService:
+    def __init__(self, repo: UserRepository):
+        self.repo = repo
+
+    def register(self, name: str, email: str) -> "User":
+        if self.repo.get_by_email(email):
+            raise ValueError("Email already registered")
+        user = User(name=name, email=email)
+        self.repo.save(user)
+        return user
+
+# FastAPI route stays thin:
+# @app.post("/users")
+# def create_user(payload: UserCreate, service: UserService = Depends(get_user_service)):
+#     return service.register(payload.name, payload.email)
+```
+
+### 6.5 DTOs with Pydantic
+
+Separate the **API contract** from the **database entity**:
+
+```python
+from pydantic import BaseModel, EmailStr
+
+class UserCreate(BaseModel):      # input DTO
+    name: str
+    email: EmailStr
+
+class UserOut(BaseModel):         # output DTO — never leak internal fields (e.g. password hash)
+    id: int
+    name: str
+    email: EmailStr
+
+    class Config:
+        from_attributes = True    # allows creation from ORM objects
+```
+
+---
+
+## 7. Backend Architecture Patterns (FastAPI)
+
+| Pattern | Why Learn It |
+|---|---|
+| Layered Architecture | Baseline structure for simple CRUD APIs |
+| Repository Pattern | Abstracts the database — swap SQL for Mongo without touching services |
+| Service Layer | Keeps business logic out of route handlers |
+| Dependency Injection | Loose coupling; enables unit testing with fakes |
+| Factory Pattern | Create DB connections / storage clients based on config |
+| Adapter Pattern | Wrap third-party APIs (Stripe, S3, Twilio) behind your own interface |
+| Strategy Pattern | Swap algorithms — pricing, auth providers, ranking |
+| Observer Pattern | Fire events (user registered → send email + log analytics) |
+
+### Real FastAPI LLD examples worth practicing
+
+| Project | Patterns Used |
+|---|---|
+| Authentication Service | Factory, Repository, Strategy (JWT/OAuth providers) |
+| File Upload Service (S3) | Adapter, Repository |
+| Email Notification Service | Observer, Strategy |
+| Payment Gateway | Strategy + Factory |
+| Chat Service | State, Observer |
+| Cache Service | Singleton, Decorator |
+
+These map closely to production systems — if you can design one of these end-to-end (routes → services → repositories → external adapters), you're interview-ready for backend LLD.
+
+---
+
+## 8. Classic LLD Problems
+
+### 8.1 Parking Lot (worked example)
+
+**Requirements to clarify first:** multiple vehicle types (bike/car/truck)? multiple entry/exit gates? pricing model (flat vs hourly)? multiple levels?
+
+**Core classes**
+
+```python
+from enum import Enum, auto
+from dataclasses import dataclass, field
+from datetime import datetime
+from abc import ABC, abstractmethod
+
+class VehicleType(Enum):
+    MOTORCYCLE = auto()
+    CAR = auto()
+    TRUCK = auto()
+
+class SpotType(Enum):
+    SMALL = auto()
+    MEDIUM = auto()
+    LARGE = auto()
+
+@dataclass
+class Vehicle:
+    plate: str
+    type: VehicleType
+
+class ParkingSpot:
+    def __init__(self, spot_id: str, spot_type: SpotType):
+        self.spot_id = spot_id
+        self.spot_type = spot_type
+        self.vehicle: Vehicle | None = None   # aggregation: spot doesn't own the vehicle's lifetime
+
+    def is_free(self) -> bool:
+        return self.vehicle is None
+
+    def park(self, vehicle: Vehicle) -> None:
+        self.vehicle = vehicle
+
+    def remove(self) -> None:
+        self.vehicle = None
+
+class PricingStrategy(ABC):                    # Strategy pattern
+    @abstractmethod
+    def calculate(self, entry: datetime, exit: datetime) -> float: ...
+
+class HourlyPricing(PricingStrategy):
+    RATE_PER_HOUR = 2.0
+    def calculate(self, entry, exit):
+        hours = max(1, (exit - entry).seconds // 3600)
+        return hours * self.RATE_PER_HOUR
+
+@dataclass
+class Ticket:
+    vehicle: Vehicle
+    spot: ParkingSpot
+    entry_time: datetime = field(default_factory=datetime.now)
+
+class ParkingLot:                               # Facade over levels/spots
+    def __init__(self, spots: list[ParkingSpot], pricing: PricingStrategy):
+        self.spots = spots
+        self.pricing = pricing
+        self._active_tickets: dict[str, Ticket] = {}
+
+    def _spot_for(self, vehicle_type: VehicleType) -> ParkingSpot | None:
+        type_map = {
+            VehicleType.MOTORCYCLE: SpotType.SMALL,
+            VehicleType.CAR: SpotType.MEDIUM,
+            VehicleType.TRUCK: SpotType.LARGE,
+        }
+        needed = type_map[vehicle_type]
+        for spot in self.spots:
+            if spot.is_free() and spot.spot_type == needed:
+                return spot
+        return None
+
+    def park_vehicle(self, vehicle: Vehicle) -> Ticket:
+        spot = self._spot_for(vehicle.type)
+        if not spot:
+            raise RuntimeError("No available spot")
+        spot.park(vehicle)
+        ticket = Ticket(vehicle=vehicle, spot=spot)
+        self._active_tickets[vehicle.plate] = ticket
+        return ticket
+
+    def unpark_vehicle(self, plate: str) -> float:
+        ticket = self._active_tickets.pop(plate)
+        fee = self.pricing.calculate(ticket.entry_time, datetime.now())
+        ticket.spot.remove()
+        return fee
+```
+
+**Patterns used:** Strategy (pricing), Factory (could extract spot assignment into a `SpotAssigner`), Facade (`ParkingLot` hides spot/ticket details).
+**Relationships:** `ParkingLot` aggregates `ParkingSpot`s (composition, since spots don't exist outside a lot); `ParkingSpot` aggregates `Vehicle` (the vehicle exists independently).
+
+### 8.2 Elevator System (worked example)
+
+**Requirements to clarify:** how many elevators? SCAN/LOOK scheduling or simplest FCFS? floor range?
+
+```python
+from enum import Enum, auto
+
+class Direction(Enum):
+    UP = auto()
+    DOWN = auto()
+    IDLE = auto()
+
+class ElevatorState(Enum):
+    MOVING = auto()
+    STOPPED = auto()
+
+class Elevator:
+    def __init__(self, id: int, capacity: int = 8):
+        self.id = id
+        self.current_floor = 0
+        self.direction = Direction.IDLE
+        self.state = ElevatorState.STOPPED
+        self.requests: set[int] = set()      # floors to stop at
+
+    def add_request(self, floor: int) -> None:
+        self.requests.add(floor)
+
+    def step(self) -> None:
+        """Advance one floor toward the nearest pending request (simplified LOOK algorithm)."""
+        if not self.requests:
+            self.direction = Direction.IDLE
+            return
+        target = min(self.requests, key=lambda f: abs(f - self.current_floor))
+        if target > self.current_floor:
+            self.current_floor += 1
+            self.direction = Direction.UP
+        elif target < self.current_floor:
+            self.current_floor -= 1
+            self.direction = Direction.DOWN
+        if self.current_floor == target:
+            self.requests.discard(self.current_floor)
+            self.state = ElevatorState.STOPPED
+
+class ElevatorController:                     # Mediator between requests and elevators
+    def __init__(self, elevators: list[Elevator]):
+        self.elevators = elevators
+
+    def request_elevator(self, floor: int, direction: Direction) -> Elevator:
+        # pick nearest idle/least-loaded elevator — a real Scheduler strategy would go here
+        best = min(self.elevators, key=lambda e: abs(e.current_floor - floor))
+        best.add_request(floor)
+        return best
+```
+
+**Patterns used:** State (elevator direction/state), Strategy (scheduling algorithm — swap FCFS for SCAN), Mediator/Facade (`ElevatorController` coordinates multiple elevators without them knowing about each other).
+
+### 8.3 Full Problem List by Difficulty
+
+**Easy — start here**
+- Library Management System — books, members, borrowing, returning, fines.
+- Parking Lot — vehicle, slot, ticket, payment (see 8.1).
+- Movie Ticket Booking — movie, show, seat, booking, concurrency on seat locking.
+- Coffee Vending Machine — menu, inventory, payment, state machine.
+- ATM Machine — account, card, transaction, PIN validation.
+
+**Medium — most common at SDE-2**
+- Elevator System — scheduler, lift, requests, floors (see 8.2).
+- Snake and Ladder — board, dice, players, snakes/ladders as a strategy/lookup.
+- Chess — board, pieces, movement strategy per piece type, check/checkmate rules.
+- Splitwise — expenses, split strategies (equal/percentage/exact), settlement/debt simplification.
+- LRU Cache — HashMap + Doubly Linked List, O(1) get/put.
+
+**Advanced**
+- Rate Limiter — Token Bucket, Sliding Window, Leaky Bucket strategies.
+- Notification System — Observer pattern, multiple channels, retry/fallback.
+- File Storage Service — S3 adapter, repository abstraction, chunked uploads.
+- Task Scheduler — jobs, workers, priority queues, retries.
+- URL Shortener — encoding strategy (base62/hash), storage abstraction, collision handling.
+
+---
+
+## 9. Python Features That Improve LLD
+
+| Feature | Why It Matters |
+|---|---|
+| `typing` | Strong contracts on function signatures — self-documenting interfaces |
+| `Protocol` | Duck-typed interfaces without forcing inheritance |
+| `Generic[T]` | Reusable, type-safe repositories/services (`Repository[User]`, `Repository[Order]`) |
+| `Enum` | Clean state modeling instead of magic strings/ints |
+| `dataclass` | Fast, correct DTOs and entities with less boilerplate |
+| `ABC` | Hard interface contracts when you control the hierarchy |
+| `cached_property` | Lazy, memoized computed attributes |
+| `functools` decorators | Cross-cutting concerns — caching (`lru_cache`), retries, logging |
+
+```python
+from typing import Generic, TypeVar
+
+T = TypeVar("T")
+
+class Repository(Generic[T], Protocol):
+    def get(self, id: int) -> T | None: ...
+    def save(self, entity: T) -> None: ...
+
+class UserRepository(Repository["User"]):
+    ...
+```
+
+---
+
+## 10. 14-Day Interview Practice Plan
+
+| Day | Topic |
+|---|---|
+| 1 | OOP + Dataclasses + Magic Methods |
+| 2 | SOLID Principles |
+| 3 | ABC, Protocol, Dependency Injection |
+| 4 | Factory + Builder + Singleton |
+| 5 | Adapter + Decorator + Facade |
+| 6 | Strategy + Observer + State |
+| 7 | Repository + Service Layer + FastAPI structure |
+| 8 | Parking Lot |
+| 9 | Elevator System |
+| 10 | Splitwise |
+| 11 | Snake & Ladder |
+| 12 | LRU Cache |
+| 13 | Notification System |
+| 14 | Mock LLD interview (45–60 min) |
+
+---
+
+## 11. Mock Interview Checklist
+
+Run through this checklist for every practice problem:
+
+1. **Clarify requirements** — ask 3–5 questions before writing any code (scale, edge cases, must-have vs nice-to-have features).
+2. **List core entities/nouns** from the problem statement — these become your classes.
+3. **Draw relationships** — call out association vs aggregation vs composition vs inheritance explicitly.
+4. **State assumptions out loud** and write them as a comment block.
+5. **Design interfaces first** (ABC/Protocol) before concrete classes — shows SOLID awareness.
+6. **Identify at least one design pattern** that fits naturally — don't force it if it doesn't fit.
+7. **Code the happy path**, then handle 1–2 edge cases (e.g., no available spot, insufficient funds).
+8. **Talk about extensibility** — "if we added X requirement, here's the one class I'd change."
+9. **Mention testability** — how would you unit test this with fakes/mocks (ties back to DI + Repository pattern)?
+10. **Time-box yourself** — 5 min clarify, 25–30 min design + code, 5 min wrap-up/extensions.

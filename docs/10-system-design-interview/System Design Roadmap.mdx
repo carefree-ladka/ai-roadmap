@@ -1,0 +1,617 @@
+# System Design Roadmap
+
+## Table of Contents
+
+1. [How to Use This Roadmap](#1-how-to-use-this-roadmap)
+2. [Capacity Estimation & Back-of-the-Envelope Math (added)](#2-capacity-estimation--back-of-the-envelope-math-added)
+3. [Stage 1 — Networking Fundamentals](#3-stage-1--networking-fundamentals)
+4. [Stage 2 — Web Servers, APIs & Gateway](#4-stage-2--web-servers-apis--gateway)
+5. [Stage 3 — Databases Deep Dive](#5-stage-3--databases-deep-dive)
+6. [Stage 4 — Caching](#6-stage-4--caching)
+7. [Stage 5 — Scalability Fundamentals](#7-stage-5--scalability-fundamentals)
+8. [Stage 6 — Messaging & Async Processing](#8-stage-6--messaging--async-processing)
+9. [Stage 7 — Distributed Systems](#9-stage-7--distributed-systems)
+10. [Stage 8 — Search Systems (added)](#10-stage-8--search-systems-added)
+11. [Stage 9 — Security](#11-stage-9--security)
+12. [Stage 10 — Reliability & Fault Tolerance](#12-stage-10--reliability--fault-tolerance)
+13. [Stage 11 — Observability](#13-stage-11--observability)
+14. [Stage 12 — Docker & Deployment](#14-stage-12--docker--deployment)
+15. [Stage 13 — Microservices](#15-stage-13--microservices)
+16. [Stage 14 — Specialized Data Structures at Scale (added)](#16-stage-14--specialized-data-structures-at-scale-added)
+17. [Stage 15 — Multi-Region, Backup & Disaster Recovery (added)](#17-stage-15--multi-region-backup--disaster-recovery-added)
+18. [Stage 16 — AI System Design](#18-stage-16--ai-system-design)
+19. [Stage 17 — Classic HLD Interview Questions](#19-stage-17--classic-hld-interview-questions)
+20. [16–20 Week Study Plan](#20-1620-week-study-plan)
+21. [Interview Day Checklist](#21-interview-day-checklist)
+
+---
+
+## 1. How to Use This Roadmap
+
+This is a **sequence-ordered** path — each stage assumes the previous ones. Don't jump to Stage 17 (interview questions) before you can explain, from memory, how a request travels from a browser through DNS, TCP, a load balancer, and into your FastAPI app. Interviewers can tell the difference between someone who memorized "use a load balancer" and someone who understands *why*.
+
+Every stage below has: **why it matters**, a **table of sub-topics**, and where useful, a **code or math example** you can run or reason through.
+
+---
+
+## 2. Capacity Estimation & Back-of-the-Envelope Math (added)
+
+**This was missing from your list but is almost always the first 5 minutes of a real HLD interview** — before designing anything, you're expected to estimate scale. Skipping this is one of the most common reasons candidates lose points even with a good design.
+
+| Concept | Why It Matters |
+|---|---|
+| QPS (queries per second) | Determines how many servers/replicas you need |
+| Read:Write ratio | Drives caching strategy and DB replica count |
+| Storage estimation | Determines DB type, sharding need, cold storage tiering |
+| Bandwidth estimation | Determines CDN need, media compression strategy |
+| Peak vs average load | Determines autoscaling and burst-handling design |
+
+**Worked example — design a URL shortener for 100M new URLs/month, 10:1 read:write ratio**
+
+```text
+Writes/sec  = 100,000,000 / (30 * 24 * 3600) ≈ 38 writes/sec
+Reads/sec   = 38 * 10 ≈ 380 reads/sec
+
+Storage per URL ≈ 500 bytes (long URL + short code + metadata)
+Storage/month  = 100M * 500B = 50 GB/month
+Storage/5 yrs  = 50GB * 60 ≈ 3 TB
+
+=> Single PostgreSQL instance with a read replica easily handles this.
+   No need for sharding at this scale — say so explicitly, don't over-engineer.
+```
+
+**Rule of thumb numbers worth memorizing** (approximate, per Jeff Dean's "numbers every engineer should know"):
+
+| Operation | Latency |
+|---|---|
+| L1 cache reference | ~1 ns |
+| Main memory reference | ~100 ns |
+| Redis / in-memory cache read | ~0.5–1 ms |
+| SSD random read | ~100 μs–1 ms |
+| Round trip within same datacenter | ~0.5 ms |
+| Round trip cross-region (e.g. US↔Europe) | ~100–150 ms |
+| Disk seek (HDD) | ~10 ms |
+
+**Interview line to say out loud:** *"Given ~400 QPS, a single Postgres primary with a read replica and a Redis cache in front handles this comfortably — I won't shard unless requirements say we're at Twitter-scale."* Right-sizing your design to the actual numbers is a strong signal.
+
+---
+
+## 3. Stage 1 — Networking Fundamentals
+
+These are foundational because every backend system uses them.
+
+| Topic | Why Important |
+|---|---|
+| HTTP / HTTPS | Request lifecycle, methods, headers, status codes |
+| TCP vs UDP | Reliable ordered delivery vs fast lossy delivery (video/voice) |
+| DNS | How a domain name resolves to your server's IP |
+| TLS / SSL | Encryption, certificates, handshake |
+| Ports | 80 (HTTP), 443 (HTTPS), 8000 (dev), 5432 (Postgres), 6379 (Redis) |
+| Load Balancer basics | Distributing traffic across multiple servers |
+| Reverse Proxy (Nginx) | Single entry point in front of backend apps |
+
+**Practice**
+- Trace the full path: Browser → DNS → Nginx → FastAPI → PostgreSQL, and be able to narrate each hop.
+- Set up local TLS with `mkcert` and terminate SSL at Nginx.
+
+---
+
+## 4. Stage 2 — Web Servers, APIs & Gateway
+
+| Topic | Learn |
+|---|---|
+| Nginx | Reverse proxy, gzip/br compression, static caching, SSL termination |
+| Gunicorn / Uvicorn | Worker processes, ASGI vs WSGI |
+| REST APIs | Versioning, pagination, filtering, status codes |
+| API Gateway | Authentication, routing, rate limiting at the edge |
+| WebSockets | Real-time bidirectional communication (chat) |
+| Streaming APIs | Server-Sent Events / chunked responses for LLM token streaming |
+
+### API Design Deep-Dive (added)
+
+Missing from the original list — these come up constantly once you get past "just build a REST endpoint":
+
+| Topic | Why It Matters |
+|---|---|
+| **API versioning strategies** | URL (`/v1/users`) vs header-based vs content negotiation — trade-offs in breaking changes |
+| **Pagination: offset vs cursor** | Offset is simple but slow/inconsistent at scale; cursor (keyset) pagination is stable under concurrent writes |
+| **Idempotency keys** | Client sends a unique key on POST (e.g. payments) so retries don't double-charge |
+| **GraphQL vs REST (added)** | GraphQL avoids over/under-fetching for complex clients (mobile apps); REST is simpler to cache at the HTTP layer |
+| **Webhooks (added)** | Async, push-based integration pattern — server calls back the client's URL on an event (Stripe, GitHub use this heavily) |
+| **HATEOAS** | Rarely used in practice but interviewers sometimes ask you to define it — responses include links to related actions |
+
+```python
+# Cursor-based pagination — stable even if rows are inserted/deleted mid-scroll
+@app.get("/messages")
+def list_messages(cursor: str | None = None, limit: int = 20):
+    query = select(Message).order_by(Message.id)
+    if cursor:
+        query = query.where(Message.id > decode_cursor(cursor))
+    rows = db.execute(query.limit(limit)).all()
+    next_cursor = encode_cursor(rows[-1].id) if rows else None
+    return {"items": rows, "next_cursor": next_cursor}
+```
+
+```python
+# Idempotency key pattern for payment APIs
+@app.post("/charge")
+def charge(payload: ChargeRequest, idempotency_key: str = Header(...)):
+    existing = redis.get(f"idem:{idempotency_key}")
+    if existing:
+        return json.loads(existing)          # replay the original response, don't double-charge
+    result = process_payment(payload)
+    redis.setex(f"idem:{idempotency_key}", 86400, json.dumps(result))
+    return result
+```
+
+**Project:** Build a ChatGPT-clone API with SSE token streaming.
+
+---
+
+## 5. Stage 3 — Databases Deep Dive
+
+### SQL
+
+| Concept | Interview Importance |
+|---|---|
+| Indexes | Very frequently asked |
+| B-Tree / Hash Index | Search performance characteristics |
+| Normalization | Schema design, when to denormalize for reads |
+| Transactions | ACID guarantees |
+| Isolation Levels | Read Uncommitted → Serializable, and which race conditions each prevents |
+| Locks | Optimistic (version column) vs Pessimistic (`SELECT ... FOR UPDATE`) |
+| Pagination | Offset vs Cursor (see Stage 2) |
+| **Read replicas (added)** | Scale reads horizontally; understand replication lag and stale-read risk |
+| **OLTP vs OLAP (added)** | OLTP = many small transactional reads/writes (Postgres/MySQL); OLAP = large analytical scans over historical data (Snowflake/BigQuery/ClickHouse) — never confuse the two in a design |
+
+### NoSQL
+
+| Database | Use Case |
+|---|---|
+| Redis | Caching, sessions, rate limiting, leaderboards |
+| MongoDB | Flexible/nested documents, rapid schema iteration |
+| DynamoDB | Massive scale key-value with predictable low latency |
+| Cassandra | Write-heavy, distributed, tunable consistency |
+| Vector DB (Chroma, Qdrant) | AI semantic search / RAG retrieval |
+
+### Sharding Strategies (added detail)
+
+| Strategy | How | Trade-off |
+|---|---|---|
+| Range-based | Shard by key range (e.g. user_id 1–1M → shard A) | Simple, but risk of hot shards |
+| Hash-based | `hash(key) % num_shards` | Even distribution, but resharding is expensive |
+| Geo-based | Shard by region/location | Low latency for regional users, useful for Uber/Netflix-style systems |
+| Directory-based | A lookup service maps key → shard | Flexible resharding, adds a lookup hop |
+
+**Practice:** design schemas for Users, Chat messages, Orders, Notifications — and for each, decide SQL vs NoSQL and justify it.
+
+---
+
+## 6. Stage 4 — Caching
+
+| Topic | Learn |
+|---|---|
+| Cache-Aside | Most common — app checks cache, falls back to DB, populates cache |
+| Write-Through | Write to cache and DB together — strong consistency, slower writes |
+| Write-Back | Write to cache first, flush to DB async — fast, risk of data loss |
+| TTL | Expiration strategy to bound staleness |
+| Cache Invalidation | Hard interview topic — "there are only two hard things in CS…" |
+| Distributed Cache | Redis Cluster — sharding + replication for cache itself |
+
+```python
+def get_user(user_id: int) -> User:
+    cached = redis.get(f"user:{user_id}")
+    if cached:
+        return User.parse_raw(cached)          # cache hit
+    user = db.query(User).get(user_id)         # cache-aside: fall back to DB
+    redis.setex(f"user:{user_id}", 300, user.json())
+    return user
+```
+
+**Implement:** a Redis cache layer in front of a FastAPI read endpoint, and measure the latency difference.
+
+---
+
+## 7. Stage 5 — Scalability Fundamentals
+
+| Topic | Learn |
+|---|---|
+| Horizontal Scaling | Add more servers — the default modern approach |
+| Vertical Scaling | Bigger server — simpler but has a ceiling |
+| Stateless Services | Store session state externally (Redis) so any instance can serve any request |
+| Sticky Sessions | When they're unavoidable (e.g. in-memory WebSocket state) and their scaling cost |
+| Load Balancers | Round Robin, Least Connections, IP Hash |
+| CDN | Cache static assets/images at edge locations close to users |
+
+**Project:** Scale FastAPI using Docker Compose with multiple Uvicorn workers behind Nginx load balancing.
+
+---
+
+## 8. Stage 6 — Messaging & Async Processing
+
+| Topic | Use Case |
+|---|---|
+| Message Queue | Decouple producers/consumers, background jobs |
+| RabbitMQ | Task processing, routing via exchanges |
+| Kafka | High-throughput event streaming, log-based replay |
+| Celery | Python async task workers |
+| Redis Streams | Lightweight event queues when you don't need full Kafka |
+
+### Batch vs Stream Processing (added)
+
+Missing from the original list — comes up in any "process large volumes of events" design (analytics pipelines, recommendation systems):
+
+| Model | Example Tools | When to Use |
+|---|---|---|
+| **Batch processing** | Spark, Airflow-scheduled jobs | Large periodic jobs where latency doesn't matter (nightly analytics, ML training data prep) |
+| **Stream processing** | Kafka Streams, Flink | Near-real-time processing of continuous event flows (fraud detection, live dashboards) |
+| **Lambda architecture** | Batch + stream combined | Batch layer for accuracy, stream layer for low-latency approximate views |
+
+**Practice:** design an email queue, an image-processing queue, and a chat-summarization queue — for each, decide the queue technology and delivery guarantee (at-most-once vs at-least-once vs exactly-once).
+
+---
+
+## 9. Stage 7 — Distributed Systems
+
+| Topic | Interview Importance |
+|---|---|
+| Replication | High availability, read scaling |
+| Sharding / Partitioning | Splitting data across nodes for write scaling |
+| CAP Theorem | You cannot have Consistency + Availability + Partition tolerance all at once during a partition |
+| Consistent Hashing | Minimizes remapping when nodes are added/removed — used by Redis Cluster, DynamoDB, CDNs |
+| Leader Election | Distributed coordination (who's in charge of a shard/partition) |
+| Idempotency | Payments/APIs — safe retries |
+
+### Consistency Models (expanded — added)
+
+| Model | Guarantee | Example |
+|---|---|---|
+| Strong consistency | Every read sees the latest write | Bank balance after a transfer |
+| Eventual consistency | Reads may be stale but converge over time | Social media like counts |
+| Causal consistency | Operations that are causally related are seen in order | Comment always appears after the post it replies to |
+
+### Consensus Algorithms (added)
+
+Rarely implemented from scratch in an interview, but you're expected to **name and explain them at a high level**:
+
+| Algorithm | Used By | Idea |
+|---|---|---|
+| Paxos | Classic distributed systems (Google Chubby) | Majority-vote agreement on a single value, notoriously hard to explain simply |
+| Raft | etcd, Consul, CockroachDB | Simpler alternative to Paxos — leader election + log replication, designed to be understandable |
+
+### CQRS & Event Sourcing (added)
+
+| Pattern | Idea | When to Use |
+|---|---|---|
+| **CQRS** (Command Query Responsibility Segregation) | Separate models for writes (commands) and reads (queries) — often a different DB/schema for each | High-read systems where the read shape differs a lot from the write shape (e.g. dashboards over transactional data) |
+| **Event Sourcing** | Store state as an append-only log of events, not a mutable row — current state is derived by replaying events | Systems needing full audit history / time-travel debugging (banking ledgers, order lifecycles) |
+
+```python
+# Consistent hashing sketch — used in Redis Cluster / CDN routing
+import bisect, hashlib
+
+class ConsistentHashRing:
+    def __init__(self, nodes: list[str], replicas: int = 100):
+        self.ring: dict[int, str] = {}
+        self.sorted_keys: list[int] = []
+        for node in nodes:
+            for i in range(replicas):          # virtual nodes smooth out distribution
+                h = self._hash(f"{node}#{i}")
+                self.ring[h] = node
+                self.sorted_keys.append(h)
+        self.sorted_keys.sort()
+
+    def _hash(self, key: str) -> int:
+        return int(hashlib.md5(key.encode()).hexdigest(), 16)
+
+    def get_node(self, key: str) -> str:
+        h = self._hash(key)
+        idx = bisect.bisect(self.sorted_keys, h) % len(self.sorted_keys)
+        return self.ring[self.sorted_keys[idx]]
+```
+
+---
+
+## 10. Stage 8 — Search Systems (added)
+
+**This entire stage was missing from your list** but shows up constantly — Twitter search, Instagram hashtag search, e-commerce product search, log search (observability).
+
+| Topic | Learn |
+|---|---|
+| Inverted Index | Core data structure behind full-text search — maps term → list of document IDs |
+| Elasticsearch / OpenSearch | Distributed search engine built on inverted indices, used for full-text + faceted search |
+| Relevance scoring (TF-IDF, BM25) | How search engines rank matches, not just find them |
+| Autocomplete / typeahead | Trie-based prefix matching, often backed by a dedicated fast index |
+| Search vs DB query | Why you don't run `LIKE '%term%'` on a production SQL table at scale |
+
+**Practice:** design search for an e-commerce product catalog — index update strategy (near-real-time vs batch), what fields to index, how to combine keyword search with filters (price, category).
+
+---
+
+## 11. Stage 9 — Security
+
+| Topic | Learn |
+|---|---|
+| JWT | Access/refresh tokens, claims, expiry |
+| OAuth2 | Third-party login (Google, GitHub) |
+| Session vs JWT | Stateful vs stateless auth trade-offs |
+| API Keys | Service-to-service / internal auth |
+| Rate Limiting | Token bucket, sliding window, leaky bucket |
+| CORS | Cross-origin frontend/backend communication rules |
+| CSRF / XSS | Web security fundamentals |
+
+```python
+# Token bucket rate limiter with Redis
+def is_allowed(user_id: str, capacity: int = 10, refill_rate: float = 1.0) -> bool:
+    key = f"bucket:{user_id}"
+    now = time.time()
+    bucket = redis.hgetall(key) or {"tokens": capacity, "last_refill": now}
+    tokens = float(bucket["tokens"])
+    last_refill = float(bucket["last_refill"])
+
+    elapsed = now - last_refill
+    tokens = min(capacity, tokens + elapsed * refill_rate)   # refill
+
+    if tokens < 1:
+        return False
+    tokens -= 1
+    redis.hset(key, mapping={"tokens": tokens, "last_refill": now})
+    return True
+```
+
+**Project:** implement JWT auth (access + refresh token rotation) in FastAPI.
+
+---
+
+## 12. Stage 10 — Reliability & Fault Tolerance
+
+| Topic | Learn |
+|---|---|
+| Retry | Exponential backoff + jitter to avoid thundering herd |
+| Circuit Breaker | Stop calling a failing downstream service to prevent cascading failure |
+| Timeouts | Fail fast rather than hang forever |
+| Dead Letter Queue | Route repeatedly-failing messages aside for inspection instead of blocking the queue |
+| Saga Pattern | Coordinate a distributed transaction as a series of local transactions + compensating actions |
+| **Two-Phase Commit (added)** | Classic strong-consistency distributed transaction protocol — mention it as the alternative Saga avoids, since 2PC blocks on coordinator failure |
+| Outbox Pattern | Reliably publish events atomically with a DB write (write event to an "outbox" table in the same transaction, then relay it) |
+
+```python
+# Circuit breaker sketch
+class CircuitBreaker:
+    def __init__(self, failure_threshold=5, reset_timeout=30):
+        self.failures = 0
+        self.threshold = failure_threshold
+        self.reset_timeout = reset_timeout
+        self.state = "CLOSED"          # CLOSED -> OPEN -> HALF_OPEN
+        self.opened_at = None
+
+    def call(self, func, *args, **kwargs):
+        if self.state == "OPEN":
+            if time.time() - self.opened_at > self.reset_timeout:
+                self.state = "HALF_OPEN"
+            else:
+                raise Exception("Circuit open — failing fast")
+        try:
+            result = func(*args, **kwargs)
+            self.failures = 0
+            self.state = "CLOSED"
+            return result
+        except Exception:
+            self.failures += 1
+            if self.failures >= self.threshold:
+                self.state = "OPEN"
+                self.opened_at = time.time()
+            raise
+```
+
+---
+
+## 13. Stage 11 — Observability
+
+| Topic | Tool |
+|---|---|
+| Logging | Structlog / Loguru — structured JSON logs |
+| Metrics | Prometheus — counters, gauges, histograms |
+| Dashboards | Grafana |
+| Tracing | OpenTelemetry + Jaeger — follow one request across services |
+| Error Monitoring | Sentry |
+
+**Project:** monitor a FastAPI service with Prometheus + Grafana, and trace one request end-to-end with OpenTelemetry.
+
+---
+
+## 14. Stage 12 — Docker & Deployment
+
+| Topic | Learn |
+|---|---|
+| Docker | Containerize FastAPI |
+| Docker Compose | Multi-service local dev (app + db + redis + nginx) |
+| Nginx | Reverse proxy in front of containers |
+| Kubernetes Basics | Pods, Deployments, Services, ConfigMaps/Secrets |
+| CI/CD | GitHub Actions — test, build, deploy pipeline |
+| Blue-Green Deployment | Zero-downtime releases; also know Canary releases as the incremental alternative |
+
+**Project:** deploy the ChatGPT-clone project locally with Docker Compose.
+
+---
+
+## 15. Stage 13 — Microservices
+
+| Concept | Learn |
+|---|---|
+| Monolith | Start simple — know when *not* to use microservices |
+| Microservices | Split by business domain, not by technical layer |
+| API Gateway | Central routing/auth for all services |
+| Service Discovery | How services find each other's network location dynamically |
+| gRPC | Fast, typed, binary internal service-to-service communication |
+| Event-Driven Architecture | Services communicate via events (Kafka/RabbitMQ) instead of direct calls |
+
+---
+
+## 16. Stage 14 — Specialized Data Structures at Scale (added)
+
+**Missing from your original list.** These come up specifically in advanced HLD questions (rate limiters, dedup at scale, Uber/Instagram-style location and feed problems) and signal deep preparation when you bring them up unprompted.
+
+| Structure | Use Case | Why |
+|---|---|---|
+| **Bloom Filter** | "Have we seen this before?" at massive scale (e.g. dedup crawled URLs, check username availability) | Probabilistic set membership — false positives possible, false negatives impossible, uses far less memory than a hash set |
+| **HyperLogLog** | Counting unique visitors/elements at huge scale (e.g. "how many unique users viewed this today") | Approximate cardinality estimation in a fixed, tiny memory footprint |
+| **Geohashing** | Encode lat/long into a sortable string for proximity search (Uber, food delivery) | Nearby locations share string prefixes — enables range queries for "nearby" |
+| **Quadtree / R-Tree** | Spatial indexing for map-based queries | Efficient "find all points within this bounding box" queries |
+| **Trie** | Autocomplete / typeahead | Efficient prefix lookups |
+| **Skip List** | Sorted set implementation (Redis's `ZSET` uses this internally) | O(log n) insert/search/range without full tree-balancing complexity |
+
+```python
+# Bloom filter sketch — "definitely not seen" vs "maybe seen"
+import hashlib
+
+class BloomFilter:
+    def __init__(self, size: int = 10_000, num_hashes: int = 3):
+        self.size = size
+        self.num_hashes = num_hashes
+        self.bits = [0] * size
+
+    def _hashes(self, item: str):
+        for i in range(self.num_hashes):
+            h = int(hashlib.md5(f"{item}{i}".encode()).hexdigest(), 16)
+            yield h % self.size
+
+    def add(self, item: str) -> None:
+        for idx in self._hashes(item):
+            self.bits[idx] = 1
+
+    def might_contain(self, item: str) -> bool:
+        return all(self.bits[idx] for idx in self._hashes(item))
+```
+
+---
+
+## 17. Stage 15 — Multi-Region, Backup & Disaster Recovery (added)
+
+**Also missing from your original list** — senior-level interviews (Netflix, Uber, global systems) almost always probe this.
+
+| Topic | Learn |
+|---|---|
+| Active-Active vs Active-Passive | Multi-region deployment models and their consistency/cost trade-offs |
+| RPO / RTO | Recovery Point Objective (how much data you can lose) vs Recovery Time Objective (how fast you must recover) |
+| Database backups | Full vs incremental, point-in-time recovery |
+| Cross-region replication | Async replication lag and its user-visible consequences |
+| Failover strategy | DNS-based failover, health-check-triggered traffic shift |
+| Chaos engineering | Deliberately inject failures (Netflix's Chaos Monkey) to validate resilience assumptions before they're tested in production |
+
+---
+
+## 18. Stage 16 — AI System Design
+
+This matches ChatGPT-clone-style projects and is increasingly its own interview category.
+
+| Topic | Learn |
+|---|---|
+| LLM Serving | Ollama (self-hosted) / OpenAI-compatible APIs |
+| Embeddings | Turning text into vectors for semantic search |
+| Vector Database | Chroma / Qdrant / pgvector — approximate nearest neighbor search |
+| RAG Pipeline | Retrieve → Augment prompt → Generate |
+| Conversation Memory | Short-term in Redis, long-term/summarized in PostgreSQL |
+| Streaming Tokens | SSE or WebSockets for incremental LLM output |
+| Prompt Versioning | Treat prompts like code — templates, tests, rollout |
+| MCP Architecture | Tool-calling pattern (Gmail, LinkedIn, calendar, etc.) |
+
+**Projects:** ChatGPT clone · AI Email Assistant · AI Knowledge Base (RAG) · AI Agent with MCP tool calling.
+
+---
+
+## 19. Stage 17 — Classic HLD Interview Questions
+
+### Worked example — Rate Limiter (Beginner)
+
+**Requirements:** limit each user to N requests per minute; must work across multiple API server instances (so state can't be local memory).
+
+**Approach:** Redis-backed **sliding window counter** (better accuracy than fixed window, cheaper than a fully sorted-set sliding log):
+
+```python
+def is_allowed(user_id: str, limit: int = 100, window_sec: int = 60) -> bool:
+    now = time.time()
+    key = f"ratelimit:{user_id}"
+    pipe = redis.pipeline()
+    pipe.zadd(key, {str(now): now})                       # log this request
+    pipe.zremrangebyscore(key, 0, now - window_sec)        # drop entries outside window
+    pipe.zcard(key)                                        # count requests in window
+    pipe.expire(key, window_sec)
+    _, _, count, _ = pipe.execute()
+    return count <= limit
+```
+
+Discuss trade-offs out loud: fixed window (simple, allows bursts at window boundaries) vs sliding log (accurate, more memory) vs sliding window counter (good middle ground) vs token bucket (allows controlled bursts).
+
+### Worked example — Instagram Feed (Medium)
+
+**Requirements:** users follow other users; feed shows recent posts from people they follow, ranked roughly by recency.
+
+**Approach — fan-out trade-off, the crux of this question:**
+
+| Strategy | How | Best For |
+|---|---|---|
+| **Fan-out on write** | When a user posts, push the post ID into every follower's precomputed feed (in Redis) | Users with few followers — most users, fast reads |
+| **Fan-out on read** | When a user opens their feed, pull recent posts from everyone they follow and merge | Celebrities with millions of followers — fan-out on write would be too expensive per post |
+| **Hybrid** | Fan-out on write for normal users, fan-out on read for celebrity accounts, merge both at read time | What real systems (Twitter, Instagram) actually do |
+
+**Interview line to say out loud:** *"I'll use fan-out-on-write for most users but switch to fan-out-on-read for accounts above some follower threshold, to avoid a write storm when a celebrity posts."* — naming this hybrid unprompted is a strong signal.
+
+### Full Problem List by Difficulty
+
+**Beginner**
+- URL Shortener — ID generation (base62/hash), storage, caching, redirect latency.
+- Pastebin — large text storage, expiration, syntax-highlighting metadata.
+- Rate Limiter — Redis + Token Bucket / Sliding Window (see worked example above).
+
+**Medium**
+- Instagram Feed — fan-out strategy, timeline generation (see worked example above).
+- WhatsApp Chat — WebSockets, message queues, delivery/read receipts, offline delivery.
+- Notification Service — Email/SMS/Push, retry + fallback across channels, Observer pattern.
+- File Upload Service — S3 + CDN, multipart/chunked uploads, resumable uploads.
+
+**Advanced**
+- YouTube — upload pipeline, transcoding, CDN distribution, adaptive bitrate streaming.
+- Uber — geospatial indexing (geohash/quadtree), driver-rider matching, real-time location updates.
+- Netflix — video streaming, CDN edge caching, recommendation pipeline (batch + online).
+- Google Docs — Operational Transform or CRDTs for real-time collaborative editing conflict resolution.
+- ChatGPT Clone — LLM gateway, token streaming, conversation memory, rate limiting per user/tier.
+
+---
+
+## 20. 16–20 Week Study Plan
+
+| Weeks | Focus |
+|---|---|
+| 1 | Capacity estimation math + Networking fundamentals |
+| 2–3 | Web servers, APIs, API Gateway, API design deep-dive |
+| 4–5 | Databases: SQL deep dive, NoSQL options, sharding strategies |
+| 6 | Caching strategies + Redis project |
+| 7 | Scalability fundamentals + Docker Compose multi-worker project |
+| 8 | Messaging & async processing + batch vs stream processing |
+| 9–10 | Distributed systems: CAP, consistent hashing, consensus, CQRS/Event Sourcing |
+| 11 | Search systems (Elasticsearch, inverted index) |
+| 12 | Security: JWT/OAuth2 project + rate limiting |
+| 13 | Reliability patterns: retry, circuit breaker, saga, outbox |
+| 14 | Observability: Prometheus + Grafana + OpenTelemetry project |
+| 15 | Docker/Kubernetes basics + CI/CD pipeline |
+| 16 | Microservices concepts + specialized data structures (Bloom filter, geohash, etc.) |
+| 17 | Multi-region/DR concepts |
+| 18 | AI system design: RAG pipeline + streaming project |
+| 19 | Classic HLD problems — beginner + medium (2–3 per day) |
+| 20 | Classic HLD problems — advanced + full mock interviews |
+
+---
+
+## 21. Interview Day Checklist
+
+1. **Clarify requirements & scope** — functional requirements, non-functional requirements (latency, availability, consistency needs), scale.
+2. **Estimate capacity** — QPS, storage, bandwidth (Section 2) — state your numbers out loud.
+3. **Define the API** — key endpoints/contracts before diving into internals.
+4. **High-level architecture diagram** — boxes for client, gateway, services, DB, cache, queue.
+5. **Deep dive into 1–2 components** the interviewer cares about most (usually the data model + one scaling bottleneck).
+6. **Address bottlenecks explicitly** — where does this design break first as scale grows 10x/100x?
+7. **Discuss trade-offs, not just answers** — every real choice (SQL vs NoSQL, fan-out on write vs read, strong vs eventual consistency) has a cost; name it.
+8. **Cover failure modes** — what happens if a service/DB/queue goes down? Retry, circuit breaker, DLQ.
+9. **Mention monitoring** — how would you know this system is unhealthy in production?
+10. **Time-box** — ~5 min requirements, ~10 min high-level design, ~20 min deep dive, ~5 min wrap-up/trade-offs.
