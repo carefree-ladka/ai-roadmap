@@ -1,0 +1,450 @@
+# LangChain Interview Roadmap
+
+> **Goal:** Build and confidently explain production LangChain applications in FastAPI + Ollama, and answer both fundamentals and senior-level design questions.
+> **Timeline:** ~3 weeks if you're already comfortable with Python and FastAPI.
+> **Stack covered:** FastAPI, Ollama, LangChain (LCEL, tools, memory), LangSmith, LangGraph, Postgres/Redis.
+
+---
+
+## Table of Contents
+
+1. [Roadmap Overview](#roadmap-overview)
+2. [Phase 1 — LangChain Fundamentals](#phase-1--langchain-fundamentals)
+3. [Phase 2 — Models (LLMs & Chat Models)](#phase-2--models-llms--chat-models)
+4. [Phase 3 — Prompt Templates](#phase-3--prompt-templates)
+5. [Phase 4 — LCEL (Most Important)](#phase-4--lcel-most-important)
+6. [Phase 5 — Output Parsers & Structured Output](#phase-5--output-parsers--structured-output)
+7. [Phase 6 — Document Loaders & Text Splitters](#phase-6--document-loaders--text-splitters)
+8. [Phase 7 — Retrievers & Vector Stores](#phase-7--retrievers--vector-stores)
+9. [Phase 8 — Tools & Tool Calling](#phase-8--tools--tool-calling)
+10. [Phase 9 — Memory & Conversation History](#phase-9--memory--conversation-history)
+11. [Phase 10 — Streaming, Callbacks & Observability](#phase-10--streaming-callbacks--observability)
+12. [Phase 11 — Agents: AgentExecutor vs LangGraph](#phase-11--agents-agentexecutor-vs-langgraph-) 🆕
+13. [Phase 12 — Testing, Evaluation & Caching](#phase-12--testing-evaluation--caching-) 🆕
+14. [Phase 13 — Security & Production Hardening](#phase-13--security--production-hardening-) 🆕
+15. [Phase 14 — Deployment (LangServe & Beyond)](#phase-14--deployment-langserve--beyond-) 🆕
+16. [Advanced LangChain Topics (Senior Interviews)](#advanced-langchain-topics-senior-interviews)
+17. [Best FastAPI Projects to Practice](#best-fastapi-projects-to-practice)
+18. [30 Must-Know LangChain Interview Questions](#30-must-know-langchain-interview-questions)
+19. [3-Week Study Plan](#3-week-study-plan)
+20. [Quick-Reference Cheat Sheet](#quick-reference-cheat-sheet-) 🆕
+
+---
+
+## Roadmap Overview
+
+| Phase | Focus | Priority |
+|---|---|---|
+| 1 | LangChain Fundamentals | ⭐⭐⭐⭐⭐ |
+| 2 | Models (LLMs & Chat Models) | ⭐⭐⭐⭐⭐ |
+| 3 | Prompt Templates | ⭐⭐⭐⭐⭐ |
+| 4 | LCEL | ⭐⭐⭐⭐⭐ |
+| 5 | Output Parsers & Structured Output | ⭐⭐⭐⭐ |
+| 6 | Document Loaders & Text Splitters | ⭐⭐⭐⭐⭐ |
+| 7 | Retrievers & Vector Stores | ⭐⭐⭐⭐⭐ |
+| 8 | Tools & Tool Calling | ⭐⭐⭐⭐⭐ |
+| 9 | Memory & Conversation History | ⭐⭐⭐⭐ |
+| 10 | Streaming, Callbacks & Observability | ⭐⭐⭐⭐⭐ |
+| 11 | Agents: AgentExecutor vs LangGraph 🆕 | ⭐⭐⭐⭐ |
+| 12 | Testing, Evaluation & Caching 🆕 | ⭐⭐⭐ |
+| 13 | Security & Production Hardening 🆕 | ⭐⭐⭐⭐ |
+| 14 | Deployment (LangServe & Beyond) 🆕 | ⭐⭐⭐ |
+
+> 🆕 = added because it's asked in 2026 mid-to-senior interviews but was missing from the original plan.
+
+---
+
+## Phase 1 — LangChain Fundamentals
+
+### Learn
+- What LangChain is and the problem it solves (standardizing LLM app patterns: prompts, chains, memory, tools, retrieval).
+- **LangChain vs LangGraph vs LlamaIndex** — know this cold:
+  - **LangChain** — general-purpose LLM app framework (prompts, chains, tools, retrievers).
+  - **LangGraph** — stateful, graph-based orchestration for agents and multi-step workflows (loops, branching, human-in-the-loop, persistence).
+  - **LlamaIndex** — indexing/retrieval-first framework, strong for advanced RAG indexing strategies.
+- Core building blocks: Models, Prompts, Chains/Runnables, Retrievers, Tools, Memory.
+- Package structure: `langchain-core` (abstractions), `langchain` (chains/agents), `langchain-community` (integrations), `langchain-ollama` (Ollama-specific integration).
+- Versioning note 🆕: LangChain moved most stable interfaces into `langchain-core`; know that imports have shifted across 0.1 → 0.3, and interviewers may ask why this split happened (stability + smaller dependency footprint for production).
+
+### Interview Questions
+- What problem does LangChain solve that raw API calls don't?
+- When would you use LangChain vs plain Python + the model API?
+- Why was `langchain-core` split out from `langchain`? 🆕
+
+### Build
+Simple FastAPI endpoint calling Ollama through LangChain.
+
+---
+
+## Phase 2 — Models (LLMs & Chat Models)
+
+### Learn
+
+| Topic | Notes |
+|---|---|
+| Chat Models | `ChatOllama`, `ChatOpenAI`, `ChatGoogleGenerativeAI`. |
+| LLM vs Chat Model | Legacy string-in/string-out `LLM` vs message-based `ChatModel` (current standard). |
+| Temperature | Creativity vs determinism. |
+| Top-p / Top-k | Sampling controls. |
+| Context window | How token limits affect prompt design. |
+| Streaming | Token-by-token responses. |
+| `with_structured_output()` 🆕 | Binding a Pydantic schema directly to a chat model for guaranteed structured responses (replaces manual parsing in many cases). |
+| Model fallbacks (`with_fallbacks`) 🆕 | Chaining a backup model/provider if the primary fails or times out. |
+
+### Interview Questions
+- Difference between an `LLM` and a `ChatModel` in LangChain.
+- Why stream responses instead of waiting for the full completion?
+- What does `with_structured_output()` do differently from an output parser? 🆕
+
+---
+
+## Phase 3 — Prompt Templates
+
+### Learn
+- `PromptTemplate` (plain string) vs `ChatPromptTemplate` (message list).
+- `MessagesPlaceholder` for injecting conversation history.
+- System / User / Assistant roles.
+- Few-shot prompting with example lists.
+- Partial prompts (`.partial()`) 🆕 — pre-filling some variables ahead of runtime.
+
+### Interview Questions
+- Why use `PromptTemplate` instead of Python f-strings?
+- How do you manage dynamic prompts in production (versioning, A/B testing)?
+
+### Build
+- A prompt with variables.
+- A conversation prompt using `MessagesPlaceholder` for history.
+
+---
+
+## Phase 4 — LCEL (Most Important)
+
+### Core Runnables
+
+| Runnable | Purpose |
+|---|---|
+| `RunnableSequence` (`|`) | Chains steps into a pipeline. |
+| `RunnableParallel` | Runs multiple branches concurrently. |
+| `RunnablePassthrough` | Passes input through unchanged. |
+| `RunnableLambda` | Wraps a custom Python function. |
+| `RunnableBranch` | Conditional routing logic. |
+| `.assign()` | Adds computed values into the pipeline dict. |
+| `RunnableConfig` 🆕 | Passes runtime config (callbacks, tags, metadata, `run_name`) through a chain — key for tracing/observability. |
+| `.batch()` / `.abatch()` 🆕 | Run a chain over many inputs concurrently — asked in cost/throughput questions. |
+| `.with_retry()` 🆕 | Built-in retry wrapper around a Runnable for transient failures. |
+
+### Interview Questions
+- Explain LCEL and the `|` pipe operator.
+- Why did LCEL replace the older `Chain` classes (e.g., `LLMChain`, `SequentialChain`)?
+- How does `RunnableParallel` execute branches — sequentially or concurrently?
+- How would you batch 1,000 requests through a chain efficiently? 🆕
+
+### Build
+Pipeline: `User → Retriever → Prompt → Model → Parser`.
+
+---
+
+## Phase 5 — Output Parsers & Structured Output
+
+### Learn
+
+| Parser | Use |
+|---|---|
+| `StrOutputParser` | Plain text output. |
+| `JsonOutputParser` | Parses JSON, including streaming partial JSON. |
+| `PydanticOutputParser` | Typed, validated objects. |
+| `with_structured_output()` 🆕 | Model-native structured output (preferred in 2026 over manual parsing when the model supports tool/function calling). |
+| Retry/fixing parsers (`OutputFixingParser`) 🆕 | Automatically asks the model to fix malformed output. |
+
+### Interview Questions
+- Why use a Pydantic parser over manually parsing JSON strings?
+- How do you handle invalid/malformed JSON from an LLM?
+- When would you choose `with_structured_output()` over `PydanticOutputParser`? 🆕
+
+### Build
+Return a structured weather response as a typed Pydantic object.
+
+---
+
+## Phase 6 — Document Loaders & Text Splitters
+
+### Document Loaders
+PDF, DOCX, Markdown, CSV, HTML, plain text — and know `unstructured`-based loaders for messy real-world docs. 🆕
+
+### Splitters
+
+| Splitter | Use |
+|---|---|
+| `RecursiveCharacterTextSplitter` | Default, structure-aware fallback splitting. |
+| `MarkdownHeaderTextSplitter` | Preserves markdown heading hierarchy. |
+| `TokenTextSplitter` | Token-aware chunking (matches model tokenizer). |
+| Language-aware splitters | Code/documentation, AST-aware for code. |
+| `SemanticChunker` 🆕 | Splits based on embedding similarity shifts, not fixed size. |
+
+### Interview Questions
+- Why is the recursive splitter the sensible default?
+- What are chunk overlap best practices?
+- How do you split a document that mixes prose, tables, and code blocks? 🆕
+
+### Build
+Upload PDF → split → embed.
+
+---
+
+## Phase 7 — Retrievers & Vector Stores
+
+*(Connects directly with RAG — see the companion RAG roadmap for deep dives on embeddings, chunking, and evaluation.)*
+
+### Learn
+- Chroma integration, FAISS integration, Qdrant/pgvector integration.
+- Retriever API (`.as_retriever()`), similarity search, MMR, metadata filters.
+- **Advanced retrievers** 🆕:
+  - `MultiVectorRetriever` — index multiple representations (summary + full chunk) per document.
+  - `SelfQueryRetriever` — LLM translates a natural-language query into structured metadata filters automatically.
+  - `EnsembleRetriever` — combines multiple retrievers (e.g., BM25 + vector) with weighted scoring.
+  - `ContextualCompressionRetriever` — compresses/filters retrieved docs before returning them.
+
+### Interview Questions
+- Difference between a `VectorStore` and a `Retriever`.
+- Why convert a vector store into a retriever instead of querying it directly?
+- What does `SelfQueryRetriever` solve that a plain retriever can't? 🆕
+- How would you combine BM25 and vector search results in LangChain? 🆕
+
+### Build
+Knowledge base chatbot using an `EnsembleRetriever`. 🆕
+
+---
+
+## Phase 8 — Tools & Tool Calling
+
+### Learn
+- `@tool` decorator and custom tool creation.
+- Tool schemas (auto-generated from function type hints/docstrings, or explicit Pydantic args schema).
+- `bind_tools()` for attaching tools to a chat model.
+- Handling multiple tools and tool selection.
+- Tool error handling 🆕 — returning errors back to the model gracefully (`handle_tool_error`) instead of crashing the chain.
+- Human-in-the-loop tool approval 🆕 — pausing before executing a sensitive tool (common LangGraph pattern, but conceptually starts here).
+
+### Examples
+Weather, calculator, web search, database query, send-email tools.
+
+### Interview Questions
+- How does tool calling work under the hood (model outputs a structured tool call, app executes it, result is fed back)?
+- How does the model choose which tool to call?
+- Difference between a tool and a retriever?
+- How do you handle a tool that fails or times out mid-conversation? 🆕
+
+### Build
+FastAPI chatbot with a Weather tool.
+
+---
+
+## Phase 9 — Memory & Conversation History
+
+### Learn
+
+| Memory | Use |
+|---|---|
+| `ChatMessageHistory` | In-memory message store. |
+| `RunnableWithMessageHistory` | Wraps a chain with session-based conversation state. |
+| Postgres-backed memory | Persistent, durable history. |
+| Redis-backed memory | Fast, session-scoped history. |
+| LangGraph checkpointer 🆕 | The modern replacement for most legacy `Memory` classes — persists full graph state (not just messages), supports time-travel/rewind. |
+| Summarization memory 🆕 | Compressing old turns into a running summary to control token growth in long conversations. |
+
+### Interview Questions
+- Conversation memory vs RAG — what's the difference in purpose?
+- Session memory vs long-term/persistent memory.
+- Why has LangChain pushed users toward LangGraph's checkpointer instead of the legacy `Memory` classes? 🆕
+
+### Build
+Thread-based memory in FastAPI, keyed by `session_id`.
+
+---
+
+## Phase 10 — Streaming, Callbacks & Observability
+
+### Learn
+- Token streaming (`.stream()`) and async streaming (`.astream()`).
+- Callback handlers — custom logging, token counting, cost tracking.
+- LangSmith tracing — inspecting full chain runs, latency per step, token usage.
+- Retry/fallback models.
+- Caching (`InMemoryCache`, Redis-backed LLM response cache) 🆕 — avoiding repeated calls for identical prompts.
+- `astream_events()` 🆕 — fine-grained event stream (per-step start/end) for building rich UIs (e.g., showing "searching documents..." while retrieval runs).
+
+### Interview Questions
+- How do callbacks work in LangChain?
+- How do you monitor a production LLM pipeline (latency, cost, errors)?
+- What's the difference between `.stream()` and `.astream_events()`, and when would you need the latter? 🆕
+
+### Build
+Streaming FastAPI `/chat` endpoint with token-by-token output.
+
+---
+
+## Phase 11 — Agents: AgentExecutor vs LangGraph 🆕
+
+This distinction comes up constantly in 2026 interviews since LangChain has been steering people away from the legacy agent executor.
+
+### Learn
+- **Legacy `AgentExecutor`** — simple ReAct-style loop (think → act → observe), limited control over flow, no native persistence.
+- **LangGraph agents** — the current recommended approach: explicit state graph, supports branching, loops, retries, human-in-the-loop interrupts, and durable checkpointing.
+- ReAct pattern (Reason + Act) fundamentals — still the conceptual basis even inside LangGraph agents.
+- When to use a simple LCEL chain vs a full agent (agents add cost/latency/unpredictability — only use them when the task genuinely needs dynamic tool selection or multi-step planning).
+
+### Interview Questions
+- Why has LangChain moved from `AgentExecutor` to LangGraph for agentic workflows?
+- When would you *not* use an agent, even though one is possible?
+- How does LangGraph enable human-in-the-loop approval before a risky action?
+
+---
+
+## Phase 12 — Testing, Evaluation & Caching 🆕
+
+### Learn
+- Unit testing chains with mocked LLM responses (`FakeListLLM`, `GenericFakeChatModel`).
+- LangSmith datasets + evaluators for regression testing prompt/chain changes.
+- Caching strategies to cut cost and latency on repeated queries.
+- Golden-dataset testing — a fixed set of Q&A pairs run on every change to catch prompt regressions before deploy.
+
+### Interview Questions
+- How do you unit test a chain without calling a real LLM?
+- How would you catch a regression after changing a prompt template?
+- What caching layer would you add to cut LLM costs, and where in the pipeline?
+
+---
+
+## Phase 13 — Security & Production Hardening 🆕
+
+### Learn
+- Prompt injection risks when tool outputs or retrieved documents are untrusted.
+- Sandboxing tool execution (e.g., a "calculator" tool that could otherwise `eval()` arbitrary code).
+- Rate limiting and backoff for upstream model APIs.
+- Secrets management (API keys never hard-coded, loaded via env/secret manager).
+- Output validation before executing any tool with side effects (e.g., sending an email, deleting a record).
+
+### Interview Questions
+- How do you prevent a tool-calling agent from being manipulated by injected instructions in a retrieved document?
+- How do you safely allow an LLM to trigger a side-effecting action (like a database write)?
+
+---
+
+## Phase 14 — Deployment (LangServe & Beyond) 🆕
+
+### Learn
+- `LangServe` — exposing LCEL chains as REST/streaming endpoints (know it exists and roughly what it does, even if you deploy manually via FastAPI).
+- Deploying FastAPI + LangChain + Ollama via Docker.
+- Horizontal scaling considerations: stateless API layer vs stateful memory/checkpoint store.
+- Versioning prompts and chains alongside code (git-tracked prompt templates) so changes are auditable.
+
+### Interview Questions
+- What does LangServe give you over a hand-rolled FastAPI endpoint?
+- How do you deploy a LangChain app so that conversation state survives a pod restart?
+
+---
+
+## Advanced LangChain Topics (Senior Interviews)
+
+| Topic | Why Important |
+|---|---|
+| Few-shot prompting | Better structured outputs. |
+| Example selectors | Dynamic example selection based on the query. |
+| Multi-prompt routing | Route to different prompts/models based on intent. |
+| Fallbacks | Model/provider reliability. |
+| Guardrails | Validate inputs/outputs. |
+| Async pipelines | Throughput and latency. |
+| Batch execution | Cost optimization. |
+| Parallel runnables | Latency optimization. |
+| Structured output via tool calling 🆕 | Reliable JSON without brittle string parsing. |
+| Cross-framework interop (LangGraph + LangChain) 🆕 | Using LCEL chains as nodes inside a LangGraph graph — the standard 2026 pattern. |
+
+---
+
+## Best FastAPI Projects to Practice
+
+| Project | Topics Covered |
+|---|---|
+| 1. ChatGPT Clone Backend | Chat models, streaming, memory, tools. |
+| 2. PDF Knowledge Assistant | Loaders, splitters, embeddings, retrievers. |
+| 3. AI Todo Assistant | Structured outputs, tool calling, FastAPI CRUD. |
+| 4. Weather + Search Assistant | Custom tools, LCEL, streaming. |
+| 5. Multi-Document RAG Assistant | Metadata filters, reranking, conversation history. |
+| 6. Agentic Research Assistant 🆕 | LangGraph agent, human-in-the-loop tool approval, checkpointed memory. |
+
+---
+
+## 30 Must-Know LangChain Interview Questions
+
+1. What is LangChain?
+2. LangChain vs LangGraph vs LlamaIndex.
+3. Explain LCEL and the `|` operator.
+4. What are Runnables?
+5. `RunnableSequence` vs `RunnableParallel`.
+6. `PromptTemplate` vs `ChatPromptTemplate`.
+7. What is `MessagesPlaceholder` for?
+8. Output parsers — when and why.
+9. `PydanticOutputParser` vs `with_structured_output()`. 🆕
+10. Document loaders overview.
+11. Text splitters and chunking trade-offs.
+12. Retriever API basics.
+13. How tool calling works end to end.
+14. The `@tool` decorator.
+15. Conversation memory approaches.
+16. `RunnableWithMessageHistory`.
+17. Streaming responses (`.stream()` vs `.astream_events()`). 🆕
+18. Callbacks and LangSmith tracing.
+19. Fallback models (`with_fallbacks`).
+20. Building a production RAG pipeline in LangChain.
+21. Why LangChain moved from `AgentExecutor` to LangGraph. 🆕
+22. What is `RunnableConfig` used for? 🆕
+23. How do you unit test a LangChain chain without live API calls? 🆕
+24. How do you defend a tool-calling agent against prompt injection? 🆕
+25. What is `SelfQueryRetriever` and when do you use it? 🆕
+26. What is `EnsembleRetriever`? 🆕
+27. How do you cache LLM responses to cut cost? 🆕
+28. What does LangServe provide? 🆕
+29. How do you version and test prompt changes safely? 🆕
+30. How do you safely let an agent perform a side-effecting action (e.g., send an email)? 🆕
+
+---
+
+## 3-Week Study Plan
+
+### Week 1 — Fundamentals & LCEL
+- LangChain fundamentals, package structure, `langchain-core` split.
+- Chat models (`ChatOllama`), prompt templates, few-shot prompting.
+- LCEL deep dive: `RunnableSequence`, `RunnableParallel`, `RunnableLambda`, `RunnableConfig`.
+- Output parsers + `with_structured_output()`.
+
+### Week 2 — RAG Integration & Tools
+- Document loaders & text splitters (including `SemanticChunker`).
+- Retrievers + Chroma/Qdrant, advanced retrievers (`SelfQueryRetriever`, `EnsembleRetriever`).
+- Tool calling (`@tool`, `bind_tools`), error handling for tools.
+- Conversation history (`RunnableWithMessageHistory` → LangGraph checkpointer).
+
+### Week 3 — Production, Agents & Interview Polish
+- Streaming + callbacks + LangSmith tracing.
+- Agents: `AgentExecutor` vs LangGraph, human-in-the-loop patterns.
+- Testing, evaluation, caching, security hardening.
+- Deployment basics (Docker, LangServe) and mock interview practice with the 30 questions above.
+
+---
+
+## Quick-Reference Cheat Sheet 🆕
+
+**One-line answers for whiteboard/verbal rounds:**
+
+- **LangChain** = standardized building blocks (prompts, models, chains, tools, memory, retrieval) for LLM apps.
+- **LangGraph** = stateful graph orchestration for agents — use it when you need loops, branching, or persistence beyond a simple chain.
+- **LCEL** = composable `Runnable` objects chained with `|`, with native support for streaming, batching, and async.
+- **`RunnableParallel`** = fan-out multiple branches concurrently, then merge results.
+- **`with_structured_output()`** = ask the model to return validated, typed data directly instead of parsing a raw string.
+- **`SelfQueryRetriever`** = lets the LLM turn a natural-language question into metadata filters automatically.
+- **`EnsembleRetriever`** = combine keyword (BM25) and vector search results with weighted fusion.
+- **`AgentExecutor` → LangGraph** = the industry shift from a simple think-act loop to a fully controllable, persistent state graph.
+- **LangSmith** = tracing and evaluation platform — inspect every step of a chain/agent run and catch prompt regressions.
+- **Production checklist** = caching + retries/fallbacks + tracing + tool sandboxing + prompt versioning, not just "chain + model."
+
+---
+
+*Prepared for AI Engineer / GenAI interviews — React + FastAPI + Ollama + LangChain + LangGraph stack, 2026.*

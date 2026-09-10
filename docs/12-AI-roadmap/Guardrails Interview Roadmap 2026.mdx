@@ -1,0 +1,443 @@
+# Guardrails Interview Roadmap
+
+## Table of Contents
+
+1. [Roadmap Overview](#roadmap-overview)
+2. [Phase 1 — Guardrails Fundamentals](#phase-1--guardrails-fundamentals)
+3. [Phase 2 — Input Guardrails](#phase-2--input-guardrails)
+4. [Phase 3 — Output Guardrails](#phase-3--output-guardrails)
+5. [Phase 4 — Structured Output Validation](#phase-4--structured-output-validation)
+6. [Phase 5 — Safety & Content Moderation](#phase-5--safety--content-moderation)
+7. [Phase 6 — Hallucination & Grounding Checks](#phase-6--hallucination--grounding-checks)
+8. [Phase 7 — Tool & Agent Guardrails](#phase-7--tool--agent-guardrails)
+9. [Phase 8 — RAG Guardrails](#phase-8--rag-guardrails-high-priority)
+10. [Phase 9 — Guardrails with LangChain & LangGraph](#phase-9--guardrails-with-langchain--langgraph)
+11. [Phase 10 — Production Guardrails in FastAPI](#phase-10--production-guardrails-in-fastapi)
+12. [Phase 11 — Streaming & Multi-Turn Guardrails](#phase-11--streaming--multi-turn-guardrails-) 🆕
+13. [Phase 12 — Guardrail Evaluation & Red-Teaming](#phase-12--guardrail-evaluation--red-teaming-) 🆕
+14. [Phase 13 — Multi-Agent & Multimodal Guardrails](#phase-13--multi-agent--multimodal-guardrails-) 🆕
+15. [Phase 14 — Compliance, Audit & Observability](#phase-14--compliance-audit--observability-) 🆕
+16. [Guardrails Libraries to Know (2026)](#guardrails-libraries-to-know-2026)
+17. [Best FastAPI Projects to Practice](#best-fastapi-projects-to-practice)
+18. [30 Must-Know Guardrails Interview Questions](#30-must-know-guardrails-interview-questions)
+19. [What Companies Expect by Level](#what-companies-expect-in-2026)
+20. [1-Week Study Plan](#1-week-study-plan)
+21. [Quick-Reference Cheat Sheet](#quick-reference-cheat-sheet-) 🆕
+
+---
+
+## Roadmap Overview
+
+| Phase | Focus | Priority |
+|---|---|---|
+| 1 | Guardrails Fundamentals | ⭐⭐⭐⭐⭐ |
+| 2 | Input Guardrails | ⭐⭐⭐⭐⭐ |
+| 3 | Output Guardrails | ⭐⭐⭐⭐⭐ |
+| 4 | Structured Output Validation | ⭐⭐⭐⭐⭐ |
+| 5 | Safety & Content Moderation | ⭐⭐⭐⭐ |
+| 6 | Hallucination & Grounding Checks | ⭐⭐⭐⭐⭐ |
+| 7 | Tool & Agent Guardrails | ⭐⭐⭐⭐ |
+| 8 | RAG Guardrails | ⭐⭐⭐⭐⭐ |
+| 9 | Guardrails in LangChain/LangGraph | ⭐⭐⭐⭐ |
+| 10 | Production Guardrails in FastAPI | ⭐⭐⭐⭐⭐ |
+| 11 | Streaming & Multi-Turn Guardrails 🆕 | ⭐⭐⭐⭐ |
+| 12 | Guardrail Evaluation & Red-Teaming 🆕 | ⭐⭐⭐⭐ |
+| 13 | Multi-Agent & Multimodal Guardrails 🆕 | ⭐⭐⭐ |
+| 14 | Compliance, Audit & Observability 🆕 | ⭐⭐⭐ |
+
+> 🆕 = added because it's asked in 2026 senior/production GenAI interviews but was missing from the original plan.
+
+---
+
+## Phase 1 — Guardrails Fundamentals
+
+### Learn
+Understand guardrails as **validation layers around an LLM** — not a replacement for good prompting, but a safety net for when the model (or the user) doesn't behave as expected.
+
+### Interview Questions
+- What are guardrails, in your own words?
+- Why isn't good prompting alone enough?
+- Guardrails vs moderation APIs — how do they differ in scope?
+- Guardrails vs prompt engineering — are they solving the same problem? 🆕
+
+### Build
+A FastAPI chat endpoint that validates requests before calling Ollama.
+
+---
+
+## Phase 2 — Input Guardrails
+
+### Topics
+
+| Input Check | Purpose |
+|---|---|
+| Prompt injection detection | Block malicious instructions hidden in user input or documents. |
+| PII detection | Detect emails, phone numbers, national IDs (Aadhaar, SSN), card numbers. |
+| Profanity filtering | Optional content filtering. |
+| Length validation | Prevent oversized prompts (cost/DoS protection). |
+| Language validation | Accept only supported languages. |
+| Regex / rule-based validation | Simple, fast, deterministic checks. |
+| Semantic similarity to known attacks 🆕 | Embedding-based matching against a bank of known jailbreak/injection phrasings, catching paraphrased attacks that regex misses. |
+
+### Interview Questions
+- How do you stop prompt injection at the input layer?
+- How do you sanitize user input before it reaches the model?
+- Why do regex-only defenses fail against paraphrased jailbreak attempts, and what catches those instead? 🆕
+
+### Build
+Block prompts like *"Ignore previous instructions…"*.
+
+---
+
+## Phase 3 — Output Guardrails
+
+### Topics
+
+| Output Check | Purpose |
+|---|---|
+| JSON validation | Output must match an expected schema. |
+| Pydantic validation | Typed, validated responses. |
+| Retry on invalid output | Ask the model again with the validation error appended. |
+| Required fields | Ensure completeness before returning to the client. |
+| Enum validation | Restrict values to an allowed set. |
+| Streaming-safe validation 🆕 | Validating output as it streams, without waiting for the full response (partial JSON handling). |
+
+### Interview Questions
+- How do you guarantee valid JSON from an LLM?
+- What do you do when the model returns invalid output after a retry too?
+- How do you validate output *while* it's still streaming, rather than only at the end? 🆕
+
+### Build
+Weather assistant returning validated JSON.
+
+---
+
+## Phase 4 — Structured Output Validation
+
+### Topics
+- Pydantic models, JSON Schema, field constraints, nested models, optional fields, custom validators (`@field_validator`).
+- Model-native structured output (`with_structured_output()` in LangChain) vs manual output parsers. 🆕
+
+### Example Use Cases
+AI Todo API, product extraction, invoice parsing, resume parsing.
+
+### Interview Questions
+- Why use Pydantic over hand-rolled JSON parsing?
+- What does "schema-first" AI API design mean?
+- When would you use model-native structured output instead of a parser-plus-retry approach? 🆕
+
+### Build
+Return a `Todo` object, validated before saving to Postgres.
+
+---
+
+## Phase 5 — Safety & Content Moderation
+
+### Topics
+
+| Guardrail | Purpose |
+|---|---|
+| Toxicity detection | Block abusive responses. |
+| Hate speech detection | Safety filtering. |
+| Violence detection | Content moderation. |
+| Self-harm detection | Triggers an escalation/resource-referral policy, not a silent block. |
+| Jailbreak detection | Prevents instruction-bypass attempts. |
+| Model-based classifiers (e.g., Llama Guard) 🆕 | Purpose-built moderation LLMs that classify both prompts and completions against safety taxonomies. |
+
+### Interview Questions
+- Difference between "moderation" and "guardrails" as concepts.
+- How do companies filter unsafe outputs in production — single classifier or multiple layers?
+- Why might you use a dedicated safety-classifier model instead of prompting your main LLM to self-moderate? 🆕
+
+### Build
+Safety middleware that runs before any response is sent to the user.
+
+---
+
+## Phase 6 — Hallucination & Grounding Checks
+
+### Topics
+
+| Technique | Purpose |
+|---|---|
+| Groundedness check | Is the answer supported by retrieved documents? |
+| Faithfulness check | No invented facts beyond the source material. |
+| Citation validation | Response includes traceable sources. |
+| Context relevance | Were the retrieved docs actually useful? |
+| Confidence threshold | Say "I don't know" instead of guessing. |
+| Claim-level verification 🆕 | Breaking a long answer into individual claims and checking each against the source context separately (more precise than checking the whole answer at once). |
+
+### Interview Questions
+- How do you reduce hallucinations in a RAG system?
+- What is "grounded generation"?
+- Why check faithfulness claim-by-claim rather than for the whole response at once? 🆕
+
+### Build
+Reject answers unsupported by retrieved context.
+
+---
+
+## Phase 7 — Tool & Agent Guardrails
+
+### Topics
+
+| Guardrail | Purpose |
+|---|---|
+| Tool allowlist | Only approved tools are callable. |
+| Argument validation | Validate tool inputs before execution (type, range, format). |
+| Permission checks | Confirm the user is authorized for this action. |
+| Rate limiting | Prevent tool abuse/runaway loops. |
+| Human approval | Required before sensitive/side-effecting actions. |
+| Output sandboxing 🆕 | Running risky tools (e.g., code execution) in an isolated environment so a compromised or buggy tool can't affect the host system. |
+
+### Interview Questions
+- How do you protect tool execution from malicious or malformed inputs?
+- Why validate tool arguments even when the model "should" produce correct ones?
+- How would you sandbox a code-execution tool so a jailbroken agent can't do real damage? 🆕
+
+### Build
+Weather tool that accepts only valid city names.
+
+---
+
+## Phase 8 — RAG Guardrails (High Priority)
+
+### Topics
+
+| Guardrail | Purpose |
+|---|---|
+| Query validation | Clean and validate the search query. |
+| Retrieval validation | Were enough relevant chunks actually found? |
+| Context filtering | Remove irrelevant/low-score documents before generation. |
+| Answer grounding | Force the model to use retrieved context only. |
+| Source attribution | Return citations alongside the answer. |
+| Tenant/document-level access control 🆕 | Ensuring retrieval never returns chunks a given user isn't authorized to see, *before* they reach the prompt. |
+
+### Interview Questions
+- Where exactly do guardrails fit in a RAG pipeline (before retrieval, after retrieval, after generation)?
+- What do you do if retrieval quality is poor for a given query?
+- How do you guarantee retrieval never leaks another tenant's private documents into context? 🆕
+
+### Build
+PDF chatbot that refuses to answer when it can't support the answer with retrieved context.
+
+---
+
+## Phase 9 — Guardrails with LangChain & LangGraph
+
+### LangChain
+- Output parsers, retry parsers (`OutputFixingParser`).
+- Validation-focused Runnables.
+- Structured output via `with_structured_output()`.
+
+### LangGraph
+- Dedicated validation node.
+- Conditional retry edge (loop back to generation if validation fails).
+- Human approval node (`interrupt()`).
+- Reflection node (self-critique before finalizing).
+- Recursion limit as a guardrail against infinite retry loops. 🆕
+
+### Interview Questions
+- Where do validation nodes belong in a LangGraph workflow?
+- Retry logic vs a dedicated validation node — what's the difference in responsibility?
+- How does a recursion limit act as a guardrail, not just a performance setting? 🆕
+
+### Build
+LangGraph workflow: `Input → Validate → Tool/RAG → Validate Output → Return`.
+
+---
+
+## Phase 10 — Production Guardrails in FastAPI
+
+### Architecture
+
+| Layer | Guardrail |
+|---|---|
+| API request | Pydantic request validation. |
+| Middleware | PII detection, prompt injection screening. |
+| RAG retrieval | Context/relevance validation, access control. |
+| LLM response | JSON/schema validation. |
+| Response filter | Safety classification + citation attachment. |
+| Async guardrail execution 🆕 | Running independent checks (PII scan, toxicity check, schema validation) concurrently rather than serially, to control added latency. |
+
+### Interview Questions
+- How do you implement guardrails end-to-end in a production FastAPI service?
+- Middleware-based guardrails vs a dedicated validation node in the graph — when do you use each?
+- How do you keep guardrail latency acceptable when you're running several checks per request? 🆕
+
+### Build
+A production-ready FastAPI AI assistant with layered guardrails.
+
+---
+
+## Phase 11 — Streaming & Multi-Turn Guardrails 🆕
+
+A commonly-missed area — most guardrail demos only validate single, complete, single-turn responses.
+
+### Learn
+- Validating partial/streaming output without breaking the user-facing stream (buffer-and-check chunks, or validate incrementally).
+- Multi-turn jailbreak detection — an attack can be spread across several innocuous-looking turns, so single-message checks alone miss it; need session-level pattern tracking.
+- Cumulative behavior monitoring — flagging a user/session after repeated borderline requests, not just one.
+- Deciding what to do mid-stream when a violation is detected (cut the stream vs let it finish and warn).
+
+### Interview Questions
+- How do you apply guardrails to a token-streaming response without adding unacceptable latency?
+- How do you detect a jailbreak attempt that's spread across multiple conversational turns?
+- What do you do when a safety violation is detected halfway through a stream that's already being shown to the user?
+
+---
+
+## Phase 12 — Guardrail Evaluation & Red-Teaming 🆕
+
+### Learn
+- **False positive vs false negative trade-off** — overly strict guardrails block legitimate requests (hurts UX); overly loose ones let attacks through.
+- Building an adversarial test dataset (known jailbreaks, injection payloads, edge-case PII formats) and running it in CI.
+- Red-teaming your own system before launch — systematically trying to break your guardrails.
+- Guardrail regression testing — re-running the adversarial suite whenever prompts or models change.
+
+### Interview Questions
+- How do you measure whether a guardrail is actually working (beyond "it blocked one bad prompt in a demo")?
+- How would you balance false positives against false negatives for a content-moderation guardrail?
+- How do you red-team your own RAG/agent system before shipping it?
+
+---
+
+## Phase 13 — Multi-Agent & Multimodal Guardrails 🆕
+
+### Learn
+- Guardrails in multi-agent systems: a poisoned output from one agent becoming untrusted input to the next — validate at every hand-off, not just at the system boundary.
+- Least-privilege tool scoping per agent (see LangGraph roadmap) as a guardrail strategy, not just an architecture choice.
+- Multimodal moderation basics — image/vision-input safety screening when the app accepts uploaded images, not just text.
+
+### Interview Questions
+- In a multi-agent pipeline, should guardrails run only at the entry/exit, or between every agent hand-off? Why?
+- What extra guardrail considerations come up when a user can upload images, not just text?
+
+---
+
+## Phase 14 — Compliance, Audit & Observability 🆕
+
+### Learn
+- Audit logging of guardrail decisions (what was blocked, why, when) for compliance and debugging.
+- Basic awareness of relevant regulation shaping guardrail requirements (e.g., GDPR for PII handling, EU AI Act risk-tiering) — know it exists and why it matters, not legal-expert depth.
+- Tracing guardrail pass/fail rates in LangSmith or similar observability tooling, alongside latency and cost.
+
+### Interview Questions
+- Why is audit logging of guardrail decisions important beyond just blocking bad requests?
+- How would you monitor guardrail effectiveness over time in production (dashboards/metrics)?
+
+---
+
+## Guardrails Libraries to Know (2026)
+
+| Library | Use |
+|---|---|
+| Pydantic AI | Structured outputs and validation. |
+| Guardrails AI | Schema validation and retries. |
+| NeMo Guardrails | Conversation-level safety and policy enforcement. |
+| LangChain Output Parsers | Simple structured validation. |
+| Instructor | Pydantic-first structured generation. |
+| Llama Guard 🆕 | Open-source safety classifier model for prompt/response moderation. |
+| Microsoft Presidio 🆕 | Dedicated PII detection and anonymization toolkit. |
+| OpenAI Moderation API 🆕 | Managed content-moderation endpoint (useful even in non-OpenAI-model stacks as a moderation layer). |
+
+For interviews, know **when to use each** — not necessarily every API in depth.
+
+---
+
+## Best FastAPI Projects to Practice
+
+| Project | Guardrails Covered |
+|---|---|
+| 1. AI Todo Assistant | Pydantic structured outputs, retries. |
+| 2. PDF RAG Assistant | Groundedness, citations, hallucination checks. |
+| 3. Weather Agent | Tool validation and argument checking. |
+| 4. ChatGPT Clone Backend | Prompt injection, memory validation, output filtering. |
+| 5. Email Approval Agent | Human-in-the-loop guardrails. |
+| 6. Multi-Agent Research Assistant 🆕 | Hand-off validation, least-privilege tool scoping. |
+
+---
+
+## 30 Must-Know Guardrails Interview Questions
+
+1. What are guardrails in LLM applications?
+2. Guardrails vs prompt engineering.
+3. Input guardrails vs output guardrails.
+4. How do you prevent prompt injection?
+5. How do you detect PII?
+6. How do you validate structured output?
+7. Pydantic validation with LLM output.
+8. Retry strategy for invalid JSON.
+9. How do guardrails reduce hallucinations?
+10. Groundedness vs faithfulness.
+11. RAG guardrails and where they sit in the pipeline.
+12. Context validation before generation.
+13. Safety moderation approaches.
+14. Jailbreak detection techniques.
+15. Tool argument validation.
+16. Human approval for agents.
+17. Guardrails in LangChain.
+18. Guardrails in LangGraph.
+19. NeMo Guardrails vs Guardrails AI — when would you pick each?
+20. Production guardrails architecture end to end.
+21. How do you validate a streaming response without adding major latency? 🆕
+22. How do you detect a multi-turn jailbreak attack? 🆕
+23. How do you red-team your own guardrails before launch? 🆕
+24. False positive vs false negative trade-offs in moderation. 🆕
+25. How do you guardrail hand-offs between agents in a multi-agent system? 🆕
+26. What extra guardrails are needed for image/multimodal input? 🆕
+27. Why is audit logging of guardrail decisions important? 🆕
+28. How do you enforce per-tenant data isolation as a guardrail in RAG? 🆕
+29. What is claim-level faithfulness checking, and why is it more precise than whole-answer checking? 🆕
+30. How do you run multiple guardrail checks per request without blowing up response latency? 🆕
+
+---
+
+## What Companies Expect in 2026
+
+| Interview Level | Expected Knowledge |
+|---|---|
+| Junior / Mid AI Engineer | Pydantic validation, JSON outputs, prompt injection basics. |
+| Senior AI Engineer | RAG grounding, tool guardrails, LangGraph validation nodes, retry strategies, false positive/negative trade-offs. 🆕 |
+| Production GenAI Roles | NeMo Guardrails or Guardrails AI, policy enforcement, human-in-the-loop, observability with LangSmith, red-teaming, audit/compliance awareness. 🆕 |
+
+---
+
+## 1-Week Study Plan
+
+### Days 1–2 — Fundamentals & Input/Output Guardrails
+- Guardrails fundamentals, input guardrails (prompt injection, PII), output guardrails (JSON/Pydantic validation, retries).
+- Build: FastAPI endpoint with request validation + a Weather assistant with schema-validated JSON output.
+
+### Days 3–4 — Safety, Grounding & Tool Guardrails
+- Content moderation, jailbreak detection, hallucination/groundedness checks, tool argument validation.
+- Build: PDF chatbot that refuses ungrounded answers; tool with argument validation.
+
+### Days 5–6 — RAG + LangChain/LangGraph Integration
+- RAG-specific guardrails (retrieval validation, tenant isolation), validation/retry nodes in LangGraph, human approval flow.
+- Build: LangGraph workflow with a validation node and a bounded retry loop.
+
+### Day 7 — Production, Evaluation & Interview Polish
+- Production FastAPI guardrail architecture, streaming/multi-turn considerations, red-teaming basics, audit logging.
+- Practice the 30 questions above out loud, focusing on trade-offs (latency, false positives, cost) rather than just definitions.
+
+---
+
+## Quick-Reference Cheat Sheet 🆕
+
+**One-line answers for whiteboard/verbal rounds:**
+
+- **Guardrails** = validation layers around an LLM's inputs, outputs, and actions — a safety net, not a substitute for good prompting.
+- **Input guardrails** = catch bad requests before they reach the model (injection, PII, length, language).
+- **Output guardrails** = catch bad responses before they reach the user (schema validation, safety classification).
+- **Groundedness vs faithfulness** = groundedness asks "is this in the retrieved context?"; faithfulness asks "did the model avoid adding anything not supported by it?"
+- **Retry-with-validation** = re-prompt the model with the validation error attached, rather than silently failing.
+- **Tool guardrails** = allowlist + argument validation + least privilege + human approval for anything with side effects.
+- **False positive/negative trade-off** = the central design tension in every moderation guardrail — too strict hurts UX, too loose lets attacks through.
+- **Multi-turn jailbreaks** = require session-level pattern tracking, since single-message checks miss attacks spread across turns.
+- **Defense in depth** = layer guardrails at input, retrieval, generation, and output — never rely on a single check.
+- **Production checklist** = schema validation + safety classifier + groundedness check + tool sandboxing + audit logging + async execution to control latency.
+
+---
+
+*Prepared for AI Engineer / GenAI interviews — React + FastAPI + Ollama + LangChain + LangGraph stack, 2026.*

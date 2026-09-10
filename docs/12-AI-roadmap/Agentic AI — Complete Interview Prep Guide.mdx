@@ -1,0 +1,771 @@
+# 🤖 Agentic AI — Complete Interview Prep Guide
+
+
+## 📑 Table of Contents
+
+1. [Agentic AI Fundamentals](#1-agentic-ai-fundamentals-)
+2. [Agent vs LLM](#2-agent-vs-llm-)
+3. [Core Components of an Agent](#3-core-components-of-an-agent-)
+4. [The Agent Loop](#4-the-agent-loop-)
+5. [Tool Calling](#5-tool-calling-)
+6. [Agent State](#6-agent-state-)
+7. [Memory — Types & Architecture](#7-memory--types--architecture-)
+8. [Agent Planning](#8-agent-planning-)
+9. [ReAct Pattern](#9-react-pattern-)
+10. [Agentic RAG](#10-agentic-rag-)
+11. [Agent Design Patterns](#11-agent-design-patterns-)
+12. [LangGraph for Agents](#12-langgraph-for-agents-)
+13. [MCP + Agentic AI](#13-mcp--agentic-ai-)
+14. [Multi-Agent Systems](#14-multi-agent-systems-)
+15. [Human-in-the-Loop](#15-human-in-the-loop-)
+16. [Agent Guardrails & Security](#16-agent-guardrails--security-)
+17. [Preventing Infinite Loops & Runaway Costs](#17-preventing-infinite-loops--runaway-costs-)
+18. [Agent Memory Architecture (Deep Dive)](#18-agent-memory-architecture-deep-dive-)
+19. [Agent Evaluation](#19-agent-evaluation-)
+20. [Agent Observability](#20-agent-observability-)
+21. [Framework Landscape](#21-framework-landscape-langgraph-vs-crewai-vs-autogen-vs-openai-swarm-)
+22. [Agent-to-Agent (A2A) & Protocol Interop](#22-agent-to-agent-a2a--protocol-interop-)
+23. [Context Engineering](#23-context-engineering-)
+24. [Production Agent Architecture](#24-production-agent-architecture-)
+25. [Patterns Cheat Sheet](#25-patterns-cheat-sheet)
+26. [Projects to Build](#26-projects-to-build)
+27. [30 Interview Questions](#27-30-interview-questions)
+28. [5 Model Answers (Deep Dives)](#28-5-model-answers-deep-dives)
+29. [System Design Question: Build a Production Agent](#29-system-design-question-build-a-production-agent)
+30. [Glossary](#30-glossary)
+31. [Final Mental Model](#31-final-mental-model)
+
+---
+
+## 1. Agentic AI Fundamentals ⭐⭐⭐⭐⭐
+
+**Normal LLM:**
+
+```
+User → LLM → Answer
+```
+
+**Agent:**
+
+```
+User → LLM → Think about task → Choose action/tool → Execute
+     → Observe result → Decide next step → Repeat → Final answer
+```
+
+**Definition:** An AI agent is an LLM-powered system that can reason about a goal, decide what actions to take, use tools, observe results, and continue until the task is completed **without a human manually driving every step**.
+
+**Key insight interviewers probe for:** the agent isn't "smarter" than the LLM — it's the LLM wrapped in a *control loop* with access to the outside world.
+
+---
+
+## 2. Agent vs LLM ⭐⭐⭐⭐⭐
+
+| | LLM | Agent |
+|---|---|---|
+| Input | Question | Goal |
+| Process | Single forward pass | Multi-step loop |
+| Output | Answer | Plan → Tool → Observation → ... → Final answer |
+| State | Stateless | Maintains state across steps |
+| Tools | None | Can call external tools/APIs |
+| Autonomy | None | Decides its own next action |
+
+```
+LLM = brain
+Agent = brain + tools + state + memory + control loop
+```
+
+---
+
+## 3. Core Components of an Agent ⭐⭐⭐⭐⭐
+
+```
+             ┌─────────────┐
+             │     LLM     │
+             └──────┬──────┘
+                    │
+       ┌────────────┼────────────┐
+       ↓            ↓            ↓
+    Tools         Memory        State
+       │
+       ↓
+ External systems
+```
+
+An agent typically contains:
+- LLM (reasoning engine)
+- System instructions / persona
+- Tools (functions it can call)
+- State (working memory for the current task)
+- Memory (persisted across tasks/sessions)
+- Planning / reasoning strategy
+- Control loop (orchestration)
+- Guardrails (safety & validation)
+- Observability (tracing, logging, evals)
+
+---
+
+## 4. The Agent Loop ⭐⭐⭐⭐⭐
+
+This is **the** core concept interviewers expect you to whiteboard.
+
+```
+User Goal → Agent → Decide → Action → Tool → Observation
+   → Decide again → Action → ... → Final Answer
+```
+
+**Example:** *"Find the weather in Lucknow and create a todo if it is raining."*
+
+```
+Agent → weather_search("Lucknow") → Observation: Rain
+      → create_todo("Carry umbrella") → Observation: Todo created
+      → Final response
+```
+
+**Termination conditions** (commonly missed in interviews):
+- Agent decides no more tools are needed
+- Max iteration limit hit
+- Timeout / token budget exceeded
+- A guardrail halts execution
+- Human interrupts / rejects an action
+
+---
+
+## 5. Tool Calling ⭐⭐⭐⭐⭐
+
+```
+LLM → Tool selection → Tool execution → Tool result → LLM
+```
+
+Examples: `weather_search()`, `search_web()`, `create_todo()`, `send_email()`, `query_database()`, `get_github_issue()`.
+
+### Tool design best practices (frequently tested)
+- **Clear, narrow names & descriptions** — the model picks tools based on the description, not your code.
+- **Strict JSON schemas** for arguments (use `enum`s for constrained fields).
+- **Idempotent where possible** — safe to retry without side effects.
+- **Return structured, small results** — don't dump a whole API response back into context.
+- **Fail loudly with actionable errors** — `"Invalid date format, expected YYYY-MM-DD"` beats a stack trace.
+- **Least privilege** — a tool should only be able to do what's needed (e.g., `read_only` DB credentials for a `query_database` tool).
+
+---
+
+## 6. Agent State ⭐⭐⭐⭐⭐
+
+State = information needed **during** the current run.
+
+```python
+state = {
+    "user_request": "...",
+    "messages": [],
+    "tool_results": [],
+    "current_step": "...",
+    "status": "running"
+}
+```
+
+In LangGraph:
+
+```
+State → Node → State update → Next node
+```
+
+Know: **state schema, reducers, message lists, checkpoints, partial updates.**
+
+---
+
+## 7. Memory — Types & Architecture ⭐⭐⭐⭐⭐
+
+> **Gap filled:** most guides only say "short-term vs long-term." Interviewers at senior level expect the finer-grained taxonomy borrowed from cognitive science, now standard in agent frameworks (LangGraph, MemGPT/Letta, etc.):
+
+| Memory Type | What it stores | Example |
+|---|---|---|
+| **Working / State** | Current task context | Current tool result, current turn |
+| **Short-term (episodic, session)** | This conversation's history | Last 10 messages |
+| **Long-term episodic** | Past events/interactions | "User asked about React 3 weeks ago" |
+| **Long-term semantic** | Facts & preferences | "User prefers TypeScript", "User's name is Rahul" |
+| **Long-term procedural** | Learned skills/routines | "When user asks for a report, always add a summary table" |
+
+```
+Short-term memory → Current conversation
+Long-term memory  → User-specific information (persists across sessions)
+```
+
+**Implementation options:**
+- Short-term: pass message list in context window (with trimming/summarization).
+- Long-term: vector DB (Chroma/Pinecone) for semantic recall + a structured key-value/SQL store for hard facts (name, preferences).
+- Memory write can be **explicit** (agent calls a `save_memory()` tool) or **implicit** (background summarization job after each session).
+
+---
+
+## 8. Agent Planning ⭐⭐⭐⭐
+
+*"Research React Server Components and create a summary."*
+
+```
+1. Search for information
+2. Collect sources
+3. Compare information
+4. Summarize
+5. Validate answer
+```
+
+This is **task decomposition**. Two planning styles:
+- **Plan-then-execute**: full plan made upfront, then executed step by step (predictable, easier to review/approve).
+- **Interleaved (ReAct-style)**: plan one step at a time based on latest observation (more adaptive, handles surprises better).
+
+---
+
+## 9. ReAct Pattern ⭐⭐⭐⭐⭐
+
+```
+Reason → Act → Observe → Reason → Act → Observe → Final Answer
+```
+
+```
+Question → Reason: "Need weather" → Action: weather_search
+         → Observation: 28°C → Reason: "User only asked weather"
+         → Final answer
+```
+
+ReAct interleaves **reasoning traces** with **tool calls**, which is why agent frameworks expose a "thought" field alongside actions.
+
+---
+
+## 10. Agentic RAG ⭐⭐⭐⭐⭐
+
+**Normal RAG:**
+```
+Question → Retriever → Relevant documents → LLM → Answer
+```
+
+**Agentic RAG:**
+```
+Question → Agent → Should I retrieve? → Retrieve → Evaluate results
+  → Enough information? ── Yes → Answer
+                        └─ No  → Search again
+```
+
+*"Compare our 2025 and 2026 company policies."*
+```
+Search 2025 policy → Search 2026 policy → Compare
+   → Find missing information → Retrieve again → Answer with citations
+```
+
+**RAG vs Agentic RAG (classic interview question):**
+
+| | RAG | Agentic RAG |
+|---|---|---|
+| Retrieval | Always happens, once | Agent decides *if* and *how many times* |
+| Query | Fixed, single query | Can rewrite/decompose queries |
+| Self-correction | None | Can evaluate & re-retrieve |
+| Sources | Single index usually | Can route across multiple indices/tools |
+| Cost | Lower, predictable | Higher, variable |
+
+---
+
+## 11. Agent Design Patterns ⭐⭐⭐⭐⭐
+
+**1. Single Agent**
+```
+User → Agent → Tools
+```
+
+**2. Router Agent**
+```
+             ┌── RAG
+User → Agent ├── Weather
+             ├── Todo
+             └── Search
+```
+
+**3. Planner → Executor**
+```
+User → Planner → Tasks → Executor → Results
+```
+
+**4. Supervisor**
+```
+             ┌── Research Agent
+Supervisor ──┼── Coding Agent
+             └── Review Agent
+```
+
+**5. Multi-Agent (Pipeline)**
+```
+Research Agent → Writer Agent → Reviewer Agent → Final Agent
+```
+
+**6. Human-in-the-loop**
+```
+Agent → High-risk action → Human approval → Tool execution
+```
+
+**7. Reflection (often missing, but common in interviews)**
+```
+Agent → Draft answer → Self-critique → Revise → Final answer
+```
+Used to catch hallucinations/errors before returning a result — an LLM critiques its own (or another agent's) output.
+
+**8. Evaluator-Optimizer (missing from original)**
+```
+Generator → Output → Evaluator (scores it) → Feedback → Generator retries
+```
+Useful when there's a clear scoring rubric (code passes tests, translation quality, etc.).
+
+---
+
+## 12. LangGraph for Agents ⭐⭐⭐⭐⭐
+
+```
+START → Agent → Tool needed?
+   ├── No → END
+   └── Yes → ToolNode → Agent → Tool needed? → ...
+```
+
+LangGraph gives you:
+- State, Nodes, Edges, Conditional routing
+- Tool execution
+- Checkpointing (persist state, resume later)
+- Interrupts (pause for human approval)
+- Streaming (tokens & intermediate steps)
+- Durable workflows (survive process restarts)
+- Subgraphs (compose agents as nodes inside bigger graphs — key for multi-agent)
+
+---
+
+## 13. MCP + Agentic AI ⭐⭐⭐⭐⭐
+
+**MCP** = standard way to expose capabilities (tools, resources, prompts) to any model.
+**Agent** = decides when/how to use those capabilities.
+
+```
+                  ┌── Weather MCP
+                  │
+Agent → MCP Client ├── Todo MCP
+                  │
+                  ├── GitHub MCP
+                  │
+                  └── Database MCP
+```
+
+*"Check my GitHub issues and create todos for high-priority ones."*
+```
+Agent → GitHub MCP → Issues → Agent → Filter high priority
+      → Todo MCP → Create todos
+```
+
+**Why MCP matters for interviews:** before MCP, every agent needed custom integration code per tool/vendor (N agents × M tools = N×M integrations). MCP standardizes the interface so **any** MCP-compatible agent can use **any** MCP server — same idea as USB-C for hardware, or LSP for language tooling.
+
+---
+
+## 14. Multi-Agent Systems ⭐⭐⭐⭐⭐
+
+```
+Simple task:   User → Single Agent → Tools
+
+Complex task:                  ┌── Research Agent
+               User → Supervisor├── Coding Agent
+                                └── Review Agent
+```
+
+*"Build a technical report on RAG."*
+```
+Supervisor → Research Agent → Writer Agent → Reviewer Agent → Final Report
+```
+
+**Interview point:** multi-agent ≠ automatically better. It adds:
+- Complexity, latency, token usage
+- More failure points
+- Harder debugging (which agent said what, when?)
+- Coordination overhead (who talks to whom, in what order)
+
+Use it only when task separation gives real value — e.g., distinct roles with different tools/prompts/models, or when isolating context prevents one agent's noise from polluting another's reasoning.
+
+---
+
+## 15. Human-in-the-Loop ⭐⭐⭐⭐⭐
+
+```
+Agent → delete_database()          ❌ never do this directly
+
+Agent → Requests deletion → Human approval → Execute   ✅
+```
+
+Use for: sending emails, payments, deleting data, production deployments, database mutations, external communication.
+
+**Implementation patterns:**
+- **Approval gate**: agent pauses (LangGraph `interrupt`) and waits for explicit yes/no.
+- **Preview-then-confirm**: agent shows the exact action (e.g., drafted email) before sending.
+- **Confidence threshold**: only escalate to human when the agent's confidence is low or the action is high-risk.
+
+---
+
+## 16. Agent Guardrails & Security ⭐⭐⭐⭐⭐
+
+```
+Input guardrails:  User → Validate request
+Tool guardrails:   Agent → Tool permission check → Execute
+Output guardrails: Agent result → Validation → User
+```
+
+Core concepts:
+- Tool allowlists & permission checks
+- Argument validation (schema + business rules)
+- **Prompt injection protection** — the #1 agent-specific security risk. Untrusted content (web pages, emails, tool outputs) can contain instructions that hijack the agent. Mitigate with: treating retrieved/tool content as *data, not instructions*, sandboxing tool outputs, and never letting a single untrusted source directly trigger a high-privilege tool.
+- PII protection / redaction before logging or sending to third-party tools
+- Rate limiting & budget caps
+- Human approval for irreversible actions
+- Maximum iterations
+- **Sandboxing** (missing from original) — run code-execution tools in isolated containers with no network/filesystem access beyond what's needed.
+- **Least-privilege credentials per tool** — don't give a "search tickets" tool delete permissions just because it's convenient.
+
+---
+
+## 17. Preventing Infinite Loops & Runaway Costs ⭐⭐⭐⭐
+
+```
+Bad agent: Agent → Tool → Agent → Tool → Agent → Tool → ∞
+```
+
+Production safeguards:
+```python
+max_iterations = 10
+```
+- Timeouts per step and per run
+- Retry limits (with exponential backoff)
+- Token limits / budget limits per run
+- Circuit breakers (stop calling a tool that keeps failing)
+- Explicit failure handling & graceful degradation (return partial results with an explanation, not a crash)
+
+---
+
+## 18. Agent Memory Architecture (Deep Dive) ⭐⭐⭐⭐⭐
+
+```
+                    ┌── Current messages
+                    │
+User → Agent ───────┼── Short-term state
+                    │
+                    └── Long-term memory
+                              ↓
+                         User profile
+                         Preferences
+                         Facts
+```
+
+**Conversation 1:** "I prefer TypeScript." → `user_preference.language = TypeScript`
+**Conversation 5:** "Generate a frontend example." → Agent retrieves preference → uses TypeScript.
+
+This is the cross-thread memory problem — solved with a long-term store (vector DB for semantic facts + structured store for key-value facts) that's queried at the start of a session and written to either explicitly or via a background summarizer.
+
+**Design questions interviewers may ask:**
+- *When do you write to long-term memory — every turn, or at session end?* Usually: end-of-session summarization, plus explicit "remember this" tool calls.
+- *How do you avoid memory bloat?* Deduplicate, expire stale facts, cap retrieved memory items by relevance score.
+- *How do you avoid memory poisoning (an untrusted party injecting false "facts")?* Validate/attribute source, avoid writing memory directly from untrusted tool output.
+
+---
+
+## 19. Agent Evaluation ⭐⭐⭐⭐⭐
+
+Measure more than the final answer:
+
+| Metric | Question |
+|---|---|
+| Task success | Did the agent complete the task? |
+| Tool selection accuracy | Did it pick the correct tool? |
+| Tool argument correctness | Were the arguments valid/correct? |
+| Number of steps | Was it efficient, or did it wander? |
+| Hallucination rate | Did it invent information/tool results? |
+| Latency | How long did the workflow take? |
+| Cost / token usage | How many tokens were consumed? |
+| Groundedness | Is the final answer supported by retrieved/tool evidence? |
+| Safety/guardrail pass rate | Did it avoid disallowed actions under adversarial input? |
+
+**Evaluation approaches (often missing):**
+- **Golden trajectory comparison** — compare the agent's tool-call sequence against a labeled "ideal" trajectory.
+- **LLM-as-judge** — a separate model scores the final answer against a rubric.
+- **Simulated users / adversarial testing** — scripted or LLM-driven "users" try to break the agent (prompt injection, contradictory instructions).
+
+Tools: LangSmith, Ragas, DeepEval, Braintrust.
+
+---
+
+## 20. Agent Observability ⭐⭐⭐⭐
+
+```
+User request → Agent decision → Tool call → Tool result
+             → Agent decision → Final answer
+```
+
+Track: traces, tool calls, latency, errors, token usage, model responses, state transitions, retries.
+
+LangSmith pairs naturally with LangGraph/LangChain for this; OpenTelemetry-based tracing is the vendor-neutral alternative worth mentioning in interviews.
+
+---
+
+## 21. Framework Landscape: LangGraph vs CrewAI vs AutoGen vs OpenAI Swarm ⭐⭐⭐⭐
+
+> **Gap filled:** interviewers increasingly ask "why LangGraph over X" — you should be able to compare.
+
+| Framework | Best for | Model |
+|---|---|---|
+| **LangGraph** | Fine-grained control, production workflows, checkpointing, HITL | Graph of nodes/edges + explicit state |
+| **CrewAI** | Quick multi-agent "crews" with roles (researcher, writer...) | Role-based, higher abstraction |
+| **AutoGen (Microsoft)** | Conversational multi-agent, research-heavy setups | Agents "chat" with each other |
+| **OpenAI Swarm / Agents SDK** | Lightweight handoffs between agents | Simple handoff functions |
+
+**Talking point:** LangGraph trades some ease-of-use for explicit control over state, retries, and interrupts — which is why it's favored for production systems where correctness and auditability matter more than speed of prototyping.
+
+---
+
+## 22. Agent-to-Agent (A2A) & Protocol Interop ⭐⭐⭐
+
+> **Gap filled:** MCP standardizes agent↔tool. A2A (Google's Agent-to-Agent protocol) and similar efforts standardize **agent↔agent** communication across vendors/frameworks — worth a one-line mention if asked about the broader ecosystem.
+
+```
+Agent A (LangGraph) ── A2A ── Agent B (CrewAI)
+```
+
+Useful when agents built on different stacks/companies need to delegate tasks to each other over a common wire protocol, rather than one framework's internal message format.
+
+---
+
+## 23. Context Engineering ⭐⭐⭐⭐⭐
+
+> **Gap filled:** increasingly considered *the* core skill for agent builders — more important than prompt wording alone.
+
+Context engineering = deciding **what** goes into the LLM's context window at each step (not just how it's worded):
+- Which messages to keep vs. summarize/drop as history grows
+- Which tool results to include in full vs. truncate/compress
+- Which memories to retrieve and inject
+- How to structure the system prompt so tool-use instructions don't get lost
+- Managing **context window budget** across system prompt + history + retrieved docs + tool schemas
+
+**Common failure mode to mention:** "context rot" — as conversations grow, irrelevant history crowds out the signal, causing worse tool selection and more hallucination. Mitigate with summarization, sliding windows, and relevance-based retrieval instead of naive full-history stuffing.
+
+---
+
+## 24. Production Agent Architecture ⭐⭐⭐⭐⭐
+
+```
+                    ┌── MCP Tools
+                    │
+React → FastAPI → LangGraph Agent → State / Memory
+                                   → Guardrails
+                                   → MCP Client → External Systems
+```
+
+Supporting infrastructure:
+- **PostgreSQL** → users/conversations
+- **Redis** → caching/short-lived state
+- **Chroma / Pinecone / pgvector** → vector memory / RAG
+- **Ollama / hosted API** → LLM inference
+- **LangSmith / OpenTelemetry** → tracing & evaluation
+- **Queue (Celery/RQ)** → long-running or async tool calls
+- **Secrets manager** → per-tool credentials with least privilege
+
+---
+
+## 25. Patterns Cheat Sheet
+
+| Pattern | Importance |
+|---|---|
+| Tool-using agent | ⭐⭐⭐⭐⭐ |
+| ReAct | ⭐⭐⭐⭐⭐ |
+| Router | ⭐⭐⭐⭐⭐ |
+| Agentic RAG | ⭐⭐⭐⭐⭐ |
+| Planner/Executor | ⭐⭐⭐⭐⭐ |
+| Supervisor | ⭐⭐⭐⭐ |
+| Multi-agent | ⭐⭐⭐⭐ |
+| Reflection | ⭐⭐⭐⭐ |
+| Evaluator-Optimizer | ⭐⭐⭐ |
+| Human-in-the-loop | ⭐⭐⭐⭐⭐ |
+| Memory | ⭐⭐⭐⭐⭐ |
+| MCP integration | ⭐⭐⭐⭐⭐ |
+| Guardrails | ⭐⭐⭐⭐⭐ |
+| Context engineering | ⭐⭐⭐⭐⭐ |
+
+---
+
+## 26. Projects to Build
+
+**Project 1 — Tool Agent**
+```
+FastAPI + Ollama + Weather tool + Todo tool
+```
+*"What's the weather and create a reminder if it's raining."*
+
+**Project 2 — Agentic RAG** ⭐⭐⭐⭐⭐
+```
+User → Agent → Retrieve → Evaluate → Retrieve again if needed → Generate
+```
+Stack: FastAPI + Ollama + Chroma + LangGraph
+
+**Project 3 — MCP Agent** ⭐⭐⭐⭐⭐
+```
+LangGraph → MCP Client → Weather MCP, Todo MCP, YouTube MCP
+```
+
+**Project 4 — Multi-Agent Researcher**
+```
+User → Supervisor → Research Agent, Summarizer Agent, Reviewer Agent → Final answer
+```
+
+**Project 5 — Guardrailed Agent with HITL** *(added — closes a common interview gap)*
+```
+User → Agent → High-risk tool call detected → Human approval UI → Execute → Audit log
+```
+Demonstrates: permission checks, approval flow, audit trail, max-iteration limits — the exact things production interviews probe for.
+
+---
+
+## 27. 30 Interview Questions
+
+**Foundations**
+1. What is Agentic AI?
+2. Agent vs LLM?
+3. What are the components of an AI agent?
+4. Explain the agent loop.
+5. How does an agent decide which tool to use?
+
+**Reasoning & Retrieval**
+6. What is ReAct?
+7. What is Agentic RAG?
+8. RAG vs Agentic RAG — differences?
+9. What is a planner/executor architecture?
+10. When would you use a Reflection pattern?
+
+**State & Memory**
+11. What is agent state?
+12. State vs memory — difference?
+13. What are the different types of agent memory?
+14. How do you implement long-term memory without bloating context?
+15. How do you prevent memory poisoning?
+
+**Orchestration**
+16. How does LangGraph help build agents?
+17. How do MCP and agents work together?
+18. What is a supervisor agent?
+19. When should you use a multi-agent architecture (and when should you avoid it)?
+20. How do agent-to-agent protocols differ from MCP?
+
+**Safety & Reliability**
+21. How do you prevent infinite agent loops?
+22. How do you secure an AI agent against prompt injection?
+23. How do you implement human-in-the-loop for risky actions?
+24. What guardrails would you put around a `send_email` tool?
+25. How do you sandbox a code-execution tool safely?
+
+**Evaluation & Production**
+26. How do you evaluate an agent (beyond just the final answer)?
+27. What's the difference between observability and evaluation for agents?
+28. What is context engineering, and why does it matter more than prompt wording?
+29. How would you control cost/latency in a multi-step agent?
+30. Design a production-grade AI agent end-to-end.
+
+---
+
+## 28. 5 Model Answers (Deep Dives)
+
+**Q: State vs Memory — what's the difference?**
+> State is scoped to the *current run/workflow* — the messages, tool results, and step tracking needed to finish the task in front of you. Memory is *persisted beyond* the current run — user preferences, past interactions, learned facts — and is explicitly written to and retrieved from a durable store (vector DB + structured store), typically at session boundaries or via an explicit "remember" tool call.
+
+**Q: RAG vs Agentic RAG?**
+> Standard RAG always retrieves once with a fixed query and hands the documents to the LLM. Agentic RAG puts an agent in the loop: it decides *whether* to retrieve, can rewrite or decompose the query, evaluates whether the retrieved context is sufficient, and re-retrieves or switches sources if not — trading some latency/cost for higher answer quality on multi-hop or ambiguous questions.
+
+**Q: How do you prevent infinite agent loops?**
+> Combine a hard `max_iterations` cap, per-step and per-run timeouts, token/cost budgets, and circuit breakers that stop calling a tool after repeated failures. On top of the mechanical caps, design the loop's termination condition explicitly — the agent should have a clear signal for "done" (e.g., a `final_answer` tool) rather than relying on it to just stop asking for tools.
+
+**Q: How do you secure an agent against prompt injection?**
+> Treat all retrieved documents and tool outputs as *untrusted data*, never as instructions — the system prompt should explicitly tell the model to ignore instructions embedded in tool results. Pair that with tool allowlists, argument validation, least-privilege credentials per tool, and human approval for irreversible actions, so that even if injected instructions get through, the blast radius is limited.
+
+**Q: When should you use multi-agent instead of a single agent?**
+> Only when task separation buys something real — distinct roles needing different tools/prompts/models, or isolating one agent's noisy context from another's reasoning. Otherwise multi-agent just adds latency, token cost, and debugging complexity without improving output quality. Start single-agent; split only when you can point to a specific coordination or context-isolation problem it solves.
+
+---
+
+## 29. System Design Question: Build a Production Agent
+
+**Prompt you'll likely get:** *"Design an AI agent that monitors GitHub issues, triages them, and creates Jira tickets for high-priority bugs — safely, in production."*
+
+**Structure your answer around:**
+
+1. **Trigger** — webhook from GitHub (new issue) → queue (avoid blocking on long agent runs).
+2. **Agent core** — LangGraph agent with tools: `get_github_issue`, `classify_priority` (could be the LLM itself or a smaller classifier), `search_jira_duplicates`, `create_jira_ticket`.
+3. **State** — current issue, classification result, duplicate-check result, status.
+4. **Guardrails** — tool allowlist (no `delete_issue`), argument validation on ticket fields, rate limit on ticket creation.
+5. **Human-in-the-loop** — auto-create for clearly high-priority + no duplicates; route to a Slack approval for ambiguous cases.
+6. **Memory** — long-term store of past triage decisions to keep classification consistent over time.
+7. **Observability** — LangSmith traces per run; alert on repeated tool failures.
+8. **Evaluation** — weekly sample of triage decisions reviewed against a golden set; track precision/recall on "should have been high priority."
+9. **Failure handling** — if Jira API is down, retry with backoff, then fall back to a dead-letter queue + alert, not a silent drop.
+10. **Cost control** — cap LLM calls per issue (e.g., max 4 steps), use a cheaper model for classification and a stronger one only for the final ticket write-up.
+
+Walking through these ten points *in this order* signals production maturity, not just familiarity with the agent loop.
+
+---
+
+## 30. Glossary
+
+| Term | Meaning |
+|---|---|
+| **Agent loop** | The reason→act→observe cycle that drives an agent to completion |
+| **Tool calling / function calling** | LLM outputs a structured request to invoke an external function |
+| **State** | Task-scoped working data for the current run |
+| **Memory** | Data persisted beyond the current run (episodic/semantic/procedural) |
+| **ReAct** | Reasoning + Acting interleaved pattern |
+| **Agentic RAG** | RAG where an agent controls retrieval strategy dynamically |
+| **MCP** | Model Context Protocol — standard interface between agents and tools/data |
+| **A2A** | Agent-to-Agent protocol — standard interface between agents across frameworks |
+| **Checkpointing** | Persisting graph state so a run can pause/resume |
+| **Interrupt** | A deliberate pause point in the graph, often for human approval |
+| **Guardrail** | A validation/safety check on input, tool use, or output |
+| **Prompt injection** | Malicious instructions hidden in untrusted content that hijack agent behavior |
+| **Context engineering** | Deliberately curating what enters the context window at each step |
+| **Reflection** | Pattern where the agent critiques and revises its own output |
+| **Circuit breaker** | Mechanism that stops retrying a repeatedly failing tool/action |
+| **LLM-as-judge** | Using a separate model call to score/evaluate an agent's output |
+
+---
+
+## 31. Final Mental Model
+
+```
+LLM              → Generates / reasons
+Prompt Engineering → Controls behavior
+RAG              → Provides knowledge
+LangChain        → Connects components
+LangGraph        → Controls agent workflow/state
+MCP              → Connects external capabilities
+Guardrails       → Controls safety/validation
+Context Eng.     → Curates what the model actually sees
+Agentic AI       → Combines all of the above to accomplish goals
+```
+
+**The agent loop is the heart of it:**
+
+```
+       ┌──────────────┐
+       │     Goal     │
+       └──────┬───────┘
+              ↓
+           Decide
+              ↓
+         Use Tool?
+        /          \
+      No            Yes
+      ↓              ↓
+   Answer         Execute
+                    ↓
+                Observe
+                    ↓
+                  Decide
+                    ↺
+```
+
+### Interview prep priority
+
+> Don't over-invest in theoretical "autonomous agent" hype. Be able to **build and explain one production-style agent**:
+>
+> **FastAPI + Ollama + LangGraph + MCP + RAG + Guardrails + Memory + LangSmith** — including tool failures, retries, permissions, human approval, and evaluation.
+
+That single project ties together the entire GenAI roadmap — and is exactly what a system-design interview will ask you to walk through.

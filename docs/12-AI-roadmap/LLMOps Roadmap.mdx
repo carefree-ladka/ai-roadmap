@@ -1,0 +1,510 @@
+# LLMOps Roadmap 
+
+```
+Build → Evaluate → Deploy → Monitor → Improve → Repeat
+```
+
+## Table of Contents
+
+1. [What Is LLMOps?](#1-what-is-llmops-)
+2. [LLM Application Lifecycle](#2-llm-application-lifecycle-)
+3. [LLMOps vs MLOps](#3-llmops-vs-mlops-)
+4. [Model Management](#4-model-management-)
+5. [Prompt Management](#5-prompt-management-)
+6. [Dataset Management](#6-dataset-management-)
+7. [Experiment Tracking](#7-experiment-tracking-)
+8. [LLM Evaluation](#8-llm-evaluation-)
+9. [CI/CD for LLM Applications](#9-cicd-for-llm-applications-)
+10. [Prompt CI/CD](#10-prompt-cicd-)
+11. [Model Evaluation & Selection](#11-model-evaluation--selection-)
+12. [Model Routing](#12-model-routing-)
+13. [Observability](#13-observability-)
+14. [Tracing](#14-tracing-)
+15. [Cost Management](#15-cost-management-)
+16. [Latency Management](#16-latency-management-)
+17. [Caching](#17-caching-)
+18. [RAGOps](#18-ragops-)
+19. [AgentOps](#19-agentops-)
+20. [Guardrails & Security](#20-guardrails--security-)
+21. [Model Deployment](#21-model-deployment-)
+22. [The LLM Gateway Pattern](#22-the-llm-gateway-pattern-)
+23. [Model Versioning & Rollbacks](#23-model-versioning--rollbacks-)
+24. [A/B Testing](#24-ab-testing-)
+25. [Canary & Shadow Deployment](#25-canary--shadow-deployment-)
+26. [Human Feedback](#26-human-feedback-)
+27. [Reliability Engineering](#27-reliability-engineering-)
+28. [Drift Detection](#28-drift-detection-)
+29. [LLMOps Architecture](#29-llmops-architecture-)
+30. [Your LLMOps Project](#30-your-llmops-project-)
+31. [Common Mistakes](#31-common-mistakes-)
+32. [Interview Priority Cheat Sheet](#32-interview-priority-cheat-sheet-)
+33. [Interview Questions](#33-interview-questions)
+34. [The Complete Mental Model](#34-the-complete-mental-model-)
+
+---
+
+## 1. What Is LLMOps? ⭐⭐⭐⭐⭐
+
+Traditional MLOps manages ML models. LLMOps extends these practices to LLM applications:
+
+```
+LLMOps
+ ├── Models
+ ├── Prompts
+ ├── Datasets
+ ├── RAG
+ ├── Agents
+ ├── Evaluation
+ ├── Deployment
+ ├── Monitoring
+ ├── Security
+ └── Cost
+```
+
+**Interview answer:** "LLMOps is the set of practices and infrastructure used to develop, evaluate, deploy, monitor, secure, version, and continuously improve LLM-powered applications."
+
+---
+
+## 2. LLM Application Lifecycle ⭐⭐⭐⭐⭐
+
+Know this extremely well:
+```
+Data → Prompt/Model → Development → Evaluation → Security testing
+   → Deployment → Monitoring → User feedback → Improvement
+   → Evaluation → Deployment
+```
+This loop — not a one-time launch — is the heart of LLMOps.
+
+---
+
+## 3. LLMOps vs MLOps ⭐⭐⭐⭐
+
+**Traditional ML:** `Data → Training → Model → Prediction → Monitoring`
+
+**LLM application:** `Prompt + Model + RAG + Tools + Agent + Memory → Response → Evaluation → Monitoring`
+
+LLMOps has additional concerns beyond classic MLOps: prompt versions, token usage, hallucinations, RAG quality, tool calls, agent trajectories, LLM-as-a-judge, safety, model/provider changes.
+
+---
+
+## 4. Model Management ⭐⭐⭐⭐⭐
+
+Don't treat your model as just "llama." Track: model, model version, provider, quantization, context length, parameters, temperature, system prompt.
+
+```
+Qwen · v1 · 4-bit · 8B · context=32K
+```
+
+Why? Because changing the model can change application behavior — even a quantization change or provider-side silent update can shift output quality.
+
+---
+
+## 5. Prompt Management ⭐⭐⭐⭐⭐
+
+Prompts are part of your application code.
+
+**Bad:** `prompt = "You are a helpful assistant..."` scattered throughout the codebase.
+
+**Better:**
+```
+prompts/
+ ├── chat_v1
+ ├── chat_v2
+ ├── rag_v1
+ └── summarization_v1
+```
+Track: prompt version, model version, evaluation score. Then you can answer: *"Why did quality drop after yesterday's deployment?"*
+
+---
+
+## 6. Dataset Management ⭐⭐⭐⭐⭐
+
+Evaluation/training datasets should also be versioned:
+```
+datasets/
+ ├── eval_v1
+ ├── eval_v2
+ └── security_v1
+```
+Include: question, expected answer, expected context, metadata.
+
+Dataset types: evaluation dataset, fine-tuning dataset, safety dataset, prompt-injection dataset, RAG test dataset, agent test dataset.
+
+---
+
+## 7. Experiment Tracking ⭐⭐⭐⭐⭐
+
+```
+Experiment 1: Model A + Prompt A
+Experiment 2: Model A + Prompt B
+Experiment 3: Model B + Prompt B
+```
+Track: accuracy, faithfulness, latency, tokens, cost — then compare. This prevents *"I think version 3 was better"* from becoming your evaluation strategy.
+
+---
+
+## 8. LLM Evaluation ⭐⭐⭐⭐⭐
+
+LLMOps puts evaluation into the lifecycle:
+```
+Code → Evaluation → Pass? ── NO → Fix
+                        └── YES → Deploy
+```
+
+- **RAG:** Recall@K, Precision@K, MRR, NDCG, faithfulness, context relevance
+- **LLM:** correctness, relevance, groundedness
+- **Agents:** tool selection, tool arguments, task completion, number of steps
+
+---
+
+## 9. CI/CD for LLM Applications ⭐⭐⭐⭐⭐
+
+**Traditional:** `Git Push → Unit Tests → Build → Deploy`
+
+**LLMOps:**
+```
+Git Push → Unit Tests → Integration Tests → Security Tests
+   → LLM Evaluation → RAG Evaluation → Deploy → Monitor
+```
+**Example:** `Faithfulness < 0.85 → FAIL ❌ → Don't deploy`
+
+---
+
+## 10. Prompt CI/CD ⭐⭐⭐⭐
+
+You can change a prompt without changing application code — so test prompts too:
+```
+Prompt v1 → Evaluation
+Prompt v2 → Evaluation
+```
+Deploy only if: quality ↑, cost acceptable, latency acceptable, safety acceptable.
+
+---
+
+## 11. Model Evaluation & Selection ⭐⭐⭐⭐⭐
+
+Don't choose purely by public benchmark — test against your own workload:
+```
+Your dataset → Model A / Model B / Model C → Compare
+```
+Metrics: quality, latency, cost, memory, safety, tool calling, structured output.
+
+---
+
+## 12. Model Routing ⭐⭐⭐⭐
+
+Production systems don't always need the biggest model:
+```
+Request → Router → Small model (simple question)
+                 └→ Large model (complex reasoning)
+```
+This can significantly reduce cost. A router can be a cheap classifier, a rules engine, or the LLM itself doing a fast triage pass.
+
+---
+
+## 13. Observability ⭐⭐⭐⭐⭐
+
+Makes evaluation/tracing tooling (e.g., LangSmith) operational, not just experimental:
+```
+Request → Prompt → Retriever → Tool → LLM → Response
+```
+Monitor: latency, tokens, cost, errors, retrieval quality, tool calls, agent steps, model, prompt version.
+
+---
+
+## 14. Tracing ⭐⭐⭐⭐⭐
+
+For an agent:
+```
+User → LangGraph → Node A → Retriever → Node B → MCP tool → Node C → LLM → Answer
+```
+A trace lets you see the entire execution — extremely useful for debugging *"Why did the agent call the wrong tool?"*
+
+Worth knowing by name: **OpenTelemetry's GenAI semantic conventions** are emerging as a standard way to structure LLM/agent traces so they're portable across observability backends, not locked into one vendor's format.
+
+---
+
+## 15. Cost Management ⭐⭐⭐⭐⭐
+
+Track: input tokens, output tokens, total tokens, cost/request, cost/user, cost/day.
+
+```
+User A: 100 requests → $2
+User B: 100 requests → $25   (sending much larger prompts)
+```
+Enforce: token limits, user quotas, model routing, caching. Also track **cost per feature/tenant**, not just aggregate spend — a single noisy customer or feature can dominate the bill unnoticed.
+
+---
+
+## 16. Latency Management ⭐⭐⭐⭐⭐
+
+Track: **TTFT** (time to first token), total latency (complete response).
+
+```
+For RAG:
+Retrieval:  100ms
+Reranking:  150ms
+LLM:        2.5s   ← bottleneck, immediately visible
+```
+
+---
+
+## 17. Caching ⭐⭐⭐⭐
+
+Consider multiple layers:
+```
+Embedding cache → Retrieval cache → LLM response cache
+```
+```
+Same question → Cache hit → No LLM call → ✅ Lower cost, ✅ Lower latency
+```
+Don't cache data that is personalized or rapidly changing without considering correctness. **Semantic caching** (matching on embedding similarity, not exact string match) catches more hits but risks serving a stale/wrong answer for a subtly different question — validate similarity thresholds carefully.
+
+---
+
+## 18. RAGOps ⭐⭐⭐⭐
+
+```
+Documents → Ingestion → Chunking → Embedding → Vector DB → Retrieval → Evaluation
+```
+Monitor: failed ingestion, duplicate documents, stale documents, embedding model version, chunking version, retrieval quality, index version.
+
+---
+
+## 19. AgentOps ⭐⭐⭐⭐
+
+```
+Goal → Plan → Tool → Observation → Tool → Answer
+```
+Monitor: number of steps, tool selection, tool failures, agent loops, token usage, task completion, human approvals.
+
+```
+Agent steps > 20 → Potential infinite loop → STOP
+```
+
+---
+
+## 20. Guardrails & Security ⭐⭐⭐⭐⭐
+
+```
+Input → Security checks → LLM → Output validation → Tool authorization → Response
+```
+Monitor: prompt injection, PII leakage, jailbreaks, tool abuse, unauthorized access, malicious documents. This connects directly to your AI Security work.
+
+A practical addition: run a **prompt-injection regression suite** as part of CI, the same way you'd run a quality eval suite — a prompt or model change can silently reopen a jailbreak that was previously patched.
+
+---
+
+## 21. Model Deployment ⭐⭐⭐⭐⭐
+
+**Managed:** `FastAPI → Cloud LLM API`
+**Self-hosted:** `FastAPI → vLLM / Ollama → GPU`
+
+Learn: Docker, model servers, GPU inference, quantization, autoscaling, load balancing, health checks.
+
+---
+
+## 22. The LLM Gateway Pattern ⭐⭐⭐
+
+A piece often missing from "just call the API" thinking, worth knowing for interviews:
+```
+App → LLM Gateway/Proxy → { OpenAI, Anthropic, self-hosted, ... }
+```
+A gateway (e.g., patterns used by tools like LiteLLM or Portkey) centralizes: provider failover, unified logging/cost tracking across providers, rate limiting, API-key management, and swapping models without changing application code. This is how teams support **model routing and provider fallback** cleanly instead of hardcoding one vendor's SDK everywhere.
+
+---
+
+## 23. Model Versioning & Rollbacks ⭐⭐⭐⭐⭐
+
+```
+Production → Model v2 → Quality drops → Rollback → Model v1
+```
+Same principle applies to: prompt, embedding model, reranker, agent workflow, dataset. A **model registry** (tracking which version is live, its eval scores, and its approval status) is the good-to-know infra piece that makes rollback fast instead of a scramble.
+
+---
+
+## 24. A/B Testing ⭐⭐⭐⭐
+
+```
+Users → Prompt A / Prompt B → Compare
+```
+Metrics: user satisfaction, task completion, accuracy, latency, cost. Lets you test changes safely with real traffic instead of only offline eval.
+
+---
+
+## 25. Canary & Shadow Deployment ⭐⭐⭐⭐
+
+**Canary:** don't send a new model to everyone.
+```
+Production: 95% → Model v1, 5% → Model v2
+```
+Monitor errors/quality/latency/cost, then ramp: `5% → 25% → 50% → 100%`.
+
+**Shadow deployment** (a good complement, often missed): send the *same* live traffic to the new model in parallel, but never show its output to users — only log and compare it against the current production model. This validates a new model/prompt on real traffic with zero user-facing risk, before it ever takes a canary slice.
+
+---
+
+## 26. Human Feedback ⭐⭐⭐⭐⭐
+
+```
+AI Response → 👍/👎 → Feedback dataset → Evaluation → Prompt/model improvement
+```
+Creates a continuous improvement loop: `Production → Feedback → Dataset → Evaluation → Improvement → Deployment`.
+
+---
+
+## 27. Reliability Engineering ⭐⭐⭐⭐
+
+Production LLM apps need the same resilience patterns as any distributed system, applied to model calls:
+
+- **Timeout** — don't let a hung model call block the whole request.
+- **Retry** — with backoff, for transient provider errors.
+- **Fallback** — route to a backup model/provider if the primary fails or times out.
+- **Rate limiting** — protect both your budget and the upstream provider's limits.
+- **Circuit breaker** — stop hammering a provider that's clearly degraded, and fail fast instead.
+
+---
+
+## 28. Drift Detection ⭐⭐⭐
+
+A good-to-know monitoring concern beyond simple quality metrics:
+
+- **Input drift** — the kinds of questions/documents users send shift over time away from what your eval dataset covers.
+- **Output/quality drift** — a provider silently updates a hosted model behind the same API name, and your eval scores or user feedback quietly degrade with no code change on your side.
+- Mitigation: periodically re-run your golden evaluation set against production traffic samples, and alert on score regressions — not just on hard errors.
+
+---
+
+## 29. LLMOps Architecture 🔥
+
+```
+                    React
+                      ↓
+                 API Gateway
+                      ↓
+                    FastAPI
+                      ↓
+                  LangGraph
+                /    |     \
+               ↓     ↓      ↓
+             RAG    MCP    Memory
+               \     |      /
+                \    |     /
+                    LLM
+                      ↓
+        ┌─────────────┼─────────────┐
+        ↓             ↓             ↓
+    Postgres        Redis       Vector DB
+                      ↓
+                 Observability
+                   LangSmith
+                      ↓
+                 Evaluation
+                      ↓
+                 CI/CD Pipeline
+                      ↓
+                   Deploy
+```
+
+---
+
+## 30. Your LLMOps Project 🔥🔥
+
+Take your existing FastAPI + React ChatGPT clone and add:
+
+**Development** — Git, Docker, .env/secrets
+
+**AI** — LangGraph, RAG, MCP, Memory, Guardrails
+
+**Evaluation** — Golden dataset, Ragas, LangSmith, LLM-as-a-Judge
+
+**Operations** — Tracing, metrics, logging, cost tracking, latency tracking
+
+**Deployment** — Docker, FastAPI, Redis, Postgres, Vector DB, LLM serving
+
+**Reliability** — Timeout, retry, fallback, rate limiting, circuit breaker
+
+**Lifecycle** — Model version, prompt version, dataset version, evaluation version, rollback
+
+That becomes a genuinely production-oriented AI Engineer project, rather than just a chatbot demo.
+
+---
+
+## 31. Common Mistakes ⭐⭐⭐⭐
+
+- ❌ Treating a prompt change as "not a real deploy" and skipping evaluation before shipping it.
+- ❌ Hardcoding a provider's SDK everywhere instead of routing through a gateway — makes failover and model swaps painful.
+- ❌ Monitoring only errors/latency and never quality — a model can be fast, cheap, and confidently wrong.
+- ❌ No rollback plan for prompts, embeddings, or rerankers — only for "the model."
+- ❌ Caching personalized or rapidly-changing answers without a correctness check, serving stale data.
+- ❌ Letting agent loops run unbounded — no step limit, no loop detection.
+- ❌ Assuming a hosted model API is version-stable — providers can update models behind the same name, causing silent drift.
+- ❌ Running security/prompt-injection tests once at launch instead of as a recurring regression suite.
+
+---
+
+## 32. Interview Priority Cheat Sheet 🎯
+
+**Must know ⭐⭐⭐⭐⭐**
+What is LLMOps · LLM lifecycle · LLM evaluation · Prompt/model versioning · Experiment tracking · CI/CD for LLM apps · LLM observability · Tracing · Cost monitoring · Latency monitoring · RAGOps · AgentOps · Model deployment · Model routing · A/B testing · Canary deployment · Rollbacks · Security & guardrails · Human feedback · Continuous improvement
+
+**Good to know ⭐⭐⭐**
+Kubernetes · GPU scheduling · Distributed inference · Feature stores · Model registries · Advanced autoscaling · Distributed tracing with OpenTelemetry · LLM gateways · Shadow deployment · Drift detection · Reliability patterns (circuit breakers, fallback)
+
+---
+
+## 33. Interview Questions
+
+1. What's the difference between LLMOps and traditional MLOps?
+2. Walk through your CI/CD pipeline for a prompt change — what gates it before production?
+3. How would you detect that a hosted model provider silently changed behavior behind the same API name?
+4. Explain canary vs shadow deployment — when would you use each?
+5. How do you track cost per user/tenant, and what would you do about one outlier user?
+6. What's an LLM gateway, and what problem does it solve that calling the SDK directly doesn't?
+7. How would you prevent an agent from looping indefinitely in production?
+8. What's the risk with semantic caching, and how do you mitigate it?
+9. Design the observability stack for a RAG + agent pipeline — what do you trace and monitor at each step?
+10. How does human feedback close the loop back into your evaluation and deployment pipeline?
+
+---
+
+## 34. The Complete Mental Model 🧠
+
+```
+             ┌──────────────┐
+             │   DEVELOP    │
+             └──────┬───────┘
+                    ↓
+             Prompt + Model
+                    ↓
+             ┌──────────────┐
+             │   EVALUATE   │
+             └──────┬───────┘
+                    ↓
+          Quality + Safety Tests
+                    ↓
+             ┌──────────────┐
+             │    DEPLOY    │
+             └──────┬───────┘
+                    ↓
+             ┌──────────────┐
+             │   MONITOR    │
+             └──────┬───────┘
+                    ↓
+        ┌───────────┼───────────┐
+        ↓           ↓           ↓
+     Quality      Cost       Latency
+        ↓           ↓           ↓
+        └───────────┼───────────┘
+                    ↓
+              User Feedback
+                    ↓
+               IMPROVE
+                    ↓
+                 EVALUATE
+                    ↓
+                 DEPLOY
+```
+
+**One-line interview answer:**
+"LLMOps is the operational discipline for managing the complete lifecycle of LLM applications, including prompt and model versioning, evaluation, deployment, observability, security, cost and latency optimization, and continuous improvement."

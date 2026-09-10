@@ -1,0 +1,521 @@
+# Fine-Tuning Roadmap
+
+## Table of Contents
+
+1. [Fine-Tuning Fundamentals](#1-fine-tuning-fundamentals-)
+2. [Pretraining vs Fine-Tuning](#2-pretraining-vs-fine-tuning-)
+3. [When Should You Fine-Tune?](#3-when-should-you-fine-tune-)
+4. [When NOT to Fine-Tune](#4-when-not-to-fine-tune-)
+5. [Types of Fine-Tuning](#5-types-of-fine-tuning-)
+6. [LoRA](#6-lora-)
+7. [QLoRA](#7-qlora-)
+8. [Quantization](#8-quantization-)
+9. [Dataset Preparation](#9-dataset-preparation-)
+10. [Dataset Quality](#10-dataset-quality-)
+11. [Training Pipeline](#11-training-pipeline-)
+12. [Tokenization During Training](#12-tokenization-during-training-)
+13. [Important Training Parameters](#13-important-training-parameters-)
+14. [Overfitting & Catastrophic Forgetting](#14-overfitting--catastrophic-forgetting-)
+15. [Instruction Fine-Tuning](#15-instruction-fine-tuning-)
+16. [SFT](#16-sft-)
+17. [RLHF](#17-rlhf-)
+18. [DPO and Other Preference Methods](#18-dpo-and-other-preference-methods-)
+19. [Fine-Tuning vs RAG](#19-fine-tuning-vs-rag-)
+20. [Fine-Tuning vs Prompt Engineering](#20-fine-tuning-vs-prompt-engineering-)
+21. [Evaluation](#21-evaluation-)
+22. [Fine-Tuning with Ollama (Local Flow)](#22-fine-tuning-with-ollama-local-flow-)
+23. [Hugging Face Ecosystem](#23-hugging-face-ecosystem-)
+24. [Model Merging, Distillation & Continued Pretraining](#24-model-merging-distillation--continued-pretraining-)
+25. [Fine-Tuning Production Concerns](#25-fine-tuning-production-concerns-)
+26. [Fine-Tuning Security](#26-fine-tuning-security-)
+27. [Cost & Compute Planning](#27-cost--compute-planning-)
+28. [Interview Priority Cheat Sheet](#28-interview-priority-cheat-sheet-)
+29. [Best Practical Project](#29-best-practical-project-)
+30. [Common Interview Questions](#30-common-interview-questions)
+31. [The Mental Model](#31-the-mental-model-)
+
+---
+
+## 1. Fine-Tuning Fundamentals ⭐⭐⭐⭐⭐
+
+Three levers you have over model behavior, and they are **not interchangeable**:
+
+```
+Prompt Engineering  → change instructions
+RAG                 → give the model external knowledge
+Fine-tuning          → change the model's weights/behavior
+```
+
+**RAG flow**
+```
+Company policies → Retrieve relevant policy → LLM
+```
+Use RAG when knowledge changes frequently.
+
+**Fine-tuning flow**
+```
+1,000 examples → Fine-tune model → Model learns desired behavior
+```
+Use fine-tuning when you want the model to *behave* differently, not just *know* more.
+
+---
+
+## 2. Pretraining vs Fine-Tuning ⭐⭐⭐
+
+```
+Huge dataset → Base model → Instruction tuning → Chat/Instruct model → Fine-tuning → Domain/task-specific model
+```
+
+- **Pretraining** — learns general language patterns from massive, broad corpora.
+- **Fine-tuning** — adapts an already-capable model to a narrower task or style.
+
+---
+
+## 3. When Should You Fine-Tune? ⭐⭐⭐⭐⭐
+
+One of the most-asked interview topics. Fine-tune when you need:
+
+- Consistent output style
+- Specific task behavior
+- Domain-specific terminology
+- Classification
+- Structured responses
+- Reliable instruction following
+- Specialized workflows
+- A smaller model to perform one narrow task well (cheaper inference)
+
+**Example**
+```
+Input:  "Customer wants refund"
+Output: { "intent": "refund_request", "priority": "high" }
+```
+With thousands of high-quality examples, fine-tuning lets a *smaller* model do this reliably and cheaply.
+
+---
+
+## 4. When NOT to Fine-Tune ⭐⭐⭐⭐⭐
+
+Don't fine-tune just because "the model doesn't know my company's latest documents." That's a knowledge problem, not a behavior problem.
+
+```
+Changing knowledge → RAG
+Changing behavior   → Fine-tuning
+```
+
+**Example:** Company FAQ changes every week → ❌ fine-tuning, ✅ RAG.
+
+Other reasons *not* to fine-tune:
+- The task can already be solved reliably with a good system prompt + few-shot examples.
+- You don't yet have enough clean, representative data (fine-tuning amplifies bad data).
+- You need the fix live *today* — training/evaluation cycles take time; prompting is instant.
+
+---
+
+## 5. Types of Fine-Tuning ⭐⭐⭐⭐
+
+**Full fine-tuning** — update (nearly) all model weights. Requires significant compute and memory.
+
+**Parameter-Efficient Fine-Tuning (PEFT)** — update only a small number of parameters.
+```
+Base model → Small trainable adapter → Fine-tuned model
+```
+Far more practical for most real-world use cases.
+
+Other PEFT variants worth knowing by name: **prefix tuning**, **prompt tuning**, **(IA)³**, **adapters** — LoRA is the one you must know cold, but interviewers sometimes probe whether you know it's part of a broader PEFT family.
+
+---
+
+## 6. LoRA ⭐⭐⭐⭐⭐
+
+**LoRA = Low-Rank Adaptation.**
+
+Instead of updating the entire model:
+```
+Original weights → Frozen ❄️
+            +
+Small trainable low-rank matrices (A, B)
+            ↓
+Fine-tuned behavior
+```
+
+Benefits:
+- Much less memory
+- Faster training
+- Far fewer trainable parameters
+- Easy to store and swap multiple adapters on one base model
+- Practical on limited/consumer hardware
+
+Key hyperparameters to know: **rank (r)**, **alpha (scaling)**, **target modules** (which layers get adapters — typically attention projection layers), and **dropout**.
+
+---
+
+## 7. QLoRA ⭐⭐⭐⭐⭐
+
+QLoRA combines:
+```
+Quantized base model + LoRA adapters
+```
+
+```
+7B model → 4-bit quantization → Frozen model → LoRA training on top
+```
+
+This dramatically reduces memory requirements — often the difference between "needs a multi-GPU server" and "runs on a single consumer GPU." For a local Ollama-focused setup, QLoRA is the most relevant technique to actually get hands-on with.
+
+---
+
+## 8. Quantization ⭐⭐⭐⭐
+
+```
+FP32 → FP16 / BF16 → INT8 → INT4
+```
+
+Lower precision:
+- ✅ Less memory
+- ✅ Faster inference in many setups
+- ❌ Possible quality degradation
+
+**Important distinction:** quantization reduces numerical precision of weights/activations; LoRA adds a small trainable adapter. They solve different problems and are often combined (as in QLoRA).
+
+Quantization methods worth recognizing by name for deployment (not just training):
+- **GPTQ** — post-training quantization, common for GPU inference
+- **AWQ** — activation-aware quantization, tends to preserve quality better at low bits
+- **GGUF** — the format Ollama/llama.cpp use for quantized models on CPU/consumer GPU
+
+---
+
+## 9. Dataset Preparation ⭐⭐⭐⭐⭐
+
+Fine-tuning quality depends heavily on dataset quality.
+
+**Instruction format**
+```json
+{
+  "instruction": "Classify the customer request",
+  "input": "I want to return my shoes",
+  "output": "return_request"
+}
+```
+
+**Chat format**
+```json
+{
+  "messages": [
+    { "role": "user", "content": "How do I reset my password?" },
+    { "role": "assistant", "content": "Go to Settings → Security → Reset Password." }
+  ]
+}
+```
+
+Learn: dataset formats, input/output pairs, instruction datasets, chat datasets, JSONL, train/validation/test split, data cleaning, deduplication, data leakage prevention.
+
+---
+
+## 10. Dataset Quality ⭐⭐⭐⭐⭐
+
+```
+100,000 noisy examples  can be worse than  5,000 high-quality examples
+```
+
+Check for: correctness, consistency, diversity, duplicates, formatting, bias, toxic examples, contradictory labels.
+
+**Golden rule:** garbage in → garbage out.
+
+---
+
+## 11. Training Pipeline ⭐⭐⭐⭐
+
+```
+Raw Dataset → Clean → Format → Train/Validation Split → Tokenizer
+   → Base Model → LoRA / QLoRA → Training → Validation
+   → Evaluation → Model / Adapter
+```
+
+---
+
+## 12. Tokenization During Training ⭐⭐⭐
+
+```
+Text → Tokenizer → Tokens → Token IDs → Model
+```
+
+Know: token IDs, vocabulary, sequence length, padding, truncation, context length.
+
+---
+
+## 13. Important Training Parameters ⭐⭐⭐⭐
+
+You don't need to be a research scientist, but know:
+
+- **Learning rate** — how aggressively weights are updated
+- **Batch size** — number of examples processed together
+- **Epoch** — one complete pass through the training data
+- **Gradient accumulation** — simulates a larger batch when GPU memory is limited
+- **Warmup** — gradually increases learning rate at the start of training
+- **Weight decay** — reduces overfitting
+- **Max sequence length** — max tokens processed per example
+- **LR scheduler** — how learning rate changes over training (cosine, linear, constant)
+
+---
+
+## 14. Overfitting & Catastrophic Forgetting ⭐⭐⭐⭐
+
+**Overfitting**
+```
+Training accuracy   ↑ 99%
+Validation accuracy ↓ 70%
+```
+The model memorized training data instead of generalizing.
+
+Symptoms: poor generalization, repeating training examples verbatim, validation performance drops as training continues.
+
+Solutions: better/more diverse dataset, fewer epochs, learning-rate adjustment, regularization, early stopping.
+
+**Catastrophic forgetting** (often missed in overviews) — fine-tuning too aggressively on a narrow task can degrade the model's general capabilities it had before fine-tuning. Mitigations: lower learning rate, LoRA (fewer weights touched = less forgetting), mixing in some general-purpose data, fewer epochs.
+
+---
+
+## 15. Instruction Fine-Tuning ⭐⭐⭐⭐⭐
+
+**Before fine-tuning**
+```
+User:  Extract invoice information.
+Model: Here is some information about invoices...
+```
+
+**After fine-tuning**
+```json
+{ "invoice_number": "...", "amount": 12000, "date": "..." }
+```
+
+The model learns the desired *behavior* directly from examples, not just from instructions.
+
+---
+
+## 16. SFT ⭐⭐⭐⭐⭐
+
+**SFT = Supervised Fine-Tuning.** You provide input → desired output pairs, and the model learns to reproduce that style of response. This is typically the first fine-tuning method to learn hands-on.
+
+---
+
+## 17. RLHF ⭐⭐⭐⭐
+
+**RLHF = Reinforcement Learning from Human Feedback.**
+
+```
+Model → Generate answers → Humans rank answers → Reward model → Optimization (PPO)
+```
+
+Historically used to improve helpfulness, preference alignment, and behavior. Know the concept and why it's expensive/complex (requires a separate reward model + RL loop) — you don't need to implement it from scratch.
+
+---
+
+## 18. DPO and Other Preference Methods ⭐⭐⭐⭐⭐
+
+**DPO = Direct Preference Optimization** — skips the separate reward model and RL loop, training directly on preference pairs.
+
+```json
+{
+  "prompt": "Explain RAG",
+  "chosen": "RAG retrieves relevant documents...",
+  "rejected": "RAG is just another LLM..."
+}
+```
+
+**One-liner for interviews:** SFT teaches the model what a good response looks like; DPO teaches the model which response is *preferred* over another.
+
+Newer variants worth name-recognition (a common "do you keep up?" interview probe):
+- **KTO** — learns from unpaired good/bad signals (thumbs up/down), not just paired comparisons
+- **ORPO** — combines SFT and preference optimization into a single training step
+- **RLAIF** — like RLHF, but AI-generated preferences replace human labelers
+
+---
+
+## 19. Fine-Tuning vs RAG ⭐⭐⭐⭐⭐
+
+| Requirement | Best approach |
+|---|---|
+| Latest company documents | RAG |
+| Frequently changing knowledge | RAG |
+| Teach specific behavior | Fine-tuning |
+| Consistent response format | Fine-tuning + structured output |
+| Private knowledge | RAG |
+| Domain terminology | Fine-tuning may help |
+| Reduce repetitive instructions | Fine-tuning may help |
+| Need citations / source traceability | RAG |
+| Improve factual knowledge | Usually RAG |
+| Change model style/tone | Fine-tuning |
+
+In real systems: **Fine-tuning + RAG + Prompt Engineering** work together, not against each other.
+
+---
+
+## 20. Fine-Tuning vs Prompt Engineering ⭐⭐⭐⭐
+
+```
+System: "Always answer in JSON."
+```
+If the model follows it reliably → ❌ no need to fine-tune.
+
+But if thousands of examples show the model repeatedly failing at a specialized task:
+```
+Prompt Engineering → not enough → Fine-tuning
+```
+
+---
+
+## 21. Evaluation ⭐⭐⭐⭐⭐
+
+Never fine-tune and assume it worked. Always compare base model vs fine-tuned model on:
+
+- Accuracy / correctness / relevance
+- Structured-output validity
+- Task completion rate
+- Hallucination rate
+- Safety
+- Latency
+- Token usage
+
+```
+Dataset → Base model evaluation → Fine-tune → Fine-tuned model evaluation → Compare
+```
+
+For general-capability regression checks, know that standard benchmarks (e.g., MMLU-style academic benchmarks, task-specific held-out test sets) are used to confirm you didn't degrade the model elsewhere while improving the target task.
+
+---
+
+## 22. Fine-Tuning with Ollama (Local Flow) 🔥
+
+```
+Dataset → Hugging Face / Transformers → QLoRA → Fine-tuned model
+   → Export / merge → GGUF → Ollama → FastAPI
+```
+
+Then: `React → FastAPI → Fine-tuned local model`. This fits well with a local FastAPI + Ollama learning setup — no need for hosted GPU infra to get hands-on experience.
+
+---
+
+## 23. Hugging Face Ecosystem ⭐⭐⭐⭐⭐
+
+- **Transformers** — models + tokenizer + training ecosystem
+- **Datasets** — dataset loading/preprocessing
+- **PEFT** — LoRA/QLoRA implementation
+- **TRL** — training methods such as SFT, DPO, preference optimization
+- **Accelerate** — distributed/multi-GPU training support
+
+**Mental model**
+```
+Transformers → Models
+Datasets     → Data
+PEFT         → LoRA
+TRL          → SFT / DPO
+Accelerate   → Training infrastructure
+```
+
+---
+
+## 24. Model Merging, Distillation & Continued Pretraining ⭐⭐⭐
+
+Topics that round out the "good to know" tier and often come up as follow-up questions:
+
+- **Model merging** — combining weights of multiple fine-tuned models (e.g., task arithmetic, SLERP merging) into one, without further training, to blend capabilities.
+- **Model distillation** — training a smaller "student" model to mimic a larger "teacher" model's outputs, for cheaper inference.
+- **Continued pretraining** — further unsupervised training on domain-specific raw text (before instruction/SFT fine-tuning) to inject deep domain knowledge/vocabulary, distinct from teaching task behavior.
+- **Multi-task fine-tuning** — training on several tasks at once to improve generalization rather than overfitting to one narrow task.
+
+---
+
+## 25. Fine-Tuning Production Concerns ⭐⭐⭐
+
+```
+Dataset → Training → Evaluation → Model registry → Deployment → Monitoring
+```
+
+Track: model version, dataset version, hyperparameters, evaluation results, training cost, model size, latency, quality drift over time, rollback version.
+
+Also plan for: **multi-adapter serving** (swapping LoRA adapters per customer/tenant on one base model), **A/B testing** fine-tuned vs base in production, and **drift detection** as real-world inputs diverge from training data.
+
+---
+
+## 26. Fine-Tuning Security ⭐⭐⭐
+
+- **Training data poisoning** — malicious examples entering your dataset to corrupt behavior.
+- **Sensitive data leakage** — don't accidentally train on passwords, API keys, PII, or confidential documents. Fine-tuned models can memorize and later regurgitate sensitive training data.
+
+```
+Dataset → PII detection → Cleaning → Validation → Training
+```
+
+---
+
+## 27. Cost & Compute Planning ⭐⭐⭐
+
+A practical topic interviewers use to check you understand trade-offs, not just theory:
+
+- Full fine-tuning needs multiple high-memory GPUs; LoRA/QLoRA can run on a single consumer or mid-tier GPU.
+- Training cost scales with dataset size, sequence length, epochs, and model size — not just "how long you train."
+- Hosted fine-tuning APIs (pay per token trained) vs self-hosted (pay for GPU time) is a real build-vs-buy decision.
+- Inference cost after fine-tuning matters too: a small fine-tuned model can be cheaper to *run* than prompting a much larger general model with RAG on every call.
+
+---
+
+## 28. Interview Priority Cheat Sheet 🎯
+
+**Must know ⭐⭐⭐⭐⭐**
+Fine-tuning vs RAG · Fine-tuning vs prompting · SFT · LoRA · QLoRA · Quantization · Dataset preparation · Train/validation split · Overfitting · Training parameters · Evaluation · DPO · Hugging Face ecosystem
+
+**Good to know ⭐⭐⭐**
+RLHF · Distributed training · Model merging · Model distillation · Continued pretraining · Training infrastructure · Catastrophic forgetting · Cost/compute trade-offs
+
+---
+
+## 29. Best Practical Project 🔥
+
+**Build a Customer Support AI:**
+
+```
+Customer queries → Dataset (5K–20K examples) → Base Llama/Qwen model
+   → QLoRA → Fine-tuned model → Ollama → FastAPI → React
+```
+
+Then compare three setups head-to-head:
+```
+Base model  vs  Fine-tuned model  vs  RAG + Base model
+```
+
+Measure: accuracy, format consistency, hallucination rate, latency, token usage. This teaches *why* fine-tuning helps, not just how to run a training command.
+
+---
+
+## 30. Common Interview Questions
+
+A quick self-test — try answering each in one or two sentences before checking the sections above:
+
+1. When would you choose fine-tuning over RAG, and vice versa?
+2. What's the practical difference between LoRA and QLoRA?
+3. Why might a 5,000-example clean dataset beat a 100,000-example noisy one?
+4. How do you detect overfitting during fine-tuning, and what do you do about it?
+5. What's the difference between SFT and DPO, and when would you use both?
+6. What is catastrophic forgetting, and how does LoRA help mitigate it?
+7. How would you evaluate whether a fine-tune actually improved on the base model?
+8. What security risks does fine-tuning introduce that prompting/RAG don't?
+9. Why might you quantize a model, and what's the cost of doing so?
+10. Walk through your end-to-end pipeline from raw dataset to a deployed fine-tuned model.
+
+---
+
+## 31. The Mental Model 🧠
+
+```
+Prompt Engineering → Tell the model HOW to behave
+RAG                → Give the model WHAT information to use
+Fine-tuning        → Teach the model a BEHAVIOR
+
+LoRA  → Efficient fine-tuning
+QLoRA → Quantized model + LoRA
+SFT   → Learn from correct examples
+DPO   → Learn from preferred vs rejected answers
+```
+
+**One-line interview answer:**
+"Fine-tuning adapts a pretrained model to a specific task or behavior by training it on domain-specific examples; techniques like LoRA and QLoRA make this much more memory- and compute-efficient."

@@ -1,0 +1,669 @@
+# LlamaIndex Interview Roadmap
+
+## Table of Contents
+
+1. [Roadmap Overview](#roadmap-overview)
+2. [Phase 1 — LlamaIndex Fundamentals](#phase-1--llamaindex-fundamentals)
+3. [Phase 2 — Documents & Nodes](#phase-2--documents--nodes)
+4. [Phase 3 — Data Ingestion](#phase-3--data-ingestion)
+5. [Phase 4 — Indexes](#phase-4--indexes)
+6. [Phase 5 — Embeddings & Vector Stores](#phase-5--embeddings--vector-stores)
+7. [Phase 6 — Retrievers](#phase-6--retrievers)
+8. [Phase 7 — Query Engines](#phase-7--query-engines)
+9. [Phase 8 — Response Synthesizers](#phase-8--response-synthesizers)
+10. [Phase 9 — Routers & Advanced RAG](#phase-9--routers--advanced-rag)
+11. [Phase 10 — Agents, Tools & Workflows](#phase-10--agents-tools--workflows)
+12. [Phase 11 — Evaluation & Observability](#phase-11--evaluation--observability)
+13. [Phase 12 — Production Architecture](#phase-12--production-architecture)
+14. [Phase 13 — Chat Engines & Persistence](#phase-13--chat-engines--persistence-) 🆕
+15. [Phase 14 — Document Parsing at Scale (LlamaParse)](#phase-14--document-parsing-at-scale-llamaparse-) 🆕
+16. [Phase 15 — Multimodal & GraphRAG in LlamaIndex](#phase-15--multimodal--graphrag-in-llamaindex-) 🆕
+17. [Phase 16 — Security & Multi-Tenant Guardrails](#phase-16--security--multi-tenant-guardrails-) 🆕
+18. [LlamaIndex vs LangChain vs LangGraph](#llamaindex-vs-langchain-vs-langgraph)
+19. [30 Must-Know LlamaIndex Interview Questions](#30-must-know-llamaindex-interview-questions)
+20. [Best Project for You](#best-project-for-you)
+21. [Your LlamaIndex Checklist](#your-llamaindex-checklist)
+22. [Your Overall Sequence](#your-overall-sequence)
+23. [Quick-Reference Cheat Sheet](#quick-reference-cheat-sheet-) 🆕
+
+---
+
+## Roadmap Overview
+
+| Phase | Focus | Priority |
+|---|---|---|
+| 1 | LlamaIndex Fundamentals | ⭐⭐⭐⭐⭐ |
+| 2 | Documents & Nodes | ⭐⭐⭐⭐⭐ |
+| 3 | Data Ingestion | ⭐⭐⭐⭐⭐ |
+| 4 | Indexes | ⭐⭐⭐⭐⭐ |
+| 5 | Embeddings & Vector Stores | ⭐⭐⭐⭐⭐ |
+| 6 | Retrievers | ⭐⭐⭐⭐⭐ |
+| 7 | Query Engines | ⭐⭐⭐⭐⭐ |
+| 8 | Response Synthesizers | ⭐⭐⭐⭐ |
+| 9 | Routers & Advanced RAG | ⭐⭐⭐⭐ |
+| 10 | Agents, Tools & Workflows | ⭐⭐⭐⭐ |
+| 11 | Evaluation & Observability | ⭐⭐⭐⭐ |
+| 12 | Production Architecture | ⭐⭐⭐⭐⭐ |
+| 13 | Chat Engines & Persistence 🆕 | ⭐⭐⭐⭐ |
+| 14 | Document Parsing at Scale (LlamaParse) 🆕 | ⭐⭐⭐ |
+| 15 | Multimodal & GraphRAG 🆕 | ⭐⭐⭐ |
+| 16 | Security & Multi-Tenant Guardrails 🆕 | ⭐⭐⭐⭐ |
+
+> 🆕 = added because it's asked in 2026 mid-to-senior interviews but was missing from the original plan.
+
+---
+
+## Phase 1 — LlamaIndex Fundamentals
+
+### First, understand the purpose
+LlamaIndex is primarily a **data/context framework** for LLM applications.
+
+```
+Your Data
+   ↓
+LlamaIndex
+   ↓
+Index
+   ↓
+Retriever
+   ↓
+LLM
+   ↓
+Answer
+```
+
+### Learn
+- What is LlamaIndex, and why use it?
+- LlamaIndex vs LangChain vs plain Python.
+- LlamaIndex's role specifically in RAG.
+- `Settings` object 🆕 — the current global config for LLM, embedding model, chunk size, etc., replacing the older, now-deprecated `ServiceContext`. Worth knowing this migration happened, since older tutorials still reference `ServiceContext`.
+
+### Interview Question
+**Why would you choose LlamaIndex instead of LangChain?**
+> LlamaIndex is particularly strong around connecting LLMs to private/structured data and building retrieval pipelines, while LangChain provides broader application-orchestration abstractions (prompts, chains, tools, memory) across a wider range of use cases.
+
+### Interview Questions (additional)
+- What replaced `ServiceContext`, and why was it deprecated? 🆕
+
+---
+
+## Phase 2 — Documents & Nodes
+
+One of the most important LlamaIndex concepts.
+
+```
+Document
+   ↓
+Nodes
+   ↓
+Embeddings
+   ↓
+Index
+```
+
+### Document
+Represents source data: PDF, DOCX, Markdown, website, database, API response.
+
+### Node
+A smaller piece of a document.
+
+```
+Document
+   │
+   ├── Node 1
+   ├── Node 2
+   ├── Node 3
+   └── Node 4
+```
+
+Nodes can contain: text, metadata, relationships (`NodeRelationship` — prev/next/parent/child), and embeddings.
+
+### Interview Questions
+- What is a Node?
+- Document vs Node?
+- Why split documents into nodes?
+- What metadata does a node contain?
+- What are node relationships used for (e.g., linking a chunk back to its parent document)? 🆕
+
+---
+
+## Phase 3 — Data Ingestion
+
+### Learn
+
+```
+PDF/DOCX/Web
+      ↓
+Document Loader
+      ↓
+Transformations
+      ↓
+Chunking
+      ↓
+Metadata
+      ↓
+Embedding
+      ↓
+Vector Store
+```
+
+### Important Components
+- `SimpleDirectoryReader`
+- Readers/loaders (community integrations for web, Notion, Slack, databases, etc.)
+- `SentenceSplitter` and other node parsers
+- Metadata extraction (title/summary/keyword extractors)
+- Embedding models
+- `IngestionPipeline` — chains transformations together
+- `IngestionCache` / docstore-backed deduplication 🆕 — LlamaIndex's built-in mechanism to skip re-embedding unchanged documents by hashing content and caching pipeline outputs.
+
+### Interview Questions
+- How do you ingest 1 million documents?
+- How do you avoid re-embedding unchanged documents? (→ `IngestionCache` + docstore hashing) 🆕
+- How do you handle document updates (insert/delete/refresh a single doc without rebuilding the whole index)? 🆕
+
+---
+
+## Phase 4 — Indexes
+
+A must-know area.
+
+### Important Indexes
+
+| Index | Use |
+|---|---|
+| `VectorStoreIndex` | Semantic/vector retrieval — the default for RAG. |
+| Summary Index | Summarization over all nodes. |
+| Keyword Table Index | Keyword-based retrieval. |
+| Tree Index | Hierarchical retrieval. |
+| `PropertyGraphIndex` 🆕 | Graph-based index over extracted entities/relationships — LlamaIndex's GraphRAG building block (see Phase 15). |
+
+### Most Important
+Focus heavily on `VectorStoreIndex`.
+
+```python
+index = VectorStoreIndex.from_documents(documents)
+query_engine = index.as_query_engine()
+```
+
+### Interview Questions
+- When would you use a Summary Index or Tree Index instead of `VectorStoreIndex`?
+- What is `PropertyGraphIndex` used for, and how is it different from a vector index? 🆕
+
+---
+
+## Phase 5 — Embeddings & Vector Stores
+
+This overlaps heavily with your RAG preparation.
+
+### Learn
+Embedding models, vector dimensions, cosine similarity, similarity search, metadata filtering, Top-K, vector databases.
+
+### LlamaIndex Integrations
+Chroma, Qdrant, Pinecone, Weaviate, PostgreSQL/pgvector.
+
+For your local setup:
+
+```
+LlamaIndex
+    ↓
+Chroma
+    ↓
+Ollama embeddings
+```
+
+### Interview Questions
+- How does LlamaIndex retrieve relevant nodes?
+- Where are embeddings stored — in the index object, or externally in the vector store?
+- How do you filter by metadata at query time?
+
+---
+
+## Phase 6 — Retrievers
+
+Very important for RAG interviews.
+
+```
+Query
+ ↓
+Retriever
+ ↓
+Top-K Nodes
+```
+
+### Understand
+Vector retriever, keyword retriever, metadata filtering, similarity threshold, Top-K, hybrid retrieval, custom retrievers.
+
+### Advanced
+
+```
+User Query
+    ↓
+Retriever
+    ↓
+Top 20 nodes
+    ↓
+Reranker
+    ↓
+Top 5 nodes
+    ↓
+LLM
+```
+
+### Interview Question
+**Why retrieve 20 documents and then rerank to 5?**
+> Because initial retrieval optimizes recall, while reranking improves precision/relevance.
+
+### Interview Questions (additional)
+- What is `NodePostprocessor`, and how does it differ from the retriever itself? 🆕 (Postprocessors run *after* retrieval — reranking, similarity cutoff, metadata-based filtering — before nodes reach the synthesizer.)
+
+---
+
+## Phase 7 — Query Engines
+
+One of the most important LlamaIndex concepts.
+
+```
+Query
+ ↓
+Query Engine
+ ↓
+Retriever
+ ↓
+Response Synthesizer
+ ↓
+LLM
+ ↓
+Answer
+```
+
+```python
+query_engine = index.as_query_engine()
+response = query_engine.query("What is our leave policy?")
+```
+
+### Learn
+`as_query_engine()`, query configuration, retriever configuration, streaming, response modes.
+
+### Interview Questions
+- What is a Query Engine?
+- Query Engine vs Retriever?
+- Query Engine vs Chat Engine? (see Phase 13)
+
+---
+
+## Phase 8 — Response Synthesizers
+
+```
+Retrieved Nodes
+       ↓
+Response Synthesizer
+       ↓
+LLM
+       ↓
+Answer
+```
+
+### Common Response Strategies
+- Compact — stuff as many nodes as fit into one prompt.
+- Refine — iteratively update the answer as each node is processed (better for long contexts, more LLM calls).
+- Tree summarize — hierarchically combine node answers, good for large fan-in summarization.
+- Simple response.
+
+### Important Interview Concept
+> The retriever retrieves context. The response synthesizer turns that context into an answer — and the synthesis *strategy* itself is a lever for controlling cost, latency, and answer quality.
+
+### Interview Questions
+- Compact vs Refine — what's the trade-off in cost and latency? 🆕
+
+---
+
+## Phase 9 — Routers & Advanced RAG
+
+Senior-level topics.
+
+### Router Query Engine
+
+```
+                 ┌── SQL Database
+User Query ── Router
+                 ├── Vector RAG
+                 │
+                 └── Summary Index
+```
+
+Example: *"What was our revenue in 2025?"* → SQL. *"Explain our refund policy."* → Vector RAG.
+
+### Learn
+- Router query engine, query routing, multiple indexes, metadata filters.
+- Recursive retrieval.
+- Auto-merging retrieval — retrieving small child nodes but merging up to a larger parent node when enough children are matched (LlamaIndex's version of parent-document retrieval).
+- Sub-question querying (`SubQuestionQueryEngine`) — breaking a complex question into sub-questions, each answered by a different tool/index, then synthesized.
+
+### Interview Questions
+- What is `SubQuestionQueryEngine` and when would you use it?
+- How does auto-merging retrieval differ from simple parent-document retrieval? 🆕
+
+---
+
+## Phase 10 — Agents, Tools & Workflows
+
+LlamaIndex isn't only about RAG.
+
+```
+User
+ ↓
+Agent
+ ├── RAG tool
+ ├── SQL tool
+ ├── API tool
+ └── Calculator
+```
+
+### Learn
+- Tools, function calling, agents, tool selection, agent memory, multi-step reasoning.
+- **`FunctionAgent` / `ReActAgent`** — LlamaIndex's current agent classes for tool-using agents.
+- **Workflows** 🆕 — LlamaIndex's newer event-driven orchestration API (`Workflow`, `@step` decorators, custom `Event` classes) for building multi-step, branching, loopable pipelines — conceptually parallel to LangGraph's `StateGraph`, and now the recommended way to build complex agents in LlamaIndex rather than hand-composing older agent classes.
+
+### Interview Question
+**LlamaIndex RAG vs Agent?**
+> RAG follows a retrieval pipeline; an agent can decide dynamically which tools or data sources to use.
+
+### Interview Questions (additional)
+- What are LlamaIndex Workflows, and how do they compare conceptually to LangGraph? 🆕
+- When would a query engine be enough, and when do you actually need an agent? 🆕
+
+---
+
+## Phase 11 — Evaluation & Observability
+
+You already have RAG evaluation on your roadmap — this section is LlamaIndex-specific.
+
+### Learn
+Retrieval evaluation, response evaluation, faithfulness, relevance, context quality, latency, token usage.
+
+### Integrations/Concepts
+- LlamaIndex's built-in evaluators (`FaithfulnessEvaluator`, `RelevancyEvaluator`, `CorrectnessEvaluator`).
+- Ragas, LangSmith, OpenTelemetry-based tracing.
+- `LlamaTrace` / Arize Phoenix integration 🆕 — LlamaIndex-native observability options worth name-dropping.
+
+### Interview Question
+**How do you know your LlamaIndex RAG system is actually improving?**
+> Measure retrieval and generation quality using a fixed evaluation dataset rather than judging responses manually.
+
+---
+
+## Phase 12 — Production Architecture
+
+Where senior interviews get interesting.
+
+```
+                ┌──────────────┐
+                │   React UI   │
+                └──────┬───────┘
+                       ↓
+                ┌──────────────┐
+                │   FastAPI    │
+                └──────┬───────┘
+                       ↓
+                ┌──────────────┐
+                │  LlamaIndex  │
+                └──────┬───────┘
+                       ↓
+             ┌─────────┴─────────┐
+             ↓                   ↓
+        Retriever             Router
+             ↓                   ↓
+        Vector DB            SQL/API
+             ↓
+          Reranker
+             ↓
+            LLM
+```
+
+### Production Topics
+Async ingestion, background document processing, incremental indexing, embedding caching, metadata filtering, multi-tenant indexes, access control, streaming, retry/fallback, vector DB scaling, observability.
+
+### Interview Questions
+- How would you incrementally update an index when only 5 of 10,000 documents changed?
+- How do you keep ingestion, retrieval, and generation loosely coupled so each can scale independently?
+
+---
+
+## Phase 13 — Chat Engines & Persistence 🆕
+
+A gap in the original plan — query engines alone don't handle multi-turn conversation.
+
+### Learn
+- **Chat Engine modes**: `condense_question` (rewrites the follow-up using history before retrieving), `context` (retrieves once, then chats with that context), `ReAct` (tool-using conversational agent).
+- **`StorageContext`** — persisting an index (docstore, index store, vector store) to disk or a database so it doesn't need to be rebuilt on every restart.
+- Loading a persisted index (`load_index_from_storage`) vs re-ingesting from scratch — a common production cost/latency question.
+
+### Interview Questions
+- Query Engine vs Chat Engine — what capability does a Chat Engine add?
+- What is `condense_question` mode solving for in a multi-turn RAG conversation?
+- How do you persist and reload a `VectorStoreIndex` without re-embedding everything on restart?
+
+---
+
+## Phase 14 — Document Parsing at Scale (LlamaParse) 🆕
+
+Increasingly asked once basic ingestion is assumed knowledge.
+
+### Learn
+- **LlamaParse** — LlamaIndex's managed document-parsing service for complex PDFs (tables, multi-column layouts, scanned pages) that basic loaders handle poorly.
+- **LlamaCloud** — managed ingestion/indexing platform (know it exists as the hosted counterpart to self-managed LlamaIndex).
+- When to reach for a dedicated parser vs `SimpleDirectoryReader` — mainly driven by document complexity (dense tables, forms, multi-column academic papers).
+
+### Interview Questions
+- Why might `SimpleDirectoryReader` fail on a complex financial PDF, and what would you reach for instead?
+- What's the trade-off between self-hosting ingestion vs using a managed service like LlamaCloud?
+
+---
+
+## Phase 15 — Multimodal & GraphRAG in LlamaIndex 🆕
+
+### Learn
+- **Multimodal indexes** — embedding and retrieving both text and image nodes (e.g., diagrams inside a PDF) using multimodal embedding models.
+- **`PropertyGraphIndex`** (from Phase 4) — extracting entities and relationships from documents into a graph, then querying via graph traversal + vector search combined.
+- When GraphRAG outperforms plain vector RAG: multi-hop questions ("who reports to the person who approved this budget?") vs single-fact lookup.
+
+### Interview Questions
+- How would you build RAG over a document set that mixes text and diagrams/charts?
+- When does `PropertyGraphIndex` outperform `VectorStoreIndex`, and when is it overkill?
+
+---
+
+## Phase 16 — Security & Multi-Tenant Guardrails 🆕
+
+*(Pairs directly with the Guardrails roadmap — this is the LlamaIndex-specific slice.)*
+
+### Learn
+- Multi-tenant isolation via metadata filters enforced at the retriever level (never trust the LLM to "just not mention" another tenant's data).
+- Access control checks before documents are ever ingested/embedded, not just at query time.
+- PII handling during ingestion (redaction/masking before embedding, not just before display).
+
+### Interview Questions
+- How do you guarantee a query from Tenant A can never retrieve a node belonging to Tenant B?
+- Should PII redaction happen before or after embedding, and why does it matter? 🆕
+
+---
+
+## LlamaIndex vs LangChain vs LangGraph
+
+Very likely to come up in interviews.
+
+| | LlamaIndex | LangChain | LangGraph |
+|---|---|---|---|
+| Main strength | Data/RAG | LLM application components | Agent workflows |
+| Documents | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐ |
+| RAG | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ |
+| Agents | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ |
+| Workflow control | ⭐⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐⭐ |
+| Stateful workflows | ⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐⭐ |
+| Tool calling | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ |
+| Multi-agent | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ |
+
+### Easy way to remember
+- **LlamaIndex → Data**
+- **LangChain → Components**
+- **LangGraph → Workflows/Agents**
+
+> 🆕 Nuance worth mentioning in interviews: the lines have blurred — LlamaIndex now has its own `Workflow` API for agentic orchestration, and all three frameworks interoperate (e.g., a LlamaIndex query engine can be wrapped as a LangChain tool, or called as a node inside a LangGraph graph). Frame this as "best tool per layer," not "pick exactly one."
+
+---
+
+## 30 Must-Know LlamaIndex Interview Questions
+
+1. What is LlamaIndex?
+2. LlamaIndex vs LangChain?
+3. What is a Document?
+4. What is a Node?
+5. Document vs Node?
+6. What is `VectorStoreIndex`?
+7. What is an Index, generally?
+8. What is a Retriever?
+9. Retriever vs Query Engine?
+10. What is a Query Engine?
+11. What is a Response Synthesizer?
+12. How does LlamaIndex perform RAG end to end?
+13. How do you customize chunking?
+14. How do you add metadata to nodes?
+15. How do you implement hybrid retrieval?
+16. How do you add reranking?
+17. What is query routing?
+18. What is `SubQuestionQueryEngine`?
+19. How do you build an agent with LlamaIndex?
+20. How would you design a production LlamaIndex RAG system?
+21. What replaced `ServiceContext`, and why? 🆕
+22. What is `IngestionCache` and how does it avoid re-embedding unchanged docs? 🆕
+23. Query Engine vs Chat Engine — what's different? 🆕
+24. What is `condense_question` chat mode solving for? 🆕
+25. How do you persist and reload an index without re-embedding? 🆕
+26. What is `PropertyGraphIndex` and when do you use it over vector search? 🆕
+27. What is LlamaParse, and when would you reach for it over `SimpleDirectoryReader`? 🆕
+28. What are LlamaIndex Workflows, and how do they compare to LangGraph? 🆕
+29. How do you guarantee multi-tenant document isolation at retrieval time? 🆕
+30. What's the difference between Compact and Refine response synthesis strategies? 🆕
+
+---
+
+## Best Project for You
+
+Don't build five small LlamaIndex projects. Build **one** good project.
+
+### Enterprise Knowledge Assistant
+
+```
+React
+  ↓
+FastAPI
+  ↓
+LlamaIndex
+  ↓
+┌─────────────────────┐
+│ Document Ingestion  │
+│ PDF / DOCX / MD     │
+└─────────┬───────────┘
+          ↓
+       Chunking
+          ↓
+      Embeddings
+          ↓
+       Chroma
+          ↓
+      Retrieval
+          ↓
+       Reranker
+          ↓
+        Ollama
+          ↓
+      Citations
+```
+
+**Add:**
+- Multiple documents
+- Metadata filtering
+- User/thread isolation
+- Streaming
+- Citations
+- Reranking
+- Query routing
+- Evaluation
+- Guardrails
+- Persisted index via `StorageContext` (survives restarts) 🆕
+- A Chat Engine (not just a Query Engine) for multi-turn conversation 🆕
+
+That one project gives you talking points across RAG + LlamaIndex + LangChain + LangGraph + Guardrails + FastAPI.
+
+---
+
+## Your LlamaIndex Checklist
+
+### Must Know
+- [ ] LlamaIndex fundamentals
+- [ ] Documents
+- [ ] Nodes
+- [ ] Chunking
+- [ ] Metadata
+- [ ] Ingestion Pipeline (+ `IngestionCache`) 🆕
+- [ ] `VectorStoreIndex`
+- [ ] Embeddings
+- [ ] Vector stores
+- [ ] Retrievers
+- [ ] Query Engine
+- [ ] Response Synthesizer
+- [ ] Query routing
+- [ ] Reranking
+- [ ] Agents & tools
+- [ ] Evaluation
+- [ ] Chat Engines & `StorageContext` persistence 🆕
+
+### Senior Level
+- [ ] Sub-question retrieval
+- [ ] Recursive retrieval
+- [ ] Auto-merging retrieval
+- [ ] Hybrid retrieval
+- [ ] Multi-index architecture
+- [ ] Multi-tenant RAG
+- [ ] Incremental ingestion
+- [ ] Production scaling
+- [ ] LlamaIndex Workflows 🆕
+- [ ] `PropertyGraphIndex` / GraphRAG basics 🆕
+- [ ] LlamaParse for complex documents 🆕
+
+### Don't Spend Too Much Time On
+- Every LlamaIndex integration
+- Every index type
+- Memorizing exact API signatures
+- Building complex agents solely with LlamaIndex when LangGraph is the better tool for that layer
+
+> For interviews, understanding the architecture and trade-offs matters much more than memorizing LlamaIndex APIs.
+
+---
+
+## Your Overall Sequence
+
+**LLM Fundamentals → Prompt Engineering → RAG → LangChain → LangGraph → Guardrails → LlamaIndex → MCP → Agentic AI → Evaluation → Production AI**
+
+That is a strong 2026 AI Engineer interview stack.
+
+---
+
+## Quick-Reference Cheat Sheet 🆕
+
+**One-line answers for whiteboard/verbal rounds:**
+
+- **LlamaIndex** = a data-framework-first approach to RAG — strongest at connecting LLMs to your documents, structured data, and building retrieval pipelines.
+- **Document → Node** = a Document is the whole source file; Nodes are the chunked, embeddable, metadata-carrying units retrieved at query time.
+- **`VectorStoreIndex`** = the default index type for semantic retrieval; other index types (Summary, Tree, PropertyGraph) exist for non-vector-shaped problems.
+- **Query Engine** = retriever + response synthesizer combined into a single-shot Q&A interface; **Chat Engine** adds multi-turn conversational state on top.
+- **`IngestionCache`** = hashes document content so unchanged docs are never re-embedded on repeated ingestion runs.
+- **Auto-merging retrieval** = retrieve small child nodes, merge up to the parent node when enough children match — LlamaIndex's parent-document pattern.
+- **`SubQuestionQueryEngine`** = splits a complex question into sub-questions, routes each to the right tool/index, then synthesizes one answer.
+- **LlamaIndex Workflows** = the event-driven, step-based orchestration API — LlamaIndex's answer to LangGraph for building multi-step agentic pipelines.
+- **LlamaParse** = managed parsing for complex PDFs (tables, multi-column layouts) that basic loaders mangle.
+- **Framework choice** = LlamaIndex for data/retrieval depth, LangChain for broad component orchestration, LangGraph for stateful agent workflows — often used together, not as mutually exclusive choices.
+
+---
+
+*Prepared for AI Engineer / GenAI interviews — React + FastAPI + Ollama + LangChain + LangGraph stack, 2026.*

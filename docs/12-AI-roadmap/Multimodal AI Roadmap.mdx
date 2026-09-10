@@ -1,0 +1,476 @@
+# Multimodal AI Roadmap
+
+## Table of Contents
+
+1. [What Is Multimodal AI?](#1-what-is-multimodal-ai-)
+2. [Modalities](#2-modalities-)
+3. [Multimodal vs Text-Only LLM](#3-multimodal-vs-text-only-llm-)
+4. [Vision-Language Models (VLMs)](#4-vision-language-models-vlms-)
+5. [Image Understanding](#5-image-understanding-)
+6. [OCR](#6-ocr-)
+7. [Document AI](#7-document-ai-)
+8. [Multimodal RAG](#8-multimodal-rag-)
+9. [Multimodal Embeddings](#9-multimodal-embeddings-)
+10. [Image + Text Retrieval](#10-image--text-retrieval-)
+11. [Audio AI](#11-audio-ai-)
+12. [Speech-to-Text](#12-speech-to-text-)
+13. [Text-to-Speech](#13-text-to-speech-)
+14. [Voice Agents](#14-voice-agents-)
+15. [Video AI](#15-video-ai-)
+16. [Multimodal Agents](#16-multimodal-agents-)
+17. [Multimodal Function Calling](#17-multimodal-function-calling-)
+18. [Multimodal Structured Output](#18-multimodal-structured-output-)
+19. [Multimodal Models to Know](#19-multimodal-models-to-know-)
+20. [Image Generation & Diffusion Models](#20-image-generation--diffusion-models-)
+21. [How Images Actually Enter the Model](#21-how-images-actually-enter-the-model-)
+22. [Multimodal Model Serving](#22-multimodal-model-serving-)
+23. [Multimodal Security](#23-multimodal-security-)
+24. [Multimodal Evaluation](#24-multimodal-evaluation-)
+25. [Production Challenges](#25-production-challenges-)
+26. [Multimodal Fine-Tuning](#26-multimodal-fine-tuning-)
+27. [Common Mistakes](#27-common-mistakes-)
+28. [Your Best Practical Project](#28-your-best-practical-project-)
+29. [Interview Priority Cheat Sheet](#29-interview-priority-cheat-sheet-)
+30. [Interview Questions](#30-interview-questions)
+31. [Mental Model](#31-mental-model-)
+
+---
+
+## 1. What Is Multimodal AI? ⭐⭐⭐⭐⭐
+
+**Traditional LLM:** `Text → LLM → Text`
+
+**Multimodal model:**
+```
+Text + Image + Audio + Video → Multimodal Model → Text / Audio / Image
+```
+
+Examples:
+- 📷 Image → "Describe this image"
+- 📄 PDF → "Summarize this document"
+- 🎤 Audio → "Transcribe this meeting"
+- 🎥 Video → "What happened in this video?"
+
+---
+
+## 2. Modalities ⭐⭐⭐⭐⭐
+
+Know these four:
+
+- **Text** — LLMs
+- **Vision** — images, screenshots, documents, charts, diagrams
+- **Audio** — speech→text, text→speech, speech→speech
+- **Video** — `Video → Frames + Audio → Multimodal model`
+
+---
+
+## 3. Multimodal vs Text-Only LLM ⭐⭐⭐⭐
+
+**Normal LLM:** `Text → Tokens → Transformer`
+
+**Multimodal model:**
+```
+Image → Vision Encoder → Visual Representation
+                              ↓
+          ┌──────────┐
+Text ────►│          │
+Image ───►│  Model   │
+Audio ───►│          │
+          └──────────┘
+                ↓
+             Output
+```
+
+You don't need to memorize every architecture. Understand the concept: **different modalities need to be converted into representations the model can reason over** — usually as extra "tokens" the transformer attends over alongside text tokens.
+
+---
+
+## 4. Vision-Language Models (VLMs) ⭐⭐⭐⭐⭐
+
+```
+Image + Question → VLM → Answer
+```
+
+**Example:** 📷 screenshot of a React error + "What is wrong here?" → VLM → "The component is rendering..."
+
+Learn: image understanding, OCR, image classification, image captioning, visual question answering, document understanding, chart understanding, screenshot analysis.
+
+---
+
+## 5. Image Understanding ⭐⭐⭐⭐⭐
+
+You should be able to build: `Image → Vision model → Description / JSON / Answer`
+
+- **Object detection** — image → car, person, traffic light
+- **Image classification** — image → "invoice"
+- **Image captioning** — image → "A person working on a laptop"
+- **Visual Q&A** — image + question → "What is the total amount?"
+
+---
+
+## 6. OCR ⭐⭐⭐⭐⭐
+
+```
+Invoice image → OCR → Text → LLM → Structured JSON
+```
+```json
+{ "invoice_number": "INV-123", "total": 45000, "date": "2026-09-10" }
+```
+
+**Know the difference:**
+- **OCR** → extract text
+- **VLM** → understand visual context (layout, meaning, relationships between elements)
+
+Modern document AI often combines both — OCR for precise text, VLM for layout/semantics.
+
+---
+
+## 7. Document AI ⭐⭐⭐⭐⭐
+
+Instead of `PDF → plain text extraction → RAG`, production document AI does:
+```
+PDF → Text + Images + Tables + Layout → Document understanding
+    → Structured representation → RAG
+```
+
+Handle: PDFs, scanned documents, tables, forms, invoices, contracts, charts.
+
+---
+
+## 8. Multimodal RAG ⭐⭐⭐⭐⭐
+
+**Traditional RAG:** `Question → Text retrieval → Text chunks → LLM`
+
+**Multimodal RAG:**
+```
+Question → Retriever → { Text, Images, Tables, Charts } → Multimodal Model → Answer
+```
+
+**Example:** "What was the revenue shown in the graph on page 12?" — a text-only RAG pipeline may struggle; a multimodal pipeline can retrieve the relevant page/image/chart directly.
+
+---
+
+## 9. Multimodal Embeddings ⭐⭐⭐⭐
+
+**Traditional embeddings:** `Text → Vector`
+
+**Multimodal embeddings:**
+```
+Text  ──┐
+        ├──→ Shared vector space
+Image ──┘
+```
+"red car" (text) and an image of a red car can land close together in the same space.
+
+Learn: image embeddings, text embeddings, joint embeddings, similarity search, cross-modal retrieval. The classic technique behind this is **contrastive training** (text-image pairs pulled together, mismatched pairs pushed apart) — you don't need to implement it, but recognize it as the mechanism.
+
+---
+
+## 10. Image + Text Retrieval ⭐⭐⭐⭐
+
+**"Find shoes similar to this image"**
+```
+Image → Embedding → Vector DB → Similar products
+```
+**Or:** `Text query → Multimodal retrieval → Images`
+
+Useful for: e-commerce, product search, image search, knowledge bases.
+
+---
+
+## 11. Audio AI ⭐⭐⭐⭐⭐
+
+```
+🎤 Audio → Speech-to-Text → Text → LLM → Response → Text-to-Speech → 🔊 Audio
+```
+This is the foundation of voice assistants.
+
+---
+
+## 12. Speech-to-Text ⭐⭐⭐⭐
+
+**STT:** `Audio → Text`
+
+Learn: transcription, streaming transcription, speaker diarization, timestamps, language detection, noise handling.
+
+**Example:** `Meeting audio → Transcript → LLM → Summary + action items`
+
+---
+
+## 13. Text-to-Speech ⭐⭐⭐⭐
+
+**TTS:** `Text → Speech model → Audio`
+
+Understand: voice selection, streaming TTS, latency, voice cloning concepts, prosody, languages.
+
+---
+
+## 14. Voice Agents ⭐⭐⭐⭐⭐
+
+```
+🎤 User → Speech-to-Text → FastAPI → LangGraph Agent
+   → RAG / MCP / Tools → LLM → Text-to-Speech → 🔊 User
+```
+
+For real-time systems, the audio and agent run concurrently over a live stream, not request/response.
+
+Learn: streaming audio, WebSockets, **VAD** (voice activity detection), interruptions/barge-in handling, latency optimization, conversation state management.
+
+---
+
+## 15. Video AI ⭐⭐⭐⭐
+
+```
+Video → Frames + Audio → Vision + Speech models → LLM
+```
+**Example:** `YouTube video → Frames + transcript → LLM → "Summarize the video"`
+
+Learn: frame extraction, keyframe selection, video embeddings, temporal understanding, audio transcription, video summarization.
+
+---
+
+## 16. Multimodal Agents ⭐⭐⭐⭐⭐
+
+```
+                Agent
+                  ↓
+        ┌─────────┼─────────┐
+        ↓         ↓         ↓
+       RAG       MCP      Vision
+        ↓         ↓         ↓
+      Docs      Tools     Images
+                  ↓
+               LLM
+                  ↓
+              Response
+```
+
+**Example:** user uploads an invoice and asks the agent to create an expense entry:
+```
+Invoice image → Vision → Extract fields → Guardrails
+   → Agent → Expense MCP tool → Human approval → Database
+```
+This combines: Multimodal + Agents + MCP + Guardrails + Production AI.
+
+---
+
+## 17. Multimodal Function Calling ⭐⭐⭐⭐
+
+**Example:** user uploads 📷 an invoice and says "Create an expense for this."
+```
+Model: Extract invoice → Validate → create_expense(...)
+```
+
+**Security principle, unchanged from text-only agents:** the model can *request* an action, but the application decides whether that action is authorized.
+
+---
+
+## 18. Multimodal Structured Output ⭐⭐⭐⭐⭐
+
+**Input:** invoice image → **Output:**
+```json
+{ "vendor": "ABC Ltd", "invoice_number": "INV-1001", "amount": 25000, "currency": "INR" }
+```
+```
+Vision → Structured output → Pydantic validation → Database
+```
+This connects directly to guardrails/structured-output validation you'd use for any agentic pipeline.
+
+---
+
+## 19. Multimodal Models to Know ⭐⭐⭐⭐
+
+Understand categories, not an exhaustive model list:
+
+- **Vision-language** — Llama Vision family, Qwen-VL family, Gemma vision models, Mistral vision models
+- **Speech** — Whisper-style models
+- **Image generation** — diffusion-based models
+
+The important interview question isn't "can you name 30 models?" — it's **"how would you choose a multimodal model for a production use case?"** Consider: accuracy, latency, context length, supported modalities, model size, hardware, cost, privacy, deployment options.
+
+---
+
+## 20. Image Generation & Diffusion Models ⭐⭐⭐
+
+Often skipped in "understanding" roadmaps but comes up in interviews:
+
+```
+Noise → Denoising steps (guided by text prompt) → Image
+```
+- **Diffusion models** start from random noise and iteratively denoise toward an image conditioned on a text prompt (or another image, for image-to-image tasks).
+- Know the difference between **image understanding** (VLM: image → text/JSON) and **image generation** (diffusion: text → image) — they're different model families solving opposite directions of the problem.
+- Production concerns: content moderation on generated output, watermarking generated images, cost per generation, latency (multi-step denoising is slower than a single forward pass).
+
+---
+
+## 21. How Images Actually Enter the Model ⭐⭐⭐
+
+A detail worth knowing at a conceptual level:
+
+```
+Image → Split into patches → Vision encoder (e.g., ViT-style) → Patch embeddings
+    → Projected into the LLM's token embedding space → Treated like extra "tokens"
+```
+This is why **image resolution and count directly affect token usage and cost** — a single high-res image or several images in one request can consume as many (or more) tokens than a long paragraph of text. Always account for this in latency/cost planning, not just text token counts.
+
+---
+
+## 22. Multimodal Model Serving ⭐⭐⭐⭐
+
+```
+React → FastAPI → Agent
+              ├── Text LLM
+              ├── Vision Model
+              ├── Speech-to-Text
+              └── Text-to-Speech
+                     ↓
+              Model serving layer
+                     ↓
+                   GPU
+```
+- **Local dev:** `FastAPI → Ollama / local models`
+- **Larger production:** `FastAPI → Model serving → GPU infrastructure`
+
+---
+
+## 23. Multimodal Security ⭐⭐⭐⭐⭐
+
+An image can contain malicious instructions:
+```
+Image → Vision Model → "Ignore previous instructions..."
+```
+This is **indirect prompt injection through visual content** — text embedded in an image, or adversarial patterns designed to manipulate the model's interpretation.
+
+Protect with: input validation + content moderation + prompt isolation + tool authorization + output validation.
+
+Also consider: PII in images, faces, sensitive documents, voice privacy, deepfakes, malicious files, image-based prompt injection.
+
+---
+
+## 24. Multimodal Evaluation ⭐⭐⭐⭐
+
+Evaluate separately per modality:
+
+- **Vision** — OCR accuracy, image understanding, VQA accuracy, object detection metrics
+- **Audio** — Word Error Rate (WER), transcription accuracy, latency
+- **Generation** — answer correctness, relevance, groundedness
+- **End-to-end** — `Image → Extraction → Reasoning → Tool → Final answer` — evaluate the whole workflow, not just one model in isolation
+
+Standard benchmarks worth recognizing by name if asked: **VQA-style benchmarks** for visual question answering, **MMMU** for multimodal reasoning across disciplines, **document-QA benchmarks** for document AI.
+
+---
+
+## 25. Production Challenges ⭐⭐⭐⭐⭐
+
+- **Latency** — `Image → Vision → LLM → Tool → TTS`; multiple model calls compound latency.
+- **Cost** — images/audio/video consume more resources (and tokens) than plain text.
+- **Memory** — vision/audio models can require substantial GPU memory.
+- **File size** — need upload limits, compression, object storage, streaming.
+- **Privacy** — images and audio can contain sensitive information.
+
+---
+
+## 26. Multimodal Fine-Tuning ⭐⭐⭐
+
+Good-to-know, not core-must-know, but a natural follow-up question after LoRA/QLoRA:
+
+- Vision-language models can be fine-tuned similarly to text LLMs — often via **LoRA on the language-model side** while the vision encoder stays frozen, since the encoder's general visual features usually transfer well.
+- Common use cases: teaching a VLM your company's document layouts, specialized domain imagery (medical, satellite, industrial defect detection), or a consistent structured-output schema for a given document type.
+- The same principle from text fine-tuning applies: fine-tune for *behavior/format consistency* on a fixed modality set; use RAG/retrieval for facts that change often, even in multimodal pipelines.
+
+---
+
+## 27. Common Mistakes ⭐⭐⭐⭐
+
+- ❌ Treating every visual task as needing a fine-tuned model — many are solved by prompting an existing VLM well.
+- ❌ Ignoring image/audio token and compute cost when estimating latency or pricing.
+- ❌ Skipping content moderation on user-uploaded images (malicious content, prompt injection, PII).
+- ❌ Using OCR alone for layout-heavy documents (tables, forms) where a VLM's structural understanding is needed.
+- ❌ Evaluating only the final text output and never the intermediate extraction/vision step, which is often where errors actually originate.
+- ❌ Assuming a single multimodal model call is "atomic" — production pipelines are usually multi-step and each step needs its own evaluation and fallback handling.
+
+---
+
+## 28. Your Best Practical Project 🔥
+
+Upgrade your ChatGPT clone into a multimodal assistant:
+```
+React → FastAPI → LangGraph
+   ├── Text LLM
+   ├── Vision
+   ├── RAG
+   ├── MCP
+   ├── Memory
+   └── Guardrails
+        ↓
+  Postgres / Redis / Chroma / Object Storage
+```
+
+Support: 💬 text, 📷 images, 📄 PDFs, 🎤 voice.
+
+- **Image:** upload screenshot → "What's wrong with this React code?" → vision model → answer
+- **PDF:** upload invoice → vision/document extraction → structured JSON → store
+- **Voice:** 🎤 → STT → agent → TTS → 🔊
+- **Agentic image action:** image → vision → agent → MCP tool → action
+
+This becomes a strong portfolio project because it combines almost everything in the roadmap.
+
+---
+
+## 29. Interview Priority Cheat Sheet 🎯
+
+**Must know ⭐⭐⭐⭐⭐**
+What is multimodal AI · Vision-Language Models · Image understanding · OCR · Document AI · Multimodal RAG · Multimodal embeddings · Speech-to-text · Text-to-speech · Voice agents · Multimodal agents · Structured outputs · Multimodal security · Multimodal evaluation · Production challenges
+
+**Good to know ⭐⭐⭐**
+Video understanding · Video embeddings · Frame sampling · Speaker diarization · Deepfake detection · Image generation · Diffusion models · Multimodal model fine-tuning · How images tokenize · Multimodal benchmarks (MMMU/VQA)
+
+---
+
+## 30. Interview Questions
+
+1. What's the difference between OCR and a VLM, and when would you use each — or both?
+2. Walk through a multimodal RAG pipeline for a query that needs data from a chart in a PDF.
+3. Why do images cost more tokens/latency than a similar amount of text, conceptually?
+4. What's an image-based prompt injection, and how do you defend against it?
+5. How would you evaluate a document-extraction pipeline end-to-end, not just the final answer?
+6. When would you fine-tune a VLM vs. just prompt an existing one better?
+7. Design a voice agent architecture that supports barge-in/interruptions — what components are needed?
+8. How would you choose between a diffusion image-generation model and a VLM for a given feature request?
+9. What production challenges are unique to multimodal apps compared to text-only LLM apps?
+
+---
+
+## 31. Mental Model 🧠
+
+```
+TEXT  → LLM
+
+IMAGE → Vision Encoder / VLM → LLM reasoning
+
+AUDIO → STT → LLM → TTS
+
+VIDEO → Frames + Audio → Vision + Speech → LLM
+```
+
+```
+           Multimodal Agent
+                  ↓
+       ┌──────────┼──────────┐
+       ↓          ↓          ↓
+     Text       Vision      Audio
+       ↓          ↓          ↓
+      LLM        VLM        STT/TTS
+       └──────────┼──────────┘
+                  ↓
+            RAG / MCP / Tools
+                  ↓
+              Guardrails
+                  ↓
+              Response
+```
+
+**One-line interview answer:**
+"Multimodal AI enables models and AI applications to understand and work across modalities such as text, images, audio, and video, enabling use cases like document intelligence, multimodal RAG, vision agents, and voice assistants."
+
+---

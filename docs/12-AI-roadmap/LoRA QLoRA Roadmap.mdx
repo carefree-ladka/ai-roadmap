@@ -1,0 +1,443 @@
+# LoRA / QLoRA Roadmap
+
+## Table of Contents
+
+1. [Why LoRA Exists](#1-why-lora-exists-)
+2. [What Does LoRA Actually Change?](#2-what-does-lora-actually-change-)
+3. [Why "Low Rank"?](#3-why-low-rank-)
+4. [LoRA Architecture](#4-lora-architecture-)
+5. [What Is QLoRA?](#5-what-is-qlora-)
+6. [Why QLoRA?](#6-why-qlora-)
+7. [LoRA vs QLoRA](#7-lora-vs-qlora-)
+8. [Quantization Basics](#8-quantization-basics-)
+9. [Important QLoRA Concepts](#9-important-qlora-concepts-)
+10. [LoRA Hyperparameters](#10-lora-hyperparameters-)
+11. [What Should You Fine-Tune?](#11-what-should-you-fine-tune-)
+12. [Training Flow](#12-training-flow-)
+13. [What Actually Gets Saved?](#13-what-actually-gets-saved-)
+14. [Adapter Merging](#14-adapter-merging-)
+15. [LoRA vs Full Fine-Tuning](#15-lora-vs-full-fine-tuning-)
+16. [QLoRA vs RAG](#16-qlora-vs-rag-)
+17. [Dataset for LoRA](#17-dataset-for-lora-)
+18. [SFT + LoRA](#18-sft--lora-)
+19. [Tools You Should Learn](#19-tools-you-should-learn-)
+20. [LoRA Variants Worth Knowing](#20-lora-variants-worth-knowing-)
+21. [Serving Multiple Adapters in Production](#21-serving-multiple-adapters-in-production-)
+22. [Practical QLoRA Project](#22-practical-qlora-project-)
+23. [Evaluate Properly](#23-evaluate-properly-)
+24. [Choosing Rank & Learning Rate in Practice](#24-choosing-rank--learning-rate-in-practice-)
+25. [Common Mistakes](#25-common-mistakes-)
+26. [Interview Questions](#26-interview-questions-)
+27. [The Mental Model](#27-the-mental-model-)
+
+---
+
+## 1. Why LoRA Exists ⭐⭐⭐⭐⭐
+
+Suppose you have a **7B parameter model**. Full fine-tuning means:
+```
+7B parameters → Update almost everything
+```
+That's expensive in GPU memory, training time, storage, and compute.
+
+LoRA takes a different approach:
+```
+7B Base Model → Freeze ❄️ + Small trainable matrices → LoRA Adapter
+```
+Most of the original model stays unchanged.
+
+---
+
+## 2. What Does LoRA Actually Change? ⭐⭐⭐⭐⭐
+
+Suppose a model has a weight matrix `W`.
+
+**Normal fine-tuning:** `W → W + ΔW` (the whole thing is updated)
+
+**LoRA** approximates the update using two small matrices:
+```
+ΔW = A × B
+W' = W + A×B
+```
+Where `W` is the original frozen weights, and `A`, `B` are small trainable matrices. Instead of training the huge `W`, you train only `A` and `B`.
+
+**Interview answer:** LoRA freezes the pretrained model and learns a low-rank update through small trainable matrices.
+
+---
+
+## 3. Why "Low Rank"? ⭐⭐⭐⭐
+
+Instead of learning a huge matrix (4096 × 4096), LoRA might learn `4096 × 16` + `16 × 4096` — much smaller.
+
+```
+Full:  4096 × 4096              = 16.7M parameters
+LoRA:  4096×16 + 16×4096  ≈ 131K parameters
+```
+That ~99% reduction in trainable parameters is the key idea.
+
+---
+
+## 4. LoRA Architecture ⭐⭐⭐⭐⭐
+
+```
+                 ┌───────────────┐
+Input ──────────►│ Base Model W  │──────┐
+                 │   Frozen ❄️   │      │
+                 └───────────────┘      │
+                                        +
+                 ┌───────────────┐      │
+Input ──────────►│ LoRA A → B    │──────┘
+                 │  Trainable    │
+                 └───────────────┘
+                         ↓
+                       Output
+```
+The base model provides general knowledge; the adapter learns the specialized behavior.
+
+---
+
+## 5. What Is QLoRA? ⭐⭐⭐⭐⭐
+
+```
+QLoRA = Quantization + LoRA
+```
+Instead of loading the base model in FP16:
+```
+Base model → 4-bit quantization → Freeze + LoRA adapters → Train
+```
+So:
+```
+LoRA  = Frozen FP16/BF16 model + adapters
+QLoRA = Frozen 4-bit model     + adapters
+```
+
+---
+
+## 6. Why QLoRA? ⭐⭐⭐⭐⭐
+
+Relative memory footprint:
+```
+Full Fine-tuning  ████████████████████
+LoRA              ████████
+QLoRA             ████
+```
+QLoRA makes fine-tuning accessible on smaller GPUs — you can experiment with 7B-ish models without a large multi-GPU cluster.
+
+---
+
+## 7. LoRA vs QLoRA ⭐⭐⭐⭐⭐
+
+| | LoRA | QLoRA |
+|---|---|---|
+| Base model | FP16/BF16 commonly | 4-bit commonly |
+| Base weights | Frozen | Frozen |
+| Adapter | Trainable | Trainable |
+| Memory | Low | Even lower |
+| Training | Efficient | More memory efficient |
+| Quality | Very good | Very good |
+| Complexity | Lower | Slightly higher |
+| Training speed | Faster per step | Slightly slower per step (dequant overhead) |
+
+**Simple answer:** QLoRA is essentially LoRA applied to a quantized base model to reduce memory requirements further.
+
+---
+
+## 8. Quantization Basics ⭐⭐⭐⭐⭐
+
+```
+FP32 → FP16 / BF16 → INT8 → INT4
+```
+FP16 uses 16 bits/parameter; INT4 uses 4 bits/parameter — significantly less memory. But lower precision can introduce some quality loss.
+
+---
+
+## 9. Important QLoRA Concepts ⭐⭐⭐⭐
+
+- **NF4 (NormalFloat 4-bit)** — a 4-bit quantization format designed specifically for neural network weights, which tend to follow a roughly normal distribution.
+- **Double quantization** — the quantization *parameters themselves* (scales/zero-points) are quantized too, saving additional memory.
+- **Paged optimizers** — use CPU/GPU memory paging (similar to virtual memory) to handle optimizer-state memory spikes without crashing training.
+
+You don't need to implement these from scratch, but you should be able to explain what each one buys you.
+
+---
+
+## 10. LoRA Hyperparameters ⭐⭐⭐⭐⭐
+
+- **r (rank)** — controls adapter capacity. Common values: `8, 16, 32, 64`. Higher r → ✅ more capacity, ❌ more parameters/memory and higher overfitting risk.
+- **lora_alpha** — controls the strength/scaling of the LoRA update. Common relationship: `scaling ≈ alpha / r`.
+- **lora_dropout** — regularization applied to LoRA layers (e.g., `0.05`, `0.1`).
+- **Target modules** — which layers receive LoRA adapters. Common attention projections: `q_proj, k_proj, v_proj, o_proj`; sometimes MLP projections too.
+
+---
+
+## 11. What Should You Fine-Tune? ⭐⭐⭐⭐
+
+Usually not every layer.
+
+```
+Attention          MLP (sometimes)
+ ├── q_proj         ├── gate_proj
+ ├── k_proj         ├── up_proj
+ ├── v_proj         └── down_proj
+ └── o_proj
+```
+Exact module names depend on the model architecture (LLaMA-style vs GPT-style naming differs).
+
+---
+
+## 12. Training Flow ⭐⭐⭐⭐⭐
+
+```
+Dataset → Clean → Tokenizer → Load base model
+   → Quantize? ──→ QLoRA
+   → Attach LoRA → Freeze base model → Train adapters
+   → Evaluate → Save adapter
+```
+
+---
+
+## 13. What Actually Gets Saved? ⭐⭐⭐⭐⭐
+
+**Full fine-tuning:** one huge model checkpoint.
+
+**LoRA:** `Base Model + Tiny LoRA Adapter` — the adapter alone is often just tens of megabytes.
+
+```
+Base LLM
+ ├── Customer Support Adapter
+ ├── Coding Adapter
+ ├── Medical Adapter
+ └── Finance Adapter
+```
+The same base model can be reused across many task-specific adapters.
+
+---
+
+## 14. Adapter Merging ⭐⭐⭐⭐
+
+You can combine `Base Model + LoRA Adapter → Merged Model`, conceptually `W' = W + ΔW`.
+
+You may merge for deployment (single artifact, no runtime overhead) — but you don't always need to; you can also dynamically load adapters at inference time.
+
+**Trade-off to know:** merging bakes the adapter in permanently (simpler serving, no per-request switching) but loses the ability to hot-swap adapters per request; keeping them separate lets one base model serve many tasks/tenants at the cost of a small runtime overhead per adapter application.
+
+---
+
+## 15. LoRA vs Full Fine-Tuning ⭐⭐⭐⭐⭐
+
+| | Full FT | LoRA |
+|---|---|---|
+| Base weights | Train | Freeze |
+| Memory | Very high | Low |
+| Training cost | High | Low |
+| Adapter | No | Yes |
+| Multiple tasks | Expensive | Easy |
+| Practical locally | Difficult | Much easier |
+| Catastrophic forgetting risk | Higher | Lower |
+
+---
+
+## 16. QLoRA vs RAG ⭐⭐⭐⭐⭐
+
+This distinction is extremely important.
+
+**RAG:** `Company docs → Retrieve → LLM` — knowledge stays outside the model.
+
+**QLoRA:** `Training examples → QLoRA → Model behavior changes` — knowledge/behavior is partially encoded into the model's weights.
+
+**Example:**
+- Changing product documentation every week → ❌ QLoRA, ✅ RAG
+- Teaching a model your company's desired support-response *style* → ✅ QLoRA
+
+Often `RAG + QLoRA` are used together: the adapter shapes tone/format/behavior, RAG supplies the current facts.
+
+---
+
+## 17. Dataset for LoRA ⭐⭐⭐⭐⭐
+
+**Instruction format**
+```json
+{
+  "instruction": "Classify the support request",
+  "input": "My payment failed",
+  "output": "payment_failure"
+}
+```
+
+**Chat format**
+```json
+{
+  "messages": [
+    { "role": "user", "content": "How can I reset my password?" },
+    { "role": "assistant", "content": "Go to Settings > Security > Reset Password." }
+  ]
+}
+```
+The dataset teaches the exact behavior you want — quality and consistency here matter more than dataset size.
+
+---
+
+## 18. SFT + LoRA ⭐⭐⭐⭐⭐
+
+Probably your best first practical exercise.
+
+```
+Instruction dataset → Base model → LoRA → Supervised Fine-Tuning → Adapter
+```
+Then move to **QLoRA + SFT** once comfortable, to practice under tighter memory constraints.
+
+---
+
+## 19. Tools You Should Learn ⭐⭐⭐⭐⭐
+
+- **Transformers** → Models
+- **Datasets** → Training data
+- **PEFT** → LoRA / QLoRA
+- **TRL** → SFT / DPO
+- **BitsAndBytes** → Quantization
+- **Accelerate** → Training infrastructure
+
+**Mental model:** `Transformers + Datasets + PEFT + TRL + BitsAndBytes` is a very useful stack to recognize and be able to name in an interview.
+
+---
+
+## 20. LoRA Variants Worth Knowing ⭐⭐⭐
+
+Interviewers sometimes probe whether you know the field has moved past vanilla LoRA:
+
+- **AdaLoRA** — dynamically allocates rank budget across layers based on importance, instead of a fixed rank everywhere.
+- **DoRA (Weight-Decomposed LoRA)** — decomposes weights into magnitude and direction, applying LoRA to direction only; often closer to full fine-tuning quality at the same parameter budget.
+- **rsLoRA (rank-stabilized LoRA)** — adjusts the scaling factor so higher ranks train more stably.
+- **LongLoRA** — adapts LoRA for efficiently extending context length.
+
+You don't need implementation depth here — just enough to say "vanilla LoRA isn't the end of the story" if asked.
+
+---
+
+## 21. Serving Multiple Adapters in Production ⭐⭐⭐
+
+A practical topic that separates "trained a LoRA once" from "can ship this":
+
+- **Hot-swapping adapters** — load different LoRA adapters onto the same frozen base model per request (e.g., per customer or per task) without reloading the whole model.
+- **Batched multi-adapter inference** — frameworks like **S-LoRA** and adapter support in **vLLM** let you serve many adapters concurrently on shared GPU memory, batching requests that use different adapters together.
+- Decide merge-vs-keep-separate per your serving pattern: one dominant use case → merge for speed; many tenants/tasks on one base model → keep adapters separate and swap dynamically.
+
+---
+
+## 22. Practical QLoRA Project 🔥
+
+**Build a Customer Support Classifier.**
+
+**Dataset:** ~2,000–5,000 examples across labels like `refund_request`, `payment_failure`, `order_status`, `account_issue`, `technical_issue`, `cancellation`.
+
+**Pipeline**
+```
+Dataset → Qwen/Llama → 4-bit quantization → LoRA → SFT → Adapter
+```
+
+Then expose it: `React → FastAPI → Fine-tuned model`.
+
+---
+
+## 23. Evaluate Properly ⭐⭐⭐⭐⭐
+
+Compare `Base model vs LoRA model vs QLoRA model` on:
+
+- Accuracy, precision, recall, F1
+- Format consistency
+- Hallucination
+- Latency
+- Memory
+
+For generative tasks also evaluate: correctness, relevance, faithfulness, instruction following. This connects directly to broader evaluation/observability tooling (e.g., LangSmith-style tracing) you may already use.
+
+---
+
+## 24. Choosing Rank & Learning Rate in Practice ⭐⭐⭐
+
+Practical defaults interviewers like to hear you reason about, not just memorize:
+
+- **Small/simple tasks** (classification, short structured outputs): `r = 8–16` is often enough.
+- **Complex style/behavior transfer** (long-form response style, multi-turn behavior): `r = 32–64` may be needed.
+- **Learning rate:** LoRA typically trains fine with a *higher* learning rate than full fine-tuning (e.g., `1e-4` to `2e-4` range is common for LoRA vs `1e-5`-ish for full FT), because far fewer parameters are being updated.
+- Start small (lower rank, fewer epochs), evaluate, and increase capacity only if the model is clearly underfitting the target behavior — don't default to the largest rank "just in case."
+
+---
+
+## 25. Common Mistakes ⭐⭐⭐⭐
+
+- ❌ **Fine-tuning for changing knowledge** — use RAG instead.
+- ❌ **Training on poor data** — quality > quantity.
+- ❌ **Too high LoRA rank** — increases memory and overfitting risk.
+- ❌ **Too many epochs** — can overfit or induce catastrophic forgetting.
+- ❌ **No validation dataset** — you won't know whether it generalizes.
+- ❌ **No baseline** — always compare against the base model.
+- ❌ **Assuming QLoRA automatically makes the model "better"** — it makes training more *efficient*, not inherently more intelligent.
+- ❌ **Forgetting to check target_modules match the actual model architecture** — silently attaching adapters to the wrong layer names trains nothing useful.
+
+---
+
+## 26. Interview Questions ⭐⭐⭐⭐⭐
+
+**Q1. What is LoRA?**
+LoRA freezes the base model and trains small low-rank adapter matrices instead of updating all model parameters.
+
+**Q2. What is QLoRA?**
+QLoRA combines a quantized base model, typically 4-bit, with LoRA adapters to significantly reduce training memory requirements.
+
+**Q3. Why use LoRA?**
+It reduces trainable parameters, memory, and training cost, and makes it easier to maintain multiple task-specific adapters on one base model.
+
+**Q4. LoRA vs full fine-tuning?**
+Full fine-tuning updates the model's weights directly, while LoRA freezes the base model and trains only small adapter parameters.
+
+**Q5. LoRA vs RAG?**
+RAG provides external knowledge at inference time; LoRA changes model behavior through training.
+
+**Q6. What is LoRA rank?**
+Rank controls the capacity of the low-rank adapter; higher rank generally provides more capacity but increases trainable parameters, memory, and overfitting risk.
+
+**Q7. What is QLoRA's main advantage?**
+It enables parameter-efficient fine-tuning while keeping the base model quantized, significantly reducing GPU memory requirements.
+
+**Q8. Do you always need to merge a LoRA adapter before deployment?**
+No — you can merge for a single-task deployment to simplify serving, or keep adapters separate and hot-swap them when one base model needs to serve many tasks or tenants.
+
+**Q9. Why might LoRA use a higher learning rate than full fine-tuning?**
+Because far fewer parameters are being trained, the adapter can tolerate a larger learning rate without destabilizing the (frozen) base model's existing behavior.
+
+---
+
+## 27. The Mental Model 🔥
+
+```
+FULL FINE-TUNING
+Model weights ████████████████ → Everything trains
+
+LoRA
+Base model ████████████████ → frozen
+Adapter ██ → Train only adapter
+
+QLoRA
+Base model ████████████████ → 4-bit quantized → frozen
+Adapter ██ → Train adapter
+```
+
+**The entire fine-tuning family:**
+```
+Fine-tuning
+    │
+    ├── Full Fine-tuning
+    │
+    └── PEFT
+         │
+         └── LoRA
+              │
+              ├── QLoRA
+              ├── AdaLoRA
+              ├── DoRA
+              └── rsLoRA
+```
+
+**One-line interview answer:**
+"LoRA performs parameter-efficient fine-tuning by freezing the base model and training low-rank adapter matrices, while QLoRA additionally quantizes the base model — typically to 4-bit — to reduce memory requirements further."

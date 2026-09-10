@@ -1,0 +1,479 @@
+# LangGraph Interview Roadmap
+
+## Table of Contents
+
+1. [Roadmap Overview](#roadmap-overview)
+2. [Phase 1 — LangGraph Fundamentals](#phase-1--langgraph-fundamentals)
+3. [Phase 2 — State Management](#phase-2--state-management-most-important)
+4. [Phase 3 — Nodes & Edges](#phase-3--nodes--edges)
+5. [Phase 4 — Conditional Routing](#phase-4--conditional-routing)
+6. [Phase 5 — Tool Calling](#phase-5--tool-calling)
+7. [Phase 6 — Memory & Checkpointing](#phase-6--memory--checkpointing-very-important)
+8. [Phase 7 — Human-in-the-Loop](#phase-7--human-in-the-loop)
+9. [Phase 8 — Multi-Agent Systems](#phase-8--multi-agent-systems)
+10. [Phase 9 — Agentic RAG](#phase-9--agentic-rag-2026-must-know)
+11. [Phase 10 — Production FastAPI Integration](#phase-10--production-fastapi-integration)
+12. [Phase 11 — Streaming Modes Deep Dive](#phase-11--streaming-modes-deep-dive-) 🆕
+13. [Phase 12 — Reliability: Retries, Loops & Cost Control](#phase-12--reliability-retries-loops--cost-control-) 🆕
+14. [Phase 13 — Testing, Evaluation & Debugging](#phase-13--testing-evaluation--debugging-) 🆕
+15. [Phase 14 — Security & Multi-Agent Safety](#phase-14--security--multi-agent-safety-) 🆕
+16. [Phase 15 — Deployment (LangGraph Platform & Beyond)](#phase-15--deployment-langgraph-platform--beyond-) 🆕
+17. [Advanced LangGraph Topics (Senior Interviews)](#advanced-langgraph-topics-senior-interviews)
+18. [Best FastAPI Projects to Practice](#best-fastapi-projects-to-practice)
+19. [30 Must-Know LangGraph Interview Questions](#30-must-know-langgraph-interview-questions)
+20. [3-Week Study Plan](#3-week-study-plan)
+21. [Quick-Reference Cheat Sheet](#quick-reference-cheat-sheet-) 🆕
+
+---
+
+## Roadmap Overview
+
+| Phase | Focus | Priority |
+|---|---|---|
+| 1 | LangGraph Fundamentals | ⭐⭐⭐⭐⭐ |
+| 2 | State Management | ⭐⭐⭐⭐⭐ |
+| 3 | Nodes & Edges | ⭐⭐⭐⭐⭐ |
+| 4 | Conditional Routing | ⭐⭐⭐⭐⭐ |
+| 5 | Tool Calling | ⭐⭐⭐⭐⭐ |
+| 6 | Memory & Checkpointing | ⭐⭐⭐⭐⭐ |
+| 7 | Human-in-the-Loop | ⭐⭐⭐⭐ |
+| 8 | Multi-Agent Workflows | ⭐⭐⭐⭐ |
+| 9 | Agentic RAG | ⭐⭐⭐⭐⭐ |
+| 10 | Production FastAPI Integration | ⭐⭐⭐⭐⭐ |
+| 11 | Streaming Modes Deep Dive 🆕 | ⭐⭐⭐⭐ |
+| 12 | Reliability: Retries, Loops & Cost Control 🆕 | ⭐⭐⭐⭐ |
+| 13 | Testing, Evaluation & Debugging 🆕 | ⭐⭐⭐ |
+| 14 | Security & Multi-Agent Safety 🆕 | ⭐⭐⭐⭐ |
+| 15 | Deployment (LangGraph Platform) 🆕 | ⭐⭐⭐ |
+
+> 🆕 = added because it's asked in 2026 Agentic AI interviews but was missing from the original plan.
+
+---
+
+## Phase 1 — LangGraph Fundamentals
+
+### Learn
+- What LangGraph is and why it exists: LCEL chains are DAGs (directed, one-shot); real agents need **loops, branching, persistence, and human interrupts** — a graph model handles this naturally.
+- Difference between a LangChain pipeline (linear/DAG, stateless per call) and a LangGraph workflow (stateful, cyclic, resumable).
+
+### Core Concepts
+
+| Concept | Meaning |
+|---|---|
+| Graph | Workflow made of nodes and edges. |
+| State | Shared data structure flowing through the graph. |
+| Node | A function that reads state and returns an update. |
+| Edge | Connection controlling which node runs next. |
+| START / END | Entry and exit points of the graph. |
+| Compiled graph 🆕 | `.compile()` turns the graph definition into a runnable, optionally wired with a checkpointer/store. |
+
+### Interview Questions
+- Why use LangGraph over plain LCEL?
+- When is a graph a better fit than a chain?
+- What does "cyclic" mean in the context of an agent graph, and why does LCEL struggle with it? 🆕
+
+### Build
+A simple chatbot graph with two nodes.
+
+---
+
+## Phase 2 — State Management (Most Important)
+
+State is the heart of LangGraph.
+
+### Topics
+
+| Topic | Notes |
+|---|---|
+| `TypedDict` state | Most common pattern for defining the graph's shared schema. |
+| Pydantic state | Adds validation on state updates. |
+| State updates | Nodes return **partial** updates, not the full state. |
+| Reducers | Functions defining how new values merge into existing state (e.g., append vs overwrite). |
+| Messages state | `add_messages` reducer for conversation history — the standard chat pattern. |
+| Multiple state schemas 🆕 | Using separate `input`/`output`/`internal` schemas so external callers don't see internal scratch state. |
+
+### Interview Questions
+- Why does LangGraph favor immutable, partial state updates over direct mutation?
+- How does LangGraph merge state when multiple nodes update it (reducers)?
+- Why might you define separate input/output schemas from your internal state? 🆕
+
+### Build
+Chat state storing: `question`, `answer`, `documents`, `tool_outputs`.
+
+---
+
+## Phase 3 — Nodes & Edges
+
+### Node Types
+
+| Node | Purpose |
+|---|---|
+| LLM node | Calls the model. |
+| Retriever node | Fetches documents. |
+| Tool node | Executes tools. |
+| Router node | Chooses the next step. |
+| Validation node | Checks outputs before proceeding. |
+
+### Edge Types
+- Normal edge (fixed transition).
+- Conditional edge (`add_conditional_edges`) — branches based on state.
+- Loop edge — a node routes back to an earlier node (e.g., retry retrieval).
+
+### Interview Questions
+- Can graphs contain loops? How do you prevent infinite ones? 🆕
+- What happens when a node raises an exception mid-run?
+
+### Build
+`Retriever → LLM → Output`.
+
+---
+
+## Phase 4 — Conditional Routing
+
+### Learn
+Route based on state — e.g.:
+- Weather question → Weather tool.
+- PDF question → Retriever.
+- General question → LLM directly.
+
+### Topics
+- Router node design.
+- `add_conditional_edges()`.
+- Branching and dynamic workflows.
+- `Send` API 🆕 — dynamically fan out to N copies of a node (e.g., map-reduce over a list of sub-questions), used in orchestrator-worker patterns.
+
+### Interview Questions
+- How do conditional edges work internally?
+- How do you build an intent router with LangGraph?
+- How would you fan out a task to process 10 documents in parallel and merge the results? 🆕
+
+### Build
+An AI assistant choosing between three tools via a router node.
+
+---
+
+## Phase 5 — Tool Calling
+
+### Learn
+
+| Topic | Notes |
+|---|---|
+| `ToolNode` | Prebuilt node that executes tool calls returned by the model. |
+| `bind_tools()` | Binds tool schemas to the chat model. |
+| Tool messages | Request/response message types (`AIMessage` with `tool_calls`, `ToolMessage`). |
+| Parallel tool calls | Model requests multiple tools in one turn; `ToolNode` can execute them concurrently. |
+| Tool call error handling 🆕 | `ToolNode`'s `handle_tool_errors` — returning a formatted error back to the model instead of crashing the run. |
+
+### Interview Questions
+- Explain the tool execution flow end to end (model → tool call → `ToolNode` → result → back to model).
+- Difference between a LangChain `Tool` object and LangGraph's `ToolNode`.
+- How do you handle a tool that throws an exception without killing the whole graph run? 🆕
+
+### Build
+Weather + Calculator + Search assistant.
+
+---
+
+## Phase 6 — Memory & Checkpointing (Very Important)
+
+### Memory Types
+
+| Memory | Use |
+|---|---|
+| `InMemorySaver` | Development/testing only — lost on restart. |
+| `PostgresSaver` | Persistent, production conversation state. |
+| Redis | Fast session cache. |
+| `SqliteSaver` | Local/lightweight persistence. |
+
+### Understand
+- **Thread ID** — scopes a checkpoint history to one conversation/session.
+- **Checkpoints** — a full snapshot of graph state after each step, enabling resume and rollback.
+- Resuming interrupted or crashed conversations.
+- Long-running agents that persist across days/restarts.
+- **Short-term vs long-term memory** 🆕:
+  - *Short-term* = thread-scoped state via the checkpointer (this conversation's history).
+  - *Long-term* = the **`Store`** API — a separate cross-thread key-value/semantic store for facts that should persist across sessions and users (e.g., user preferences), independent of any single thread.
+- **Time travel** 🆕 — replaying or forking execution from an earlier checkpoint (`get_state_history`, updating and resuming from a past checkpoint) — useful for debugging and "what-if" branching.
+
+### Interview Questions
+- Thread-scoped memory vs cross-thread/long-term memory — how do you implement each?
+- What are the benefits of checkpointing beyond just "remembering the conversation"?
+- What is time travel in LangGraph, and when would you use it? 🆕
+
+### Build
+A chat that resumes correctly after a process restart, using `PostgresSaver`.
+
+---
+
+## Phase 7 — Human-in-the-Loop
+
+### Learn
+- `interrupt()` — pausing graph execution at a specific point.
+- Resuming execution with `Command(resume=...)`.
+- Approval workflows (approve/reject/edit before continuing).
+- Editing state mid-flight before resuming.
+
+### Use Cases
+- Expense approval.
+- Email approval before sending.
+- Deployment/production-change approval.
+
+### Interview Questions
+- How do you pause an agent for human approval, and how does it resume later (possibly after the process restarted)?
+- What state does LangGraph need to persist to make human approval reliable in production? 🆕
+
+### Build
+Email draft approval agent.
+
+---
+
+## Phase 8 — Multi-Agent Systems
+
+### Patterns
+
+| Pattern | Notes |
+|---|---|
+| Supervisor | A coordinator agent routes work to specialist worker agents. |
+| Planner / Executor | Plan the full task, then execute steps sequentially. |
+| Specialist agents | Dedicated agents for weather, search, SQL, etc. |
+| Reviewer agent | Validates/critiques another agent's output before finalizing. |
+| Swarm / hand-off pattern 🆕 | Agents directly hand off control to one another (peer-to-peer) instead of always routing through a central supervisor. |
+
+### Interview Questions
+- Supervisor pattern vs a simple router — what's actually different?
+- Why use multiple specialized agents instead of one large prompt with many tools?
+- What are the trade-offs of a supervisor architecture vs a swarm/hand-off architecture? 🆕
+
+### Build
+Research agent with planner + researcher + summarizer.
+
+---
+
+## Phase 9 — Agentic RAG (2026 Must Know)
+
+### Workflow
+1. Understand the question.
+2. Decide whether retrieval is needed at all.
+3. Retrieve documents.
+4. Rerank.
+5. Generate an answer.
+6. Reflect on whether the answer is sufficiently grounded.
+7. Retrieve again / reformulate the query if not.
+
+### Topics
+- Retrieval node design.
+- Reflection node (self-grading the answer/context).
+- Retry loop with a max-iteration guard. 🆕
+- Query rewriting.
+- Multi-query retrieval.
+
+### Interview Questions
+- Agentic RAG vs traditional RAG — what capability does the graph add?
+- Self-RAG vs Agentic RAG — how do they relate?
+- How do you prevent an agentic RAG retry loop from running forever or blowing up cost? 🆕
+
+### Build
+A document assistant that retries retrieval when its own reflection step flags a weak answer.
+
+---
+
+## Phase 10 — Production FastAPI Integration
+
+### Learn
+
+| Topic | Notes |
+|---|---|
+| Streaming responses | Token streaming to the client. |
+| Async nodes | `async def` node functions for I/O-bound work. |
+| Error handling | Retries and fallbacks at the node level. |
+| Persistence | Postgres-backed checkpoints in production. |
+| Observability | LangSmith traces per node/run. |
+| Background jobs | Long-running workflows that outlive a single HTTP request. |
+
+### Interview Questions
+- How do you deploy a LangGraph app behind FastAPI?
+- How do you scale agents horizontally when state is checkpointed?
+
+### Build
+A ChatGPT-like backend with thread persistence.
+
+---
+
+## Phase 11 — Streaming Modes Deep Dive 🆕
+
+A common gap — interviewers probe beyond "yes I can stream."
+
+### Learn
+- `stream_mode="values"` — full state after each step.
+- `stream_mode="updates"` — only the delta each node produced.
+- `stream_mode="messages"` — token-level LLM output, ideal for chat UIs.
+- `stream_mode="debug"` — verbose internal event stream for troubleshooting.
+- Combining streaming modes for a UI that shows both "thinking/tool status" and token-by-token text.
+
+### Interview Questions
+- What's the difference between `values` and `updates` streaming modes, and when would you pick one over the other?
+- How would you build a UI that shows "Searching documents…" and then streams the final answer token by token?
+
+---
+
+## Phase 12 — Reliability: Retries, Loops & Cost Control 🆕
+
+### Learn
+- **Retry policies** per node (`RetryPolicy`) for transient failures (timeouts, rate limits).
+- **Recursion limit** (`recursion_limit`) — hard cap on graph steps to prevent runaway loops from an agent stuck in a retrieve-reflect cycle.
+- Timeouts per node/tool call.
+- Cost/token budgeting across a long-running agent (tracking cumulative tokens across many LLM calls in one run).
+
+### Interview Questions
+- How do you stop an agent from looping forever between "reflect" and "retrieve" nodes?
+- How would you track and cap the total cost of a single multi-step agent run?
+
+---
+
+## Phase 13 — Testing, Evaluation & Debugging 🆕
+
+### Learn
+- **LangGraph Studio** — visual graph debugger for stepping through node execution and inspecting state at each point.
+- Unit testing individual nodes as plain Python functions (since nodes are just functions of state).
+- **Trajectory evaluation** — grading not just the final answer but the sequence of tool calls/decisions an agent made (did it use the right tools in the right order?).
+- LangSmith datasets for regression-testing full agent runs after a prompt or graph change.
+
+### Interview Questions
+- How do you unit test a single node in isolation?
+- What is trajectory evaluation, and why does it matter more for agents than for simple RAG?
+- How would you debug why an agent looped three times before answering?
+
+---
+
+## Phase 14 — Security & Multi-Agent Safety 🆕
+
+### Learn
+- Prompt injection risk is amplified in multi-agent/tool-using graphs — a poisoned tool result can redirect a downstream agent's behavior.
+- Scoping which tools each specialist agent can access (least privilege) rather than giving every agent every tool.
+- Requiring human approval (Phase 7) before any side-effecting action (sending messages, writes, payments).
+- Sandboxing code-execution tools (e.g., a "python REPL" tool) so an agent can't escape its intended scope.
+
+### Interview Questions
+- In a multi-agent system, how do you stop a compromised tool result from manipulating a downstream agent?
+- How do you apply least-privilege tool access across a supervisor/worker agent system?
+
+---
+
+## Phase 15 — Deployment (LangGraph Platform & Beyond) 🆕
+
+### Learn
+- **LangGraph Platform / `langgraph-cli`** — purpose-built hosting for LangGraph graphs with built-in persistence, streaming, and human-in-the-loop support (know it exists even if you self-host via FastAPI).
+- Self-hosting: FastAPI + `PostgresSaver` + Redis, containerized with Docker.
+- Horizontal scaling: stateless compute layer, state lives entirely in the checkpointer/store — critical for scaling agent workers.
+- Versioning graphs alongside prompts/code so behavior changes are auditable.
+
+### Interview Questions
+- What does the LangGraph Platform provide over a hand-rolled FastAPI + Postgres deployment?
+- How do you horizontally scale LangGraph workers when conversations must survive a pod restart?
+
+---
+
+## Advanced LangGraph Topics (Senior Interviews)
+
+| Topic | Why Important |
+|---|---|
+| Subgraphs | Reusable, composable sub-workflows. |
+| `Command` API | Combine a state update and routing decision in one return value. |
+| Interrupt / Resume | Human approval flows. |
+| `MessageGraph` (legacy) vs `StateGraph` | Know `StateGraph` is now the general standard; `MessageGraph` was the older chat-specific shortcut. |
+| Parallel branches | Performance optimization via concurrent node execution. |
+| Retry policies | Resilient agents under transient failure. |
+| Reflection agents | Self-critiquing, self-improving workflows. |
+| `Send` API 🆕 | Dynamic map-reduce fan-out to parallel node instances. |
+| Store API (long-term memory) 🆕 | Cross-thread, cross-session persistent memory separate from checkpoints. |
+| Time travel / forking 🆕 | Replaying and branching from a past checkpoint. |
+
+---
+
+## Best FastAPI Projects to Practice
+
+| Project | Topics Covered |
+|---|---|
+| 1. AI Chat Assistant | `StateGraph`, streaming, memory. |
+| 2. Weather + Search Agent | `ToolNode`, routing, conditional edges. |
+| 3. Document RAG Agent | Retriever node, Agentic RAG, retry loops. |
+| 4. Email Approval Agent | Human-in-the-loop, interrupts, resume. |
+| 5. Multi-Agent Research Assistant | Planner, researcher, summarizer, reviewer. |
+| 6. Parallel Doc-Summarizer 🆕 | `Send` API map-reduce fan-out over many documents. |
+
+---
+
+## 30 Must-Know LangGraph Interview Questions
+
+1. What is LangGraph?
+2. LangGraph vs LangChain — what problem does the graph model solve?
+3. `StateGraph` vs the legacy `MessageGraph`.
+4. What is State in LangGraph?
+5. How are state updates merged (reducers)?
+6. Explain Nodes and Edges.
+7. How does conditional routing work?
+8. How do looping workflows work, and how do you bound them?
+9. What is `ToolNode`?
+10. Explain the full tool-calling flow.
+11. What is checkpointing?
+12. Thread ID and conversation persistence.
+13. Short-term memory (checkpointer) vs long-term memory (`Store`). 🆕
+14. Human-in-the-loop interrupts.
+15. How do you resume execution after an interrupt?
+16. Multi-agent supervisor pattern.
+17. Planner/Executor architecture.
+18. Agentic RAG workflow end to end.
+19. How do you stream a LangGraph app in FastAPI?
+20. How do you scale LangGraph agents in production?
+21. What is the `Send` API used for? 🆕
+22. What is time travel / checkpoint forking? 🆕
+23. Difference between `stream_mode="values"` and `"updates"`. 🆕
+24. What is trajectory evaluation for agents? 🆕
+25. How do you unit test an individual node? 🆕
+26. How do you prevent an agent loop from running forever or overspending? 🆕
+27. How do you defend a multi-agent system against a poisoned tool result? 🆕
+28. What does the `Command` API let you do that a plain return doesn't? 🆕
+29. What does LangGraph Studio help you debug? 🆕
+30. What does the LangGraph Platform provide over self-hosting? 🆕
+
+---
+
+## 3-Week Study Plan
+
+### Week 1 — Fundamentals & State
+- LangGraph fundamentals, `StateGraph`, `TypedDict`/Pydantic state, reducers.
+- Nodes, edges, conditional routing, basic loops with a recursion limit.
+- Build: a router-based assistant choosing between 2–3 tools.
+
+### Week 2 — Tools, Memory & Agentic RAG
+- `ToolNode`, `bind_tools()`, parallel and error-handled tool calls.
+- Checkpointing (`InMemorySaver` → `PostgresSaver`), thread IDs, `Store` for long-term memory.
+- Agentic RAG: retrieval + reflection + bounded retry loop.
+- Human-in-the-loop: `interrupt()` / `Command(resume=...)`.
+
+### Week 3 — Multi-Agent, Production & Interview Polish
+- Multi-agent patterns (supervisor, planner/executor, `Send` fan-out).
+- Streaming modes, retry policies, LangSmith tracing, trajectory evaluation.
+- Security: least-privilege tools, approval gates for side effects.
+- Deployment basics (FastAPI + Postgres, or LangGraph Platform) and mock interview practice with the 30 questions above.
+
+---
+
+## Quick-Reference Cheat Sheet 🆕
+
+**One-line answers for whiteboard/verbal rounds:**
+
+- **LangGraph** = a stateful graph runtime on top of LangChain for building agents that loop, branch, persist, and pause for humans.
+- **State** = a shared, typed data structure; nodes return partial updates merged in via reducers.
+- **Checkpointer** = short-term, thread-scoped memory that snapshots state after every step (enables resume, time travel).
+- **Store** = long-term, cross-thread memory for facts that outlive a single conversation.
+- **`ToolNode`** = a prebuilt node that executes whatever tool calls the model requested and returns `ToolMessage`s.
+- **`Send` API** = dynamic fan-out to run a node N times in parallel over a list (map-reduce pattern).
+- **`interrupt()` / `Command(resume=...)`** = the human-in-the-loop pause/resume mechanism.
+- **Recursion limit / retry policy** = guardrails that stop an agent from looping forever or retrying indefinitely.
+- **Trajectory evaluation** = grading the *path* an agent took (tool calls, order), not just its final answer.
+- **Supervisor pattern** = one coordinator agent routes tasks to specialist worker agents and merges their outputs.
+
+---
+
+*Prepared for AI Engineer / Agentic AI interviews — React + FastAPI + Ollama + LangChain + LangGraph stack, 2026.*

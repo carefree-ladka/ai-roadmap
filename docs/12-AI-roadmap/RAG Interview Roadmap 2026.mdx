@@ -1,0 +1,511 @@
+# RAG Interview Roadmap
+
+## Table of Contents
+
+1. [Roadmap Overview](#roadmap-overview)
+2. [Phase 1 — RAG Fundamentals](#phase-1--rag-fundamentals)
+3. [Phase 2 — Embeddings & Vector Databases](#phase-2--embeddings--vector-databases)
+4. [Phase 3 — Chunking Strategies](#phase-3--chunking-strategies-very-frequently-asked)
+5. [Phase 4 — Retrieval Techniques](#phase-4--retrieval-techniques-highest-priority)
+6. [Phase 5 — Generation Pipeline (LCEL)](#phase-5--generation-pipeline-lcel)
+7. [Phase 6 — Hybrid Search + Reranking](#phase-6--hybrid-search--reranking-2026-must-know)
+8. [Phase 7 — Advanced RAG Patterns](#phase-7--advanced-rag-patterns)
+9. [Phase 8 — RAG Evaluation](#phase-8--rag-evaluation-very-popular-in-2026)
+10. [Phase 9 — Production RAG Architecture](#phase-9--production-rag-architecture-senior-round)
+11. [Phase 10 — Security, Guardrails & Failure Modes](#phase-10--security-guardrails--failure-modes-) 🆕
+12. [Phase 11 — Deployment & MLOps for RAG](#phase-11--deployment--mlops-for-rag-) 🆕
+13. [Phase 12 — Multimodal & Long-Context RAG](#phase-12--multimodal--long-context-rag-) 🆕
+14. [Phase 13 — Build One Complete FastAPI Project](#phase-13--build-one-complete-fastapi-project)
+15. [Company-Specific Interview Focus](#company-specific-interview-focus-2026)
+16. [30 Must-Know Interview Questions](#30-must-know-interview-questions)
+17. [4-Week Study Plan](#4-week-study-plan)
+18. [Quick-Reference Cheat Sheet](#quick-reference-cheat-sheet-) 🆕
+
+---
+
+## Roadmap Overview
+
+| Phase | Focus | Interview Priority |
+|---|---|---|
+| 1 | RAG Fundamentals | ⭐⭐⭐⭐⭐ |
+| 2 | Embeddings & Vector Databases | ⭐⭐⭐⭐⭐ |
+| 3 | Chunking Strategies | ⭐⭐⭐⭐⭐ |
+| 4 | Retrieval Techniques | ⭐⭐⭐⭐⭐ |
+| 5 | Generation Pipeline (LCEL) | ⭐⭐⭐⭐ |
+| 6 | Hybrid Search + Reranking | ⭐⭐⭐⭐⭐ |
+| 7 | Advanced RAG Patterns | ⭐⭐⭐⭐ |
+| 8 | Evaluation (RAG Metrics) | ⭐⭐⭐⭐ |
+| 9 | Production Architecture | ⭐⭐⭐⭐⭐ |
+| 10 | Security, Guardrails & Failure Modes 🆕 | ⭐⭐⭐⭐ |
+| 11 | Deployment & MLOps 🆕 | ⭐⭐⭐ |
+| 12 | Multimodal & Long-Context RAG 🆕 | ⭐⭐⭐ |
+| 13 | FastAPI Capstone Project | ⭐⭐⭐⭐⭐ |
+
+> 🆕 = added because it's increasingly asked in 2026 senior/staff-level rounds but was missing from the original plan.
+
+---
+
+## Phase 1 — RAG Fundamentals
+
+Must know before anything else.
+
+### Learn
+
+| Topic | What the interviewer expects |
+|---|---|
+| What is RAG? | LLM retrieves external knowledge before generating an answer. |
+| Why RAG? | Reduce hallucinations, use private/company data, avoid retraining. |
+| RAG vs Fine-tuning | Knowledge retrieval vs updating model weights. |
+| RAG vs Long Context 🆕 | When a bigger context window replaces retrieval, and when it doesn't (cost, freshness, precision, citations). |
+| Basic Pipeline | Documents → Chunk → Embed → Vector DB → Retriever → LLM → Answer. |
+
+### Interview Questions
+- Explain RAG in 2 minutes.
+- Why not just fine-tune instead of using RAG?
+- Where do embeddings fit in the pipeline?
+- If context windows keep growing, why do we still need RAG? 🆕
+
+### Build
+A simple PDF chatbot using **FastAPI + Ollama + ChromaDB**.
+
+---
+
+## Phase 2 — Embeddings & Vector Databases
+
+Asked almost everywhere.
+
+### Embeddings
+
+| Topic | Notes |
+|---|---|
+| Embedding models | `nomic-embed-text`, BGE, E5, OpenAI `text-embedding-3`, Gemini. |
+| Dimensions | 768, 1024, 1536, etc. — trade-off between accuracy and storage/speed. |
+| Cosine similarity | Most common similarity metric for semantic search. |
+| Dot product | Sensitive to vector magnitude; equivalent to cosine if vectors are normalized. |
+| Normalization | Why you normalize vectors before comparing. |
+| Matryoshka embeddings 🆕 | Truncatable embeddings (e.g., OpenAI v3, Nomic) that let you shrink dimensions for speed without re-embedding. |
+
+### Vector Databases
+
+| Database | Why use it |
+|---|---|
+| Chroma | Local development, prototyping. |
+| Pinecone | Managed, production-grade, serverless. |
+| Qdrant | Fast, open-source, filtering support. |
+| Weaviate | Hybrid search built in. |
+| Milvus | Large-scale retrieval, billions of vectors. |
+| pgvector 🆕 | Postgres extension — good when you already run Postgres and want one system of record. |
+
+### Indexing Internals 🆕 (frequently skipped, but senior interviewers love it)
+- **HNSW** (Hierarchical Navigable Small World) — graph-based ANN index, most common default.
+- **IVF / IVF-PQ** — cluster-based index used by FAISS for very large datasets.
+- **Exact vs Approximate Nearest Neighbor (ANN)** — why approximate search is used at scale, and the recall/speed trade-off.
+- **Quantization** (scalar/product quantization) — reducing vector memory footprint in production.
+
+### Interview Questions
+- Why cosine similarity over Euclidean distance?
+- How does approximate nearest neighbor search work (HNSW basics)?
+- Difference between FAISS and Chroma?
+- How would you shard/scale a vector index to 100M+ vectors? 🆕
+
+### Build
+Store PDFs in Chroma; benchmark Chroma vs Qdrant on the same dataset.
+
+---
+
+## Phase 3 — Chunking Strategies (Very Frequently Asked)
+
+### Chunking Methods
+
+| Method | Use Case |
+|---|---|
+| Fixed-size chunking | Simple, fast baseline. |
+| Recursive chunking | LangChain default — splits by structure first, then size. |
+| Semantic chunking | Splits based on meaning/embedding similarity shifts. |
+| Sentence chunking | Good for precise QA systems. |
+| Markdown/HTML chunking | Preserves headers and document structure. |
+| Code chunking | AST-aware splitting for GitHub/code assistants. |
+| Sliding window / late chunking 🆕 | Embed the full doc first, then chunk — preserves more context per chunk (used in newer embedding-aware pipelines). |
+
+### Understand
+- Chunk overlap and why it matters.
+- Chunk size trade-offs (recall vs precision vs token cost).
+- Token counting (tiktoken or model-specific tokenizers).
+- Metadata attached to chunks (source, page, section, timestamp).
+
+### Interview Questions
+- What's the best chunk size, and how do you decide?
+- Why use overlap between chunks?
+- Why does semantic chunking improve retrieval quality?
+- How do you chunk structured data like tables or code? 🆕
+
+### Build
+Compare chunk sizes: **256 / 512 / 1024** tokens and measure retrieval quality differences.
+
+---
+
+## Phase 4 — Retrieval Techniques (Highest Priority)
+
+### Retrieval Types
+
+| Technique | Why |
+|---|---|
+| Similarity search | Default vector retrieval. |
+| MMR (Maximal Marginal Relevance) | Adds diversity to retrieved chunks. |
+| BM25 | Classic keyword/sparse retrieval. |
+| Hybrid search | Combines vector + keyword for best recall. |
+| Metadata filtering | Department/date/user/tenant filters. |
+| Top-K retrieval | Choosing how many chunks to retrieve. |
+| Query rewriting / HyDE 🆕 | Rewrite or hypothetically-answer the query before embedding it, to improve match quality. |
+| Small-to-big / Parent-child retrieval 🆕 | Retrieve small precise chunks, return the larger parent for context (see Phase 7). |
+
+### Retriever Settings
+- `k` (number of results)
+- score threshold
+- search type (`similarity`, `mmr`, `similarity_score_threshold`)
+- metadata filters
+
+### Interview Questions
+- Difference between similarity search and MMR?
+- How does hybrid search improve recall over pure vector search?
+- What is metadata filtering and when would you use it?
+- What is HyDE and when does it help? 🆕
+
+### Build
+FastAPI endpoint with a configurable retriever:
+
+```python
+from langchain_chroma import Chroma
+
+retriever = db.as_retriever(
+    search_type="mmr",
+    search_kwargs={"k": 5, "fetch_k": 20}
+)
+```
+
+---
+
+## Phase 5 — Generation Pipeline (LCEL)
+
+The core LangChain interview topic.
+
+### Learn LCEL
+
+| Component | Purpose |
+|---|---|
+| `PromptTemplate` | Prompt construction. |
+| `RunnablePassthrough` | Pass the user question through unchanged. |
+| Retriever | Fetches context. |
+| `OutputParser` | Parses/structures the LLM output. |
+| `RunnableSequence` / `|` operator | Composes the pipeline. |
+| `RunnableParallel` 🆕 | Run multiple chains concurrently (e.g., retrieval + query classification). |
+
+### Interview Questions
+- Explain LCEL and the `|` pipe operator.
+- Why LCEL over the older `Chain` classes?
+- How do you stream tokens through an LCEL chain in FastAPI?
+
+### Build
+Ollama + LCEL RAG chain with streaming output via `StreamingResponse`.
+
+---
+
+## Phase 6 — Hybrid Search + Reranking (2026 Must-Know)
+
+### Learn
+
+| Concept | Notes |
+|---|---|
+| Hybrid retrieval | BM25 + vector search combined. |
+| Cross-encoder reranker | Re-scores retrieved docs against the query for relevance. |
+| BGE reranker | Popular open-source reranker. |
+| Cohere Rerank | Managed reranker API. |
+| Reciprocal Rank Fusion (RRF) | Merges multiple ranked lists into one. |
+
+### Interview Questions
+- Why rerank after retrieval instead of just increasing `k`?
+- Difference between an embedding (bi-encoder) model and a reranker (cross-encoder)?
+- How does RRF combine BM25 and vector rankings?
+
+### Build
+Retrieve top 20 → rerank to top 5 → pass to LLM.
+
+---
+
+## Phase 7 — Advanced RAG Patterns
+
+Appear frequently in senior interviews.
+
+### 1. Multi-Query RAG
+Generate multiple search queries from one user question to improve recall.
+> Example: "Explain React Context" → "React Context API", "Context Provider pattern", "state sharing in React".
+
+### 2. Parent Document Retriever
+Retrieve small chunks for precision, return the larger parent document for full context. Useful for documentation.
+
+### 3. Contextual Compression
+Compress retrieved chunks before sending to the LLM to reduce token usage and noise.
+
+### 4. Self-RAG
+The LLM decides dynamically: retrieve? generate directly? retrieve again if the first pass was insufficient?
+
+### 5. GraphRAG
+Knowledge-graph-based retrieval using entities and relationships (e.g., Neo4j). Good for multi-hop reasoning questions.
+
+### 6. Agentic RAG
+Combines tools, memory, retrieval, and a planner — typically built with LangGraph.
+
+### 7. Contextual Retrieval 🆕
+Anthropic's technique of prepending short LLM-generated context to each chunk *before* embedding, so chunks retain document-level meaning even in isolation — improves retrieval accuracy significantly on long documents.
+
+### 8. Corrective RAG (CRAG) 🆕
+A lightweight evaluator grades retrieved docs; if relevance is low, the system falls back to web search or query reformulation instead of generating from bad context.
+
+### Interview Questions
+- When would you use GraphRAG instead of vector RAG?
+- What problem does Self-RAG solve?
+- How is Contextual Retrieval different from adding more chunk overlap? 🆕
+
+---
+
+## Phase 8 — RAG Evaluation (Very Popular in 2026)
+
+### Retrieval Metrics
+
+| Metric | Meaning |
+|---|---|
+| Recall@K | Were relevant docs retrieved? |
+| Precision@K | Were retrieved docs actually relevant? |
+| MRR | Ranking quality (position of first relevant result). |
+| NDCG | Ranking usefulness, weighted by position. |
+
+### Generation Metrics
+
+| Metric | Meaning |
+|---|---|
+| Faithfulness | Is the answer grounded in the retrieved context? |
+| Answer Relevance | Does the answer address the user's question? |
+| Context Relevance | Was the retrieved context actually useful? |
+| Groundedness | Absence of hallucination. |
+
+### Frameworks
+- **Ragas** — automated RAG evaluation metrics.
+- **LangSmith** — tracing, dataset evals, regression testing.
+- **DeepEval** — pytest-style LLM evaluation.
+- **TruLens** 🆕 — feedback functions for groundedness/relevance tracking.
+
+### Interview Questions
+- How do you evaluate RAG quality end-to-end?
+- How do you detect and reduce hallucinations?
+- How would you set up a regression test suite for a RAG pipeline? 🆕
+
+---
+
+## Phase 9 — Production RAG Architecture (Senior Round)
+
+### Full Architecture
+
+| Layer | What to know |
+|---|---|
+| API | FastAPI async endpoints, streaming responses. |
+| Ingestion | PDF/DOCX/PPTX parsing (`unstructured`, `PyMuPDF`, OCR for scans). |
+| Queue | Background/async ingestion (Celery, RQ, or async workers). |
+| Storage | S3 (raw files) + Postgres (metadata). |
+| Vector DB | Chroma/Qdrant/pgvector. |
+| Cache | Redis (embedding cache, response cache). |
+| LLM | Ollama (local) / OpenAI / Gemini (fallback/production). |
+| Observability | LangSmith traces, structured logging, request tracing. |
+
+### Production Concepts
+- Async ingestion pipelines
+- Embedding cache (avoid re-embedding unchanged docs)
+- Token streaming to the client
+- Conversation memory (short-term + long-term)
+- Access control / multi-tenant document isolation
+- Metadata filtering per user/tenant
+- Rate limiting
+- Retry logic and fallback models
+- Cost tracking per request 🆕
+
+### Interview Questions
+- How would you scale RAG to 1 million+ documents?
+- How do you reduce latency in a RAG pipeline?
+- How do you reduce embedding and LLM cost at scale?
+- How do you isolate documents between tenants in a multi-tenant RAG system? 🆕
+
+---
+
+## Phase 10 — Security, Guardrails & Failure Modes 🆕
+
+Increasingly asked once interviewers know you can build the happy path.
+
+### Learn
+
+| Topic | Why it matters |
+|---|---|
+| Prompt injection | Malicious content inside retrieved documents trying to hijack the LLM's instructions. |
+| Data leakage / access control | Preventing a user from retrieving another tenant's private chunks. |
+| PII redaction | Scrubbing sensitive data before embedding or logging. |
+| Guardrails | Input/output validation (e.g., NeMo Guardrails, Guardrails AI, simple regex/LLM-based filters). |
+| Citation grounding | Forcing the model to only answer from retrieved sources and cite them. |
+| Graceful degradation | What happens when retrieval returns nothing relevant — refuse vs fallback vs say "I don't know." |
+
+### Interview Questions
+- How do you defend a RAG system against prompt injection from a malicious document?
+- How do you enforce per-tenant document isolation in the vector store?
+- How do you make the LLM say "I don't know" instead of hallucinating when retrieval fails?
+
+---
+
+## Phase 11 — Deployment & MLOps for RAG 🆕
+
+### Learn
+- Containerizing FastAPI + Ollama with Docker / docker-compose.
+- Running Ollama models efficiently (GGUF quantization: Q4/Q5/Q8 trade-offs).
+- GPU vs CPU inference trade-offs for local models.
+- Horizontal scaling of the API layer vs the vector DB layer independently.
+- CI/CD for prompt and retrieval changes (prompt versioning).
+- Blue-green or canary deploys when swapping embedding models (re-embedding migration strategy).
+
+### Interview Questions
+- How do you migrate a production vector store to a new embedding model without downtime?
+- What's the trade-off between running a quantized local model vs a hosted API model?
+
+---
+
+## Phase 12 — Multimodal & Long-Context RAG 🆕
+
+### Learn
+- **Multimodal RAG** — embedding and retrieving images, tables, and charts (e.g., CLIP embeddings, multimodal LLMs).
+- **Table-aware retrieval** — parsing tables from PDFs without losing structure.
+- **RAG vs long-context models** — when a 1M-token context window is a better fit than retrieval, and when RAG still wins (cost, freshness, auditability, precision).
+- **Structured output / function calling** for combining RAG with tool use (e.g., LangGraph agent that retrieves *and* calls an API).
+
+### Interview Questions
+- How would you build RAG over a mix of PDFs, images, and tables?
+- If a model supports a 1M-token context window, why would you still use RAG?
+
+---
+
+## Phase 13 — Build One Complete FastAPI Project
+
+### Project: AI Knowledge Assistant
+
+**Tech Stack**
+
+| Layer | Technology |
+|---|---|
+| Backend | FastAPI |
+| LLM | Ollama (Llama 3.1 / Qwen3) |
+| Embeddings | `nomic-embed-text` |
+| Vector DB | Chroma (or Qdrant for production) |
+| Framework | LangChain (LCEL) |
+| Memory / Orchestration | LangGraph + Postgres checkpointer |
+| Storage | Postgres + S3 |
+| Cache | Redis |
+
+**Features to Implement**
+- [ ] PDF / DOCX / Markdown upload
+- [ ] Chunking pipeline (recursive + semantic option)
+- [ ] Embedding generation + caching
+- [ ] Vector storage with metadata
+- [ ] Chat endpoint with streaming responses
+- [ ] Conversation history (LangGraph memory)
+- [ ] Metadata filters (per-user/tenant)
+- [ ] Citations / source chunks returned with each answer
+- [ ] Basic eval harness (Ragas) run in CI 🆕
+- [ ] Simple guardrail: refuse to answer when retrieval score < threshold 🆕
+
+This is exactly the kind of project you can walk through end-to-end in a system-design interview.
+
+---
+
+## Company-Specific Interview Focus (2026)
+
+| Company | Focus Areas |
+|---|---|
+| Microsoft | Hybrid search, GraphRAG, evaluation, production architecture. |
+| Walmart | FastAPI RAG APIs, embeddings, vector DB, caching. |
+| EPAM | LangChain, LCEL, tools, memory, document ingestion. |
+| Amazon | Latency, scalability, retrieval optimization, cost trade-offs. |
+| AI Startups | Agentic RAG, LangGraph, rerankers, multi-query, observability. |
+
+---
+
+## 30 Must-Know Interview Questions
+
+1. Explain the RAG pipeline end to end.
+2. RAG vs fine-tuning — when would you choose each?
+3. What are embeddings, and how are they created?
+4. Cosine similarity vs dot product vs Euclidean distance.
+5. Chunk size and overlap trade-offs.
+6. Recursive vs semantic chunking.
+7. What is Top-K retrieval?
+8. Similarity search vs MMR retrieval.
+9. What is hybrid search and why use it?
+10. What is metadata filtering?
+11. What is a cross-encoder reranker?
+12. Explain an LCEL pipeline.
+13. How do you stream responses in FastAPI?
+14. How does conversation memory work in a RAG system?
+15. How do you reduce hallucinations?
+16. What RAG evaluation metrics do you track?
+17. How would you scale RAG to millions of documents?
+18. What's your embedding caching strategy?
+19. GraphRAG vs traditional vector RAG.
+20. What is Agentic RAG, and how does LangGraph fit in?
+21. What is HyDE and when does it help? 🆕
+22. What is Contextual Retrieval and why does it improve accuracy? 🆕
+23. How do you defend against prompt injection in retrieved documents? 🆕
+24. How do you isolate tenants' data in a shared vector store? 🆕
+25. When is a long-context model a better choice than RAG? 🆕
+26. How does approximate nearest neighbor search (HNSW) work? 🆕
+27. How would you re-embed a production index with zero downtime? 🆕
+28. How do you handle tables and images in a RAG pipeline? 🆕
+29. What is Corrective RAG (CRAG)? 🆕
+30. How do you design a regression test suite for a RAG pipeline? 🆕
+
+---
+
+## 4-Week Study Plan
+
+### Week 1 — Foundations
+- Build basic RAG with FastAPI + Ollama + Chroma.
+- Learn embeddings, vector DBs, cosine similarity, indexing basics (HNSW).
+- Learn chunking strategies and compare chunk sizes.
+
+### Week 2 — Retrieval & Generation
+- Learn retrievers: Similarity, MMR, BM25, Hybrid, metadata filters.
+- Build LCEL RAG pipeline with streaming responses.
+- Learn query rewriting / HyDE.
+
+### Week 3 — Advanced + Evaluation
+- Add reranking, contextual compression, parent-document retrieval.
+- Add conversation memory with LangGraph.
+- Learn Ragas, LangSmith, DeepEval and build a small eval harness.
+
+### Week 4 — Production + Security
+- Build production-ready RAG with Redis, Postgres, S3.
+- Add guardrails, PII handling, tenant isolation.
+- Practice explaining architecture trade-offs (latency, cost, scale) out loud.
+
+---
+
+## Quick-Reference Cheat Sheet 🆕
+
+**One-line answers for whiteboard/verbal rounds:**
+
+- **RAG** = Retrieve relevant context, then generate an answer grounded in it.
+- **Cosine similarity** = measures angle between vectors, ignores magnitude — best for semantic similarity.
+- **Chunking** = balance recall (smaller chunks) vs context completeness (larger chunks); overlap prevents boundary information loss.
+- **MMR** = trades a little relevance for diversity, avoiding near-duplicate chunks.
+- **Hybrid search** = BM25 catches exact keyword/terminology matches; vector search catches semantic meaning — combine with RRF.
+- **Reranker** = a cross-encoder that looks at query+doc together for a more accurate (but slower) relevance score than a bi-encoder.
+- **LCEL** = declarative, composable chains using the `|` operator; supports native streaming and async.
+- **Self-RAG / CRAG** = the system evaluates its own retrieval quality before generating, instead of blindly trusting top-K results.
+- **GraphRAG** = better for multi-hop, relationship-heavy questions; vector RAG is better for single-fact lookup.
+- **Production RAG** = ingestion queue + embedding cache + vector DB + Redis cache + observability + guardrails, not just "LLM + vector DB."
+
+---
+
+*Prepared for AI Engineer / GenAI interviews — React + FastAPI + Ollama + LangChain + LangGraph stack, 2026.*

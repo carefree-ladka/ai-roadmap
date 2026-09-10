@@ -1,0 +1,734 @@
+# LLM Fundamentals Roadmap
+
+## Table of Contents
+
+1. [Roadmap Overview](#roadmap-overview)
+2. [Phase 1 — What is an LLM?](#phase-1--what-is-an-llm)
+3. [Phase 2 — Tokens & Tokenization](#phase-2--tokens--tokenization)
+4. [Phase 3 — Embeddings](#phase-3--embeddings)
+5. [Phase 4 — Attention & Transformers](#phase-4--attention--transformers)
+6. [Phase 5 — Context Window](#phase-5--context-window)
+7. [Phase 6 — Inference & Text Generation](#phase-6--inference--text-generation)
+8. [Phase 7 — Temperature, Top-K, Top-P](#phase-7--temperature-top-k-top-p)
+9. [Phase 8 — KV Cache](#phase-8--kv-cache)
+10. [Phase 9 — Model Architecture & Sizes](#phase-9--model-architecture--sizes)
+11. [Phase 10 — Training & Pretraining](#phase-10--training--pretraining)
+12. [Phase 11 — Instruction Tuning & Alignment](#phase-11--instruction-tuning--alignment)
+13. [Phase 12 — Function/Tool Calling](#phase-12--functiontool-calling)
+14. [Phase 13 — Quantization](#phase-13--quantization)
+15. [Phase 14 — Model Selection & Deployment](#phase-14--model-selection--deployment)
+16. [Phase 15 — Reasoning Models & Test-Time Compute](#phase-15--reasoning-models--test-time-compute-) 🆕
+17. [Phase 16 — Inference Serving at Scale](#phase-16--inference-serving-at-scale-) 🆕
+18. [Phase 17 — Structured/Constrained Decoding](#phase-17--structuredconstrained-decoding-) 🆕
+19. [Phase 18 — MoE & Multimodal Architectures](#phase-18--moe--multimodal-architectures-) 🆕
+20. [Phase 19 — Evaluation Benchmarks & Safety](#phase-19--evaluation-benchmarks--safety-) 🆕
+21. [Important LLM Concepts You Should Also Know](#important-llm-concepts-you-should-also-know)
+22. [30 Must-Know LLM Interview Questions](#30-must-know-llm-interview-questions)
+23. [What You DON'T Need to Go Too Deep Into](#what-you-dont-need-to-go-too-deep-into)
+24. [Your Practical LLM Project](#your-practical-llm-project)
+25. [Your LLM Fundamentals Checklist](#your-llm-fundamentals-checklist)
+26. [Your Complete 2026 GenAI Interview Stack](#your-complete-2026-genai-interview-stack)
+27. [Quick-Reference Cheat Sheet](#quick-reference-cheat-sheet-) 🆕
+
+---
+
+## Roadmap Overview
+
+| Phase | Topic | Priority |
+|---|---|---|
+| 1 | LLM & Transformer Basics | ⭐⭐⭐⭐⭐ |
+| 2 | Tokens & Tokenization | ⭐⭐⭐⭐⭐ |
+| 3 | Embeddings | ⭐⭐⭐⭐⭐ |
+| 4 | Attention & Transformers | ⭐⭐⭐⭐⭐ |
+| 5 | Context Window | ⭐⭐⭐⭐⭐ |
+| 6 | Inference & Generation | ⭐⭐⭐⭐⭐ |
+| 7 | Sampling Parameters | ⭐⭐⭐⭐⭐ |
+| 8 | KV Cache & Performance | ⭐⭐⭐⭐ |
+| 9 | Model Architecture & Sizes | ⭐⭐⭐⭐ |
+| 10 | Training & Pretraining | ⭐⭐⭐⭐ |
+| 11 | Instruction Tuning & Alignment | ⭐⭐⭐⭐ |
+| 12 | Function/Tool Calling | ⭐⭐⭐⭐⭐ |
+| 13 | Quantization | ⭐⭐⭐⭐ |
+| 14 | Model Selection & Deployment | ⭐⭐⭐⭐⭐ |
+| 15 | Reasoning Models & Test-Time Compute 🆕 | ⭐⭐⭐⭐⭐ |
+| 16 | Inference Serving at Scale 🆕 | ⭐⭐⭐⭐ |
+| 17 | Structured/Constrained Decoding 🆕 | ⭐⭐⭐⭐ |
+| 18 | MoE & Multimodal Architectures 🆕 | ⭐⭐⭐ |
+| 19 | Evaluation Benchmarks & Safety 🆕 | ⭐⭐⭐ |
+
+> 🆕 = added because it's asked in 2026 AI Engineer interviews but was missing from the original plan — especially reasoning models, which are now a default topic since test-time-compute models became mainstream.
+
+---
+
+## Phase 1 — What is an LLM?
+
+Start here.
+
+### Understand
+
+```
+Text
+ ↓
+Tokens
+ ↓
+Neural Network
+ ↓
+Next-token probabilities
+ ↓
+Generated tokens
+ ↓
+Text
+```
+
+An LLM fundamentally predicts the next token based on the previous context.
+
+```
+"The capital of India is"
+
+Delhi     → 0.94
+Mumbai    → 0.02
+Kolkata   → 0.01
+...
+
+→ Delhi
+```
+
+### Interview Questions
+- What is an LLM?
+- How does an LLM generate text?
+- Is an LLM actually "thinking"?
+- Why does an LLM sometimes hallucinate?
+
+---
+
+## Phase 2 — Tokens & Tokenization
+
+Extremely important.
+
+```
+"I love React"
+       ↓
+["I", " love", " React"]
+       ↓
+Token IDs
+       ↓
+Neural network
+```
+
+### Learn
+Token, Token ID, vocabulary, tokenization, subword tokenization (BPE, byte-level BPE), special tokens, input/output tokens.
+
+### Why Developers Care
+Tokens affect context window, cost, latency, prompt size, RAG chunk size.
+
+### Interview Question
+**Why can 1,000 words sometimes use more than 1,000 tokens?**
+> Because tokens aren't equivalent to words; words can split into multiple subword tokens.
+
+---
+
+## Phase 3 — Embeddings
+
+You already encountered this in RAG — understand the fundamentals here.
+
+```
+"React is a JavaScript library"
+             ↓
+       Embedding Model
+             ↓
+[0.12, -0.42, 0.81, ...]
+```
+
+### Learn
+Embedding model, vector, dimensions, semantic similarity, cosine similarity, dense vs sparse representations.
+
+### Important Distinction
+> LLM ≠ Embedding model. An LLM generates text. An embedding model converts content into vectors.
+
+### Interview Question
+**Why are embeddings important for RAG?**
+> Because they allow us to search for content based on semantic similarity, rather than only exact keyword matching.
+
+---
+
+## Phase 4 — Attention & Transformers
+
+Probably the most important theoretical topic. You don't need to derive every equation, but you must understand the concept.
+
+```
+Input
+ ↓
+Tokenization
+ ↓
+Embeddings
+ ↓
+Positional Information
+ ↓
+Self-Attention
+ ↓
+Feed Forward Network
+ ↓
+Transformer Layers
+ ↓
+Output
+```
+
+### Self-Attention
+*"Pawan put the laptop on the table because it was heavy."* — what does "it" refer to? Attention helps the model determine relationships between tokens.
+
+### Learn
+Query, Key, Value, self-attention, multi-head attention, attention scores, softmax, feed-forward network, transformer block.
+
+### Positional Encoding 🆕
+The core attention formula has no inherent sense of token order — position must be injected separately. Know that **RoPE (Rotary Positional Embeddings)** is the current standard in most open-weight models (Llama, Qwen, etc.), and that positional-encoding choice directly affects how well a model extrapolates to longer contexts than it was trained on.
+
+### Core Formula
+```
+Attention(Q, K, V) = softmax(QKᵀ / √dₖ) V
+```
+You don't necessarily need to derive it in a software-engineering interview.
+
+### Interview Questions
+- What is self-attention?
+- Why do we need Q, K, and V?
+- Why multi-head attention instead of one large attention operation?
+- Why Transformers instead of RNNs?
+- Why does positional encoding matter, and what does RoPE do differently from older absolute position embeddings? 🆕
+
+---
+
+## Phase 5 — Context Window
+
+Very important for real-world AI applications.
+
+```
+┌─────────────────────────────┐
+│ System prompt               │
+│ Conversation                │
+│ Retrieved documents         │
+│ User question               │
+│                             │
+│ Context Window              │
+└─────────────────────────────┘
+```
+
+### Learn
+Context window, input tokens, output tokens, context limits, long-context models, context dilution ("lost in the middle" — relevant info in the middle of a long context is often used less reliably than info at the start/end). 🆕
+
+### Interview Question
+**Why not simply put the entire company knowledge base into the context?**
+> Because of context limits, cost, latency, irrelevant information, and reduced retrieval precision. That's one reason RAG exists.
+
+### Interview Questions (additional)
+- What is "lost in the middle," and why does it matter when designing prompts with long context? 🆕
+
+---
+
+## Phase 6 — Inference & Text Generation
+
+Understand what happens when you call `response = model.generate(...)`.
+
+```
+Prompt
+ ↓
+Model
+ ↓
+Logits
+ ↓
+Probabilities
+ ↓
+Token selection
+ ↓
+Next token
+ ↓
+Repeat
+```
+
+### Learn
+Logits, softmax, probability distribution, autoregressive generation, decoding, greedy decoding, sampling.
+
+### Prefill vs Decode 🆕
+Two distinct phases of inference: **prefill** processes the entire input prompt in parallel (compute-bound), while **decode** generates output tokens one at a time (memory-bandwidth-bound). This split explains why long prompts with short answers behave very differently, performance-wise, from short prompts with long answers — a favorite senior-interview distinction.
+
+### Interview Question
+**Why does generation happen one token at a time?**
+> Most autoregressive LLMs predict the next token conditioned on the tokens already generated.
+
+### Interview Questions (additional)
+- What's the difference between the prefill and decode phases, and why does that distinction matter for latency? 🆕
+
+---
+
+## Phase 7 — Temperature, Top-K, Top-P
+
+You must know these.
+
+### Temperature
+Controls randomness. Lower → more deterministic. Higher → more diverse/random.
+- Code generation → low temperature.
+- Creative writing → higher temperature.
+
+### Top-K
+Only consider the top K probable tokens, then sample.
+
+### Top-P (nucleus sampling)
+Choose the smallest group of tokens whose cumulative probability reaches P (e.g., 0.9 = top 90% probability mass).
+
+### Repetition/Frequency Penalty 🆕
+Reduces the likelihood of tokens that already appeared, preventing repetitive loops — a practical knob you'll actually tune in production far more often than people expect.
+
+### Interview Question
+**Top-K vs Top-P?**
+> Top-K uses a fixed number of candidates; Top-P dynamically selects candidates based on cumulative probability.
+
+---
+
+## Phase 8 — KV Cache
+
+A great senior interview topic.
+
+During generation, the model repeatedly needs attention information from previous tokens. Instead of recomputing everything, inference systems cache previously computed Keys and Values.
+
+```
+Without KV Cache          With KV Cache
+Token 1 → calculate       Token 1 → calculate + cache
+Token 2 → recalculate     Token 2 → reuse cache
+Token 3 → recalculate     Token 3 → reuse cache
+```
+
+### Why It Matters
+KV caching improves generation latency and throughput, but increases memory usage.
+
+### Prompt/Context Caching 🆕
+A related but distinct production optimization: caching the KV state of a *repeated prefix* (e.g., a long system prompt reused across many requests) so it isn't recomputed per request — this is what API providers mean by "prompt caching," and it directly cuts both cost and time-to-first-token.
+
+### Interview Question
+**Why does a larger context window require more GPU memory?**
+> Because attention and KV-cache memory grow with the amount of context.
+
+### Interview Questions (additional)
+- What is prompt/context caching, and how is it different from the per-request KV cache? 🆕
+
+---
+
+## Phase 9 — Model Architecture & Sizes
+
+Understand the difference between 7B, 8B, 14B, 32B, 70B — these approximately refer to parameter counts. **Bigger isn't automatically better.**
+
+| Smaller Model | Larger Model |
+|---|---|
+| Faster | Slower |
+| Less memory | More memory |
+| Cheaper | More expensive |
+| Easier local deployment | More infrastructure |
+
+### For Your Ollama Setup
+You should understand why an 8B model is much easier to run locally than a 70B model.
+
+### Interview Questions (additional)
+- Given a fixed latency budget, how would you decide between a smaller fine-tuned model and a larger general-purpose one? 🆕
+
+---
+
+## Phase 10 — Training & Pretraining
+
+Understand the lifecycle.
+
+```
+Massive Dataset
+      ↓
+Pretraining
+      ↓
+Base Model
+      ↓
+Instruction Tuning
+      ↓
+Alignment
+      ↓
+Chat Model
+```
+
+### Learn
+Pretraining, training data, next-token prediction, loss, gradient descent, backpropagation, parameters, epochs, batch size.
+
+### Interview Question
+**What happens during pretraining?**
+> The model learns statistical patterns and representations from huge amounts of data, typically through next-token prediction.
+
+---
+
+## Phase 11 — Instruction Tuning & Alignment
+
+A base model isn't necessarily a good chatbot.
+
+```
+Base Model
+     ↓
+SFT
+     ↓
+Instruction-following Model
+     ↓
+Preference/Alignment Training
+     ↓
+Chat Assistant
+```
+
+### Learn
+- SFT (Supervised Fine-Tuning)
+- RLHF (Reinforcement Learning from Human Feedback)
+- DPO (Direct Preference Optimization) — a simpler alternative to RLHF that skips the separate reward model.
+- Preference optimization, alignment.
+- RLAIF (RL from AI Feedback) 🆕 — using a model instead of humans to generate preference labels at scale; worth knowing as the trend driving cheaper alignment pipelines.
+
+You don't need deep RL mathematics for most AI Engineer interviews — know *what problem each stage solves*, not the derivations.
+
+### Interview Questions (additional)
+- At a conceptual level, why is DPO considered simpler than classic RLHF? 🆕
+
+---
+
+## Phase 12 — Function/Tool Calling
+
+Very important for your Agentic AI roadmap. The model doesn't directly execute your function.
+
+```
+User → LLM → Tool decision → Structured tool call → Your application
+  → Execute function → Tool result → LLM → Final response
+```
+
+```json
+{
+  "name": "weather_search",
+  "arguments": { "city": "Lucknow" }
+}
+```
+
+Your FastAPI application executes the actual function.
+
+### Interview Questions
+- How does function calling work?
+- Does the LLM execute the function?
+- How do you validate tool arguments?
+- How do you prevent unauthorized tool execution?
+- How does the model "know" the tool schema — where does it come from? 🆕
+
+---
+
+## Phase 13 — Quantization
+
+Important for local LLM deployment.
+
+Suppose a model normally uses FP16 — you can quantize it to 8-bit or 4-bit.
+
+```
+Lower precision → Less memory → Faster/cheaper inference → Potential quality loss
+```
+
+### Learn
+FP32, FP16, BF16, INT8, INT4, GPTQ, AWQ, GGUF.
+
+For your Ollama/local-model work, understanding **GGUF + quantization** is particularly useful — know roughly what Q4_K_M vs Q8_0 naming means (bit-width + quantization method variant) since it appears constantly in Ollama model tags. 🆕
+
+### Interview Questions (additional)
+- What do the Q4/Q5/Q8 suffixes in a GGUF model name actually tell you? 🆕
+
+---
+
+## Phase 14 — Model Selection & Deployment
+
+Where fundamentals become engineering. When choosing a model, consider:
+
+1. **Quality** — does it solve the task?
+2. **Context window** — can it handle your input?
+3. **Latency** — how quickly does it respond?
+4. **Cost** — API cost or infrastructure cost.
+5. **Hardware** — can your machine/GPU run it?
+6. **Tool calling** — does it reliably support structured tool calls?
+7. **Reasoning/coding ability** — important depending on the application.
+8. **Open weight vs closed API** 🆕 — data privacy, fine-tuning rights, and vendor lock-in trade-offs, not just raw benchmark scores.
+
+---
+
+## Phase 15 — Reasoning Models & Test-Time Compute 🆕
+
+By far the biggest gap in most 2025-era roadmaps — reasoning models are now a default interview topic.
+
+### Learn
+- **Test-time compute** — spending more inference-time computation (extra reasoning steps) instead of only scaling model size, to improve answer quality on hard problems.
+- **Chain-of-thought (CoT)** — prompting or training a model to produce intermediate reasoning steps before a final answer.
+- **"Thinking" / reasoning tokens** — models that generate an internal reasoning trace before responding (the modern o1/o3-style and equivalent open-weight reasoning models), and the trade-off of extra latency and cost for better accuracy on multi-step problems.
+- When reasoning models help (math, multi-step logic, code debugging) vs when they're overkill (simple lookups, classification) — reasoning tokens cost real money and latency for no benefit on easy tasks.
+- Distillation 🆕 — training a smaller "student" model to mimic a larger "teacher" model's outputs (including reasoning traces), a common way reasoning capability gets pushed into smaller, cheaper models.
+
+### Interview Questions
+- What is test-time compute, and how is it different from just making the base model bigger?
+- When would you *not* want to use a reasoning model, even if it's available?
+- What is distillation, and why does it matter for deploying reasoning capability cheaply?
+
+---
+
+## Phase 16 — Inference Serving at Scale 🆕
+
+Engineering-facing companion to Phase 8's KV cache discussion.
+
+### Learn
+- **Continuous batching** — dynamically adding/removing requests from a running batch instead of waiting for a fixed batch to complete, dramatically improving GPU utilization for concurrent users.
+- **Speculative decoding** — using a small "draft" model to propose several tokens ahead, which the larger model verifies in parallel, speeding up generation without changing output quality.
+- Serving frameworks to recognize by name: **vLLM**, **TGI (Text Generation Inference)**, **llama.cpp** (the engine behind Ollama), **SGLang**.
+- Throughput vs latency trade-offs: batching improves throughput (more users served) but can increase per-user latency.
+- Time-to-first-token (TTFT) vs time-per-output-token (TPOT) 🆕 — the two latency metrics that actually matter to end users, and why they're optimized differently (TTFT ≈ prefill speed, TPOT ≈ decode speed).
+
+### Interview Questions
+- What is continuous batching, and why does it matter for serving many concurrent users?
+- What is speculative decoding, and why doesn't it change output quality?
+- What's the difference between optimizing for TTFT vs TPOT, and when does each matter more?
+
+---
+
+## Phase 17 — Structured/Constrained Decoding 🆕
+
+Directly relevant to your Guardrails and structured-output work — worth knowing at the mechanism level, not just "use Pydantic."
+
+### Learn
+- **Constrained/grammar-based decoding** — restricting which tokens the model is even allowed to sample at each step (e.g., via a JSON grammar or regex), guaranteeing valid structure instead of hoping and retrying.
+- Difference from prompting for JSON: prompting *asks nicely*; constrained decoding *makes invalid tokens impossible to select*.
+- Where this runs: server-side (vLLM/Outlines/llama.cpp grammars) vs client-side validation-and-retry (LangChain output parsers) — know both exist and the reliability/latency trade-off between them.
+
+### Interview Questions
+- What's the difference between asking a model to "return JSON" in the prompt vs using constrained/grammar-based decoding?
+- Where would you enforce structured output — at the inference server level or with a validate-and-retry loop in your application?
+
+---
+
+## Phase 18 — MoE & Multimodal Architectures 🆕
+
+### Learn
+- **Mixture of Experts (MoE)** — a model with many "expert" sub-networks, where only a subset activate per token, letting total parameter count grow without proportionally increasing compute per token (e.g., Mixtral-style architectures). Know the basic trade-off: more total parameters/knowledge capacity, similar per-token compute cost to a smaller dense model, but higher total memory footprint.
+- **Multimodal LLMs** — models that accept image (and sometimes audio/video) input alongside text, typically via a vision encoder feeding into the same transformer backbone.
+- Why MoE and multimodal are both "bigger capability without proportionally bigger cost" strategies, just along different axes (sparsity vs modality).
+
+### Interview Questions
+- What is Mixture of Experts, and why doesn't a bigger MoE model cost proportionally more to run per token?
+- At a high level, how does a multimodal LLM process an image alongside text?
+
+---
+
+## Phase 19 — Evaluation Benchmarks & Safety 🆕
+
+### Learn
+- Common benchmarks worth recognizing by name: **MMLU** (broad knowledge), **HumanEval/MBPP** (code), **GSM8K/MATH** (math reasoning), **HellaSwag** (commonsense) — you don't need scores memorized, just to recognize what each measures and their limitations (benchmark contamination, saturation).
+- Why benchmark leaderboard rank ≠ "best model for my task" — task-specific evaluation on your own data matters more.
+- Safety/alignment evaluation basics — red-teaming, refusal-rate testing — as the model-level counterpart to the application-level guardrails covered in the Guardrails roadmap.
+
+### Interview Questions
+- Why can a model that tops a public leaderboard still perform worse than a smaller model on your specific task?
+- What does it mean for a benchmark to be "contaminated," and why does that undermine trust in leaderboard rankings?
+
+---
+
+## Important LLM Concepts You Should Also Know
+
+### Hallucination
+LLM generates plausible but unsupported information.
+
+```
+LLM knowledge + Prompt + Retrieved context → Generated answer
+```
+
+RAG and guardrails help reduce this.
+
+### Temperature vs Hallucination
+Don't say: *"Low temperature prevents hallucinations."*
+Better: *"Lower temperature makes generation more deterministic, but it does not guarantee factual correctness."*
+
+### Stateless LLM
+LLMs generally don't automatically remember previous API calls. Your application provides conversation history:
+
+```
+Request 1 → Store messages
+Request 2 → Previous messages + new message → LLM
+```
+
+This connects directly to your thread memory / cross-thread memory work (see the LangGraph roadmap).
+
+---
+
+## 30 Must-Know LLM Interview Questions
+
+### Fundamentals
+1. What is an LLM?
+2. How does an LLM generate text?
+3. What is a token?
+4. What is tokenization?
+5. What is an embedding?
+6. LLM vs embedding model?
+
+### Transformers
+7. What is a Transformer?
+8. What is self-attention?
+9. Explain Q, K, V.
+10. Why multi-head attention?
+11. Why Transformers over RNNs?
+12. What does RoPE do, and why does positional encoding matter? 🆕
+
+### Inference
+13. What are logits?
+14. What is softmax?
+15. What is temperature?
+16. Top-K vs Top-P?
+17. What is greedy decoding?
+18. What is autoregressive generation?
+19. Prefill vs decode — what's the difference? 🆕
+
+### Performance
+20. What is KV cache?
+21. Why does context length affect latency?
+22. How does quantization reduce memory?
+23. What is continuous batching? 🆕
+24. What is speculative decoding? 🆕
+25. TTFT vs TPOT — why optimize them differently? 🆕
+
+### Application Engineering
+26. What is a context window?
+27. Why does an LLM hallucinate?
+28. How does function calling work?
+29. RAG vs fine-tuning?
+30. What is test-time compute, and when is a reasoning model worth the extra latency/cost? 🆕
+
+---
+
+## What You DON'T Need to Go Too Deep Into
+
+For your target role, don't spend weeks on:
+
+- ❌ Deriving every Transformer equation
+- ❌ Implementing backpropagation from scratch
+- ❌ Training a 70B model
+- ❌ Advanced CUDA optimization
+- ❌ Research-level RLHF mathematics
+- ❌ Building your own tokenizer
+- ❌ Implementing speculative decoding or a custom serving engine yourself 🆕
+
+Know the concept + engineering trade-off + practical example.
+
+---
+
+## Your Practical LLM Project
+
+Build a tiny LLM playground with Ollama + FastAPI.
+
+```
+React → FastAPI → Ollama → Local LLM
+```
+
+**Expose:**
+```
+POST /chat
+POST /generate
+POST /embeddings
+POST /stream
+POST /tool-call
+```
+
+**Experiment with:** temperature, top_k, top_p, max_tokens, context_size, streaming, repetition penalty. 🆕
+
+**Then compare:** Qwen, Llama, Gemma — with the same prompts, and note differences in tool-calling reliability and reasoning-mode behavior if any of them support it. 🆕
+
+This will make the theory much easier to explain in interviews.
+
+---
+
+## Your LLM Fundamentals Checklist
+
+### Must Know
+- [ ] LLM basics
+- [ ] Tokens & tokenization
+- [ ] Embeddings
+- [ ] Transformer architecture
+- [ ] Self-attention
+- [ ] Q / K / V
+- [ ] Positional encoding (RoPE) 🆕
+- [ ] Context window
+- [ ] Logits & probabilities
+- [ ] Temperature
+- [ ] Top-K
+- [ ] Top-P
+- [ ] Autoregressive generation
+- [ ] KV cache
+- [ ] Model parameters
+- [ ] Pretraining
+- [ ] SFT
+- [ ] RLHF / DPO concepts
+- [ ] Function calling
+- [ ] Quantization
+- [ ] Model selection
+- [ ] Reasoning models / test-time compute 🆕
+
+### Senior-Level
+- [ ] Attention complexity
+- [ ] KV-cache trade-offs
+- [ ] Prefill vs decode
+- [ ] Batching
+- [ ] Continuous batching
+- [ ] Speculative decoding 🆕
+- [ ] Quantization trade-offs
+- [ ] Context-window optimization
+- [ ] Latency vs throughput (TTFT vs TPOT) 🆕
+- [ ] Model routing
+- [ ] Small model vs large model trade-offs
+- [ ] Mixture of Experts basics 🆕
+- [ ] Constrained/grammar-based decoding 🆕
+- [ ] Benchmark literacy and its limits 🆕
+
+---
+
+## Your Complete 2026 GenAI Interview Stack
+
+```
+                LLM Fundamentals
+                       ↓
+                Prompt Engineering
+                       ↓
+                      RAG
+                       ↓
+                   LangChain
+                       ↓
+                   LangGraph
+                       ↓
+                  Guardrails
+                       ↓
+                  LlamaIndex
+                       ↓
+                     MCP
+                       ↓
+                 Agentic AI
+                       ↓
+              Evaluation / Observability
+                       ↓
+              Production AI Systems
+                       ↓
+              Fine-tuning / LoRA
+```
+
+If you master the first 15–19 topics here and can build them with FastAPI + Ollama, you'll have a solid practical foundation for 2026 AI Engineer interviews.
+
+---
+
+## Quick-Reference Cheat Sheet 🆕
+
+**One-line answers for whiteboard/verbal rounds:**
+
+- **LLM** = a model that predicts the next token given prior context, applied autoregressively to generate text.
+- **Tokenization** = splitting text into subword units; token count ≠ word count, and it directly drives cost/latency/context usage.
+- **Self-attention** = each token computes a weighted view of every other token (via Q/K/V) to resolve context-dependent meaning.
+- **RoPE** = injects positional information by rotating query/key vectors, the current standard for good long-context extrapolation.
+- **KV cache** = reuses previously computed attention Keys/Values so each new token doesn't require recomputing the whole sequence.
+- **Prefill vs decode** = prefill processes the prompt in parallel (compute-bound); decode generates tokens one at a time (memory-bound).
+- **Temperature/Top-K/Top-P** = three different knobs for shaping how "risky" token sampling is; they're not interchangeable and are often combined.
+- **Quantization** = trading numeric precision for memory/speed — GGUF + Q4/Q5/Q8 are the practical vocabulary for local Ollama deployment.
+- **Test-time compute / reasoning models** = spend more inference-time computation (explicit reasoning steps) to improve accuracy on hard problems, at the cost of latency and token spend.
+- **Continuous batching + speculative decoding** = the two biggest levers production inference servers use to serve many users cheaply and quickly.
+
+---
+
+*Prepared for AI Engineer / GenAI interviews — React + FastAPI + Ollama + LangChain + LangGraph stack, 2026.*

@@ -1,0 +1,476 @@
+# 🚀 Production AI
+
+## 📑 Table of Contents
+
+1. [Production AI Fundamentals](#1-production-ai-fundamentals)
+2. [Production Architecture](#2-production-architecture)
+3. [Docker & Containerization](#3-docker--containerization)
+4. [FastAPI for Production](#4-fastapi-for-production)
+5. [LLM Serving](#5-llm-serving)
+6. [Streaming](#6-streaming)
+7. [Redis](#7-redis)
+8. [Background Jobs](#8-background-jobs)
+9. [Production RAG](#9-production-rag)
+10. [Database Architecture](#10-database-architecture)
+11. [Caching](#11-caching)
+12. [Rate Limiting & Quotas](#12-rate-limiting--quotas)
+13. [Reliability Patterns](#13-reliability-patterns)
+14. [Security](#14-security)
+15. [Observability](#15-observability)
+16. [Evaluation in CI/CD](#16-evaluation-in-cicd)
+17. [Model & Prompt Versioning](#17-model--prompt-versioning)
+18. [Scaling](#18-scaling)
+19. [Deployment](#19-deployment)
+20. [Kubernetes for AI Workloads](#20-kubernetes-for-ai-workloads)
+21. [Deployment Strategies: Blue-Green, Canary, Feature Flags](#21-deployment-strategies)
+22. [Cost Optimization](#22-cost-optimization)
+23. [GPU & Inference Optimization Deep Dive](#23-gpu--inference-optimization-deep-dive)
+24. [Load Testing for LLM Applications](#24-load-testing-for-llm-applications)
+25. [Multi-Region & Model-Provider Routing](#25-multi-region--model-provider-routing)
+26. [Disaster Recovery & Backups](#26-disaster-recovery--backups)
+27. [Compliance & Data Governance](#27-compliance--data-governance)
+28. [Production AI Failure Scenarios](#28-production-ai-failure-scenarios)
+29. [Your Production AI Project](#29-your-production-ai-project)
+30. [Interview Priority](#30-interview-priority)
+31. [Senior AI Engineer Mental Model](#31-senior-ai-engineer-mental-model)
+32. [30 Interview Questions](#32-interview-questions)
+33. [One-Line Interview Answer & Roadmap](#33-one-line-interview-answer--roadmap)
+
+---
+
+## 1. Production AI Fundamentals
+
+```
+Prototype              →  Works on my machine
+Production AI          →  Reliable + Secure + Observable + Scalable + Cost-efficient
+```
+Learn: production architecture, reliability, scalability, availability, latency, cost optimization, security, observability, versioning, failure handling.
+
+**Interview question to expect verbatim:** *"How would you productionize an LLM application?"*
+
+---
+
+## 2. Production Architecture
+
+```
+React
+  ↓
+API Gateway / Nginx
+  ↓
+FastAPI
+  ↓
+LangGraph
+  ├── LLM
+  ├── RAG
+  ├── MCP / Tools
+  ├── Memory
+  └── Guardrails
+       ↓
+ ┌───────────────┐
+ │ PostgreSQL    │
+ │ Redis         │
+ │ Vector DB     │
+ │ Object Store  │
+ └───────────────┘
+       ↓
+ Observability
+ LangSmith / Logs / Metrics
+```
+Be able to justify **why** each component exists — this diagram is the backbone the rest of this guide fills in.
+
+---
+
+## 3. Docker & Containerization
+
+Must know: Dockerfile, Docker Compose, multi-stage builds, environment variables, volumes, networks, health checks, container resource limits.
+
+For your project — run together via Docker Compose: FastAPI, Postgres, Redis, Chroma, Ollama.
+
+---
+
+## 4. FastAPI for Production
+
+**API:** async endpoints, dependency injection, Pydantic validation, middleware, exception handling, API versioning.
+**Performance:** connection pooling, async DB, Redis caching, streaming responses, background jobs, concurrency.
+**Reliability:** timeout, retry, circuit breaker, fallback, rate limit.
+
+```
+User → FastAPI → LLM → timeout?
+                        ├── no  → response
+                        └── yes → retry → fallback model
+```
+
+---
+
+## 5. LLM Serving
+
+**Development:**
+```
+FastAPI → Ollama → Llama
+```
+**Production:**
+```
+FastAPI → LLM Service → vLLM / TGI / Managed Model API → GPU
+```
+Learn: Ollama, vLLM, GPU inference, CPU vs GPU, model loading, quantization, batching, continuous batching, concurrent requests, tokens/sec, time to first token (TTFT), throughput.
+
+**Critical interview distinction:** **Latency** = how long one request takes. **Throughput** = how many requests you can process over time. Optimizing for one can hurt the other (e.g., large batch sizes raise throughput but can raise per-request latency).
+
+---
+
+## 6. Streaming
+
+```
+User → FastAPI → LLM → token → token → token → token → React
+```
+Learn: `StreamingResponse`, SSE, WebSockets, async generators, token streaming, connection handling. For a ChatGPT-style clone, **SSE + FastAPI** is the pragmatic default (simpler than WebSockets when you only need server→client push).
+
+---
+
+## 7. Redis
+
+Use for: caching, session data, rate limiting, short-term state, distributed locks, job queues.
+```
+User asks "What is RAG?"
+      ↓
+Redis cache? ── YES → return cached response
+             └── NO  → LLM → store result in Redis
+```
+
+---
+
+## 8. Background Jobs
+
+Some AI operations shouldn't block the request:
+```
+Upload PDF → FastAPI → return immediately
+                ↓
+        Background Worker → Extract text → Chunk → Embed → Store in Vector DB
+```
+Learn: background tasks, Celery, Redis Queue, task retries, dead-letter queues.
+
+---
+
+## 9. Production RAG
+
+**Prototype:** `PDF → chunks → embeddings → Chroma`
+
+**Production:**
+```
+Document → Object Storage → Async ingestion → Parsing → Chunking → Embedding
+         → Vector DB → Metadata → Hybrid Search → Reranking → LLM
+```
+Learn: incremental ingestion, document versioning, duplicate detection, metadata filtering, multi-tenancy, access control, embedding caching, async ingestion, re-indexing, failed-job recovery.
+
+---
+
+## 10. Database Architecture
+
+| Data | Storage |
+|---|---|
+| Users | PostgreSQL |
+| Conversations | PostgreSQL |
+| Messages | PostgreSQL |
+| Long-term memory | PostgreSQL / Vector DB |
+| Cache | Redis |
+| Documents | S3 / Object Storage |
+| Embeddings | Chroma / Qdrant / pgvector |
+| Jobs | Redis / Queue |
+
+Very common interview topic — know what goes where and *why* (durability vs speed vs similarity search needs).
+
+---
+
+## 11. Caching
+
+Multiple levels:
+```
+Prompt cache → Embedding cache → Retrieval cache → LLM response cache
+```
+**Caveat:** don't blindly cache personalized or rapidly changing answers — cache invalidation strategy matters as much as the cache itself.
+
+---
+
+## 12. Rate Limiting & Quotas
+
+```
+User A → 100 requests/hour
+User B → 1000 requests/hour
+```
+```
+Redis → Rate limiter → FastAPI
+```
+Understand: per-user limits, per-IP limits, token quotas, daily limits, model-specific limits.
+
+---
+
+## 13. Reliability Patterns
+
+**Timeout:**
+```
+LLM doesn't respond → timeout → return fallback
+```
+**Retry:** only retry appropriate (transient) failures — never blindly retry a failure caused by bad input.
+
+**Circuit Breaker:**
+```
+LLM failing repeatedly → Circuit OPEN → Don't keep calling LLM
+```
+**Fallback:**
+```
+Primary model → failure → Smaller/secondary model
+```
+
+---
+
+## 14. Security
+
+Beyond normal API security: authentication, authorization, API keys, JWT, secrets management, prompt injection, indirect prompt injection, PII protection, data isolation, tool permissions, MCP security, RAG access control, rate limiting, audit logging.
+
+```
+User → Permission check → Agent → Tool → Authorization check → External system
+```
+**Golden rule:** never rely only on the LLM to enforce permissions — the model is not a security boundary; every privileged action needs a deterministic authorization check outside the model's control.
+
+---
+
+## 15. Observability
+
+Already covered in depth in the LangSmith guide — in production, track: latency, errors, tokens, cost, model, prompt version, retrieval quality, tool calls, agent steps, failed requests, user feedback, across the full chain:
+```
+Request → FastAPI → LangGraph → Retriever → Tools → LLM → Response
+```
+
+---
+
+## 16. Evaluation in CI/CD
+
+Don't wait until production to find quality regressions:
+```
+Code change → Run tests → Run LLM evaluation → RAG evaluation → Safety tests → Deploy
+```
+```
+Faithfulness < 0.85 → FAIL → Don't deploy
+```
+This is where the Evaluation guide's golden dataset + regression testing becomes an actual deployment gate, not just a report.
+
+---
+
+## 17. Model & Prompt Versioning
+
+Treat prompts/models like code — track model, prompt, retriever, embedding model, chunking strategy, reranker together as one versioned "configuration," so a quality drop can be traced to exactly what changed.
+
+---
+
+## 18. Scaling
+
+**Vertical:** one server → more CPU/RAM/GPU.
+**Horizontal:**
+```
+        Load Balancer
+        /     |     \
+   FastAPI FastAPI FastAPI
+              ↓
+        Redis/Postgres
+              ↓
+         LLM service
+```
+Learn: load balancing, autoscaling, **stateless APIs** (critical — any instance must be able to handle any request, with state externalized to Redis/Postgres), worker scaling, GPU scaling, queue-based architecture.
+
+---
+
+## 19. Deployment
+
+```
+Local → Docker → Docker Compose → Cloud VM → Kubernetes → Autoscaling
+```
+Cloud concepts to know: AWS/Azure/GCP, object storage, managed PostgreSQL, managed Redis, Kubernetes, GPU instances, load balancer, secrets, monitoring. You don't need to be a DevOps engineer, but you should understand the architecture end to end.
+
+---
+
+## 20. Kubernetes for AI Workloads
+
+**Missing from the original — "good to know" in the roadmap but frequently probed one level deeper in senior interviews.**
+- **Deployments** manage your stateless FastAPI/agent pods; **StatefulSets** for anything needing stable identity/storage (rare for the API layer, common for some vector DBs).
+- **Services + Ingress** route external traffic to pods; the Ingress is typically where TLS termination and path-based routing to different model/agent endpoints happen.
+- **HorizontalPodAutoscaler (HPA)** scales FastAPI replicas on CPU/request-rate; GPU-bound LLM-serving pods often need **custom metrics** (e.g., queue depth, GPU utilization) rather than plain CPU, since a GPU pod can look "idle" on CPU while fully saturated on GPU.
+- **Node pools / taints & tolerations** to schedule GPU-heavy inference pods only onto GPU nodes, keeping cheap CPU-only work off expensive GPU nodes.
+- **Resource requests/limits** matter more than typical services — under-provisioning a model-serving pod causes OOM kills mid-generation, which is a worse failure mode than a slow response.
+
+**Interview point:** the key nuance to state explicitly is that **autoscaling an LLM-serving pod on CPU alone is usually wrong** — you need GPU-utilization or request-queue-depth-based scaling instead.
+
+---
+
+## 21. Deployment Strategies
+
+**Missing from the original — listed as "good to know" but commonly asked to be explained, not just named.**
+
+- **Blue-Green** — run two full production environments ("blue" = current, "green" = new); switch traffic all at once by flipping a router/load-balancer target. Fast rollback (just flip back), but doubles infrastructure cost during the switch window.
+- **Canary** — route a small % of traffic (e.g., 5%) to the new version, monitor quality/latency/error metrics, then progressively increase. Lower blast radius than blue-green, but needs good automated metrics to decide "promote vs rollback" — this is where the evaluation + observability stack from earlier guides directly plugs in.
+- **Feature flags** — gate a new prompt, model, or agent behavior behind a flag so it can be enabled for specific users/cohorts and killed instantly without a redeploy. Especially useful for LLM apps because "bad output quality" often isn't caught by infra health checks — you need a fast kill-switch independent of your deploy pipeline.
+
+**Interview point:** for LLM/agent changes specifically, canary + feature flags are preferred over pure blue-green, because quality regressions (not just crashes) are the main risk, and canary lets you catch a quality dip on 5% of traffic before it hits everyone.
+
+---
+
+## 22. Cost Optimization
+
+Reduce:
+```
+Token cost:      huge prompt → context compression → smaller prompt
+Model cost:      simple task → small model, complex task → large model
+Retrieval cost:  retrieve 50 → rerank → send top 5 to LLM
+```
+Also: caching, batching, quantization, smaller models, prompt optimization, embedding caching, **model routing** (send easy queries to a cheap/fast model, hard ones to a strong model — a classifier or even the model itself can make this routing decision).
+
+---
+
+## 23. GPU & Inference Optimization Deep Dive
+
+**Missing from the original — "good to know" listed but under-explained; worth one level deeper.**
+- **Quantization** — reduce model weight precision (FP16 → INT8 → INT4) to cut memory footprint and speed up inference, trading a small amount of quality for large efficiency gains. Know that lower-bit quantization has diminishing-returns quality loss and isn't free.
+- **Continuous batching** (vs static batching) — dynamically add new requests into an in-flight batch as others finish, instead of waiting for a full batch to form; this is what makes serving frameworks like vLLM dramatically more throughput-efficient than naive batching.
+- **KV-cache management** — the attention key/value cache grows with context length and concurrent requests; it's usually the actual memory bottleneck on a GPU, not the model weights themselves. vLLM's "PagedAttention" is specifically designed to manage this efficiently.
+- **Time-to-first-token (TTFT) vs total generation time** — for a streaming chat UI, TTFT matters more for perceived responsiveness than total completion time; some optimizations (e.g., speculative decoding) specifically target reducing TTFT/inter-token latency.
+
+---
+
+## 24. Load Testing for LLM Applications
+
+**Missing from the original.** LLM load testing differs from typical API load testing:
+- Requests have **highly variable latency** (short vs long generations) — percentile-based metrics (p50/p95/p99) matter more than averages.
+- **Token-based load**, not just request-count load — two identical request rates can have wildly different GPU load depending on prompt/output length, so load tests should vary payload size realistically.
+- Test **concurrent streaming connections**, not just request/response — streaming keeps connections open longer and stresses connection-handling differently than simple REST calls.
+- Include **tool-calling and RAG-retrieval load** in the test, not just raw LLM throughput, since the bottleneck is often the retriever or a rate-limited external tool, not the model itself.
+
+---
+
+## 25. Multi-Region & Model-Provider Routing
+
+**Missing from the original.**
+- **Multi-region deployment** reduces latency for geographically distributed users and provides resilience if one region's provider/infra goes down — but complicates data residency/compliance (Section 27) if user data must stay in-region.
+- **Model-provider routing / multi-provider fallback** — route to a secondary provider (e.g., a different hosted model) if the primary is down or rate-limited, avoiding vendor lock-in and giving another layer of the reliability patterns from Section 13 applied at the provider level, not just the model-version level.
+
+---
+
+## 26. Disaster Recovery & Backups
+
+**Missing from the original.**
+- **Backup** conversation/vector DB data on a schedule; test restores periodically — an untested backup is not a real backup.
+- Define **RTO (Recovery Time Objective)** and **RPO (Recovery Point Objective)** for your AI application, same as any production system — e.g., "if the vector DB is lost, how much re-indexing time / data loss is acceptable?"
+- Have a plan for **regenerable vs non-regenerable data**: embeddings can usually be recomputed from source documents (regenerable, lower backup priority) whereas conversation history/user data generally cannot (non-regenerable, higher backup priority) — this distinction should drive your backup investment.
+
+---
+
+## 27. Compliance & Data Governance
+
+**Missing from the original.**
+- **Data residency** — some regulations (GDPR, industry-specific rules) require user data to stay within a region; this affects where you can host models/vector DBs and whether you can use a third-party managed model API at all for certain data.
+- **Audit logging** — who accessed what data, which tool executed which action, on whose behalf — needed for compliance frameworks like SOC 2, and it's also just good security practice (ties back to Section 14).
+- **Right to deletion** — if a user requests data deletion, you need a way to purge their data not just from Postgres but from vector DB entries, cached responses, and traces/logs that might contain their content.
+
+---
+
+## 28. Production AI Failure Scenarios
+
+Practice explaining these out loud:
+
+| Failure | Response |
+|---|---|
+| LLM unavailable | Fallback model |
+| Vector DB unavailable | Graceful error / fallback retrieval |
+| Redis unavailable | Degrade gracefully where possible |
+| LLM response too slow | Timeout + fallback |
+| Agent infinite loop | Max iterations |
+| Huge user prompt | Token limit + validation |
+| Malicious document | Indirect prompt injection protection |
+| Wrong tool selected | Tool validation + authorization |
+
+---
+
+## 29. Your Production AI Project
+
+Upgrade a ChatGPT clone into:
+```
+React → FastAPI → LangGraph
+  ├── Ollama / vLLM
+  ├── RAG
+  ├── MCP
+  ├── Memory
+  └── Guardrails
+       ↓
+PostgreSQL, Redis, Chroma/Qdrant, Object Storage
+       ↓
+LangSmith
+       ↓
+Evaluation
+```
+Add: JWT authentication, conversation persistence, cross-thread memory, streaming, PDF ingestion, background workers, Redis caching, rate limiting, tool permissions, guardrails, evaluation dataset, LangSmith tracing, Docker, health checks, retry/timeout/fallback, production logging.
+
+That's a strong AI Engineer portfolio project end to end.
+
+---
+
+## 30. Interview Priority
+
+**Must know ⭐⭐⭐:** production AI architecture, Docker, FastAPI production patterns, streaming, Redis, async/background jobs, production RAG, LLM serving, reliability patterns, security, observability, evaluation in CI/CD, scaling, cost optimization.
+
+**Good to know ⭐⭐:** Kubernetes, vLLM, Celery, GPU optimization, autoscaling, blue/green deployment, canary deployment, disaster recovery, load testing, multi-region.
+
+---
+
+## 31. Senior AI Engineer Mental Model
+
+```
+BUILD      → RAG + Agents + MCP
+EVALUATE   → LangSmith
+SECURE     → Guardrails + Auth
+DEPLOY     → Docker + Cloud
+SCALE      → Redis + Workers + GPU
+MONITOR    → Tracing + Metrics
+OPTIMIZE   → Cost + Latency + Quality
+```
+
+---
+
+## 32. Interview Questions
+
+**Core (from the original set):**
+1. How would you productionize an LLM application?
+2. Walk through a production AI architecture end to end.
+3. What's important about Dockerizing an AI application?
+4. What FastAPI production patterns matter for LLM apps?
+5. Latency vs throughput — define both.
+6. How would you implement streaming for a chat application?
+7. How do you use Redis in an AI application?
+8. When do you need background jobs, and how?
+9. How does production RAG differ from a prototype RAG pipeline?
+10. What data goes into Postgres vs a vector DB vs Redis vs object storage?
+11. What levels of caching would you implement, and what are the risks?
+12. How do you implement rate limiting per user?
+13. Explain timeout, retry, circuit breaker, and fallback patterns.
+14. How do you secure an AI application beyond standard API security?
+15. What should production observability track for an AI app?
+16. How do you gate deployments on evaluation results in CI/CD?
+17. Why version prompts and models like code?
+18. Vertical vs horizontal scaling for an AI application?
+19. Describe the deployment journey from local to Kubernetes.
+20. How would you optimize the cost of a production LLM application?
+
+**Added — commonly asked, previously missing:**
+21. Why is autoscaling a GPU-serving pod on CPU metrics usually the wrong approach?
+22. Explain continuous batching and why it improves throughput over static batching.
+23. What is KV-cache, and why is it often the real memory bottleneck on a GPU?
+24. Blue-green vs canary deployment — which would you use for a new prompt version, and why?
+25. How does load testing an LLM application differ from load testing a typical REST API?
+26. How would you design multi-provider fallback to avoid vendor lock-in?
+27. What's the difference between RTO and RPO, and how would you define them for your AI app?
+28. Which data in an AI system is "regenerable" vs not, and how does that affect your backup strategy?
+29. What compliance considerations apply specifically to an AI application handling user data (beyond generic app compliance)?
+30. If a user requests data deletion, what parts of your AI system need to be purged, not just the primary database?
+
+---
+
+## 33. One-Line Interview Answer & Roadmap
+
+> **Production AI is about deploying AI applications reliably at scale while managing latency, cost, security, observability, evaluation, failures, and model quality — using the same production-engineering discipline as any distributed system, extended with GenAI-specific concerns like token economics, prompt/model versioning, and quality regressions that don't show up as infra errors.**
