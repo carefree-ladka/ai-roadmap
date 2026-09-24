@@ -1,0 +1,1288 @@
+# Python Sorting: The Complete Interview Guide
+
+Sorting shows up in a huge share of interview problems, either as the whole problem or as the first step that makes a greedy or two-pointer solution possible. This guide covers everything you need in Python: lists, tuples, dictionaries, objects, custom orderings, and the classic LeetCode patterns.
+
+---
+
+## Table of Contents
+
+1. [Theory: How Python Sorts (Timsort)](#1-theory-how-python-sorts-timsort)
+2. [sort() vs sorted()](#2-sort-vs-sorted)
+3. [Ascending and Descending](#3-ascending-and-descending)
+4. [The key Parameter](#4-the-key-parameter)
+5. [Sorting Strings](#5-sorting-strings)
+6. [Sorting Numbers by a Custom Key](#6-sorting-numbers-by-a-custom-key)
+7. [Sorting Tuples](#7-sorting-tuples)
+8. [Sorting Intervals](#8-sorting-intervals)
+9. [Sorting Lists of Dictionaries](#9-sorting-lists-of-dictionaries)
+10. [Multiple Keys and Mixed Directions](#10-multiple-keys-and-mixed-directions)
+11. [Sorting Custom Class Objects](#11-sorting-custom-class-objects)
+12. [itemgetter and attrgetter](#12-itemgetter-and-attrgetter)
+13. [Sorting a Dictionary](#13-sorting-a-dictionary)
+14. [Sorting Characters, Anagrams](#14-sorting-characters-anagrams)
+15. [Sorting by Length](#15-sorting-by-length)
+16. [Custom Comparators with cmp_to_key](#16-custom-comparators-with-cmp_to_key)
+17. [Stable Sorting](#17-stable-sorting)
+18. [Sorting Matrices](#18-sorting-matrices)
+19. [Sorting by Frequency](#19-sorting-by-frequency)
+20. [Indices, Argsort, Parallel Lists](#20-indices-argsort-parallel-lists)
+21. [Top K Without Full Sorting (heapq)](#21-top-k-without-full-sorting-heapq)
+22. [Descending Without reverse=True](#22-descending-without-reversetrue)
+23. [Sorting Sets, Booleans, Generators, Other Iterables](#23-sorting-sets-booleans-generators-other-iterables)
+24. [Custom Orderings and Natural Sort](#24-custom-orderings-and-natural-sort)
+25. [Checking Sortedness and bisect](#25-checking-sortedness-and-bisect)
+26. [Common Pitfalls](#26-common-pitfalls)
+27. [Time and Space Complexity](#27-time-and-space-complexity)
+28. [Beyond Comparison Sorts](#28-beyond-comparison-sorts)
+29. [LeetCode Pattern Gallery with Worked Solutions](#29-leetcode-pattern-gallery-with-worked-solutions)
+30. [Cheat Sheet](#30-cheat-sheet)
+31. [Practice Problems](#31-practice-problems)
+32. [Interview Tips](#32-interview-tips)
+
+---
+
+## 1. Theory: How Python Sorts (Timsort)
+
+Python's built-in sort is **Timsort**, a hybrid of merge sort and insertion sort designed for real-world data.
+
+| Property | Value |
+|---|---|
+| Worst-case time | O(n log n) |
+| Best-case time (already sorted) | O(n) |
+| Stable | Yes |
+| Extra space | Up to O(n) in the worst case (merge buffer) |
+| Adaptive | Yes, it exploits existing sorted runs |
+
+How it works in one paragraph: Timsort scans the list for naturally ordered "runs" (ascending or strictly descending stretches), extends short runs with insertion sort, then merges runs using a stack with rules that keep merges balanced. Because of this, nearly sorted data is sorted very fast.
+
+Two facts to remember for interviews:
+
+- **Stable** means elements that compare equal keep their original relative order.
+- Sorting is **comparison based**, so O(n log n) is the general lower bound. See [section 28](#28-beyond-comparison-sorts) for O(n) alternatives when the value range is small.
+
+> `.sort()` is described as "in-place" because it mutates the list object, but Timsort may still allocate a temporary buffer internally. Do not claim O(1) extra space.
+
+---
+
+## 2. sort() vs sorted()
+
+| `list.sort()` | `sorted()` |
+|---|---|
+| Sorts the original list **in place** | Returns a **new** sorted list |
+| Only exists on lists | Works on **any iterable** (list, tuple, string, set, dict, generator) |
+| Returns `None` | Returns a `list` |
+| Slightly faster (no copy) | Makes a copy first |
+
+```python
+nums = [5, 2, 8, 1]
+nums.sort()
+print(nums)            # [1, 2, 5, 8]
+
+nums = [5, 2, 8, 1]
+result = sorted(nums)
+print(result)          # [1, 2, 5, 8]
+print(nums)            # [5, 2, 8, 1]  (original unchanged)
+```
+
+**Interview rule**
+
+- Modify the original / do not need it again → `.sort()`
+- Need the original preserved, or input is not a list → `sorted()`
+
+**Classic bug**
+
+```python
+nums = [3, 1, 2]
+nums = nums.sort()
+print(nums)            # None  (sort() returns None!)
+```
+
+---
+
+## 3. Ascending and Descending
+
+```python
+nums = [5, 1, 4, 2]
+
+nums.sort()                      # [1, 2, 4, 5]  ascending (default)
+nums.sort(reverse=True)          # [5, 4, 2, 1]  descending
+
+sorted(nums, reverse=False)      # ascending
+sorted(nums, reverse=True)       # descending
+```
+
+`key` and `reverse` are **keyword-only** arguments: `sorted(nums, True)` raises a `TypeError`.
+
+---
+
+## 4. The key Parameter
+
+`key` is a function that takes **one element** and returns the value to sort by.
+
+```python
+sorted(iterable, key=function, reverse=False)
+```
+
+Facts worth knowing:
+
+- The key function is called **exactly once per element**, and results are cached (the "decorate-sort-undecorate" pattern is built in).
+- Elements are then compared using their keys, not themselves.
+- The returned keys must be mutually comparable. Mixing `int` and `str` keys raises `TypeError`.
+- `key` can be a built-in (`len`, `abs`, `str.lower`), a `lambda`, a normal function, or `itemgetter`/`attrgetter`.
+
+```python
+words = ["pear", "fig", "banana"]
+sorted(words, key=len)                  # ['fig', 'pear', 'banana']
+sorted(words, key=lambda w: w[-1])      # sort by last letter: ['banana', 'fig', 'pear']
+```
+
+---
+
+## 5. Sorting Strings
+
+### Alphabetical and reverse
+
+```python
+words = ["banana", "apple", "cat"]
+
+sorted(words)                    # ['apple', 'banana', 'cat']
+sorted(words, reverse=True)      # ['cat', 'banana', 'apple']
+```
+
+### Case-insensitive
+
+By default uppercase sorts before lowercase (ASCII/Unicode order), so `"Cat"` comes before `"apple"`.
+
+```python
+words = ["Apple", "banana", "Cat", "apple"]
+
+sorted(words)                    # ['Apple', 'Cat', 'apple', 'banana']
+sorted(words, key=str.lower)     # ['Apple', 'apple', 'banana', 'Cat']
+```
+
+`Apple` stays before `apple` because sorting is stable and `Apple` appeared first. For non-English text, prefer `str.casefold`.
+
+```python
+sorted(words, key=str.casefold)
+```
+
+### Sort by last character, or reversed word
+
+```python
+sorted(words, key=lambda w: w[::-1])    # sort by the word read backwards
+```
+
+### Digits inside strings compare as text
+
+```python
+sorted(["10", "9", "2"])                # ['10', '2', '9']  (lexicographic!)
+sorted(["10", "9", "2"], key=int)       # ['2', '9', '10']
+```
+
+---
+
+## 6. Sorting Numbers by a Custom Key
+
+Absolute value:
+
+```python
+nums = [-10, 2, -3, 5]
+sorted(nums, key=abs)                    # [2, -3, 5, -10]
+```
+
+Last digit (modulo):
+
+```python
+nums = [11, 7, 20, 14]
+sorted(nums, key=lambda x: x % 10)       # [20, 11, 14, 7]
+```
+
+Distance from a target:
+
+```python
+nums, target = [1, 5, 9, 12], 8
+sorted(nums, key=lambda x: abs(x - target))   # [9, 5, 12, 1]
+```
+
+Number of set bits (LeetCode 1356):
+
+```python
+sorted(range(8), key=lambda x: (x.bit_count(), x))   # Python 3.10+
+# older: key=lambda x: (bin(x).count("1"), x)
+```
+
+---
+
+## 7. Sorting Tuples
+
+Tuples (and lists) compare **lexicographically**: first elements are compared; only if equal does Python look at the second, and so on.
+
+```python
+arr = [(3, "C"), (1, "A"), (2, "B")]
+sorted(arr)                              # [(1, 'A'), (2, 'B'), (3, 'C')]
+
+sorted([(1, "b"), (1, "a"), (0, "z")])   # [(0, 'z'), (1, 'a'), (1, 'b')]
+```
+
+### By a specific position
+
+```python
+sorted(arr, key=lambda x: x[1])                    # by second element
+sorted(arr, key=lambda x: x[1], reverse=True)      # by second, descending
+```
+
+This is why pushing `(priority, item)` tuples onto a heap works.
+
+> Lists compare the same way: `[1, 2] < [1, 3]` is `True`, and a shorter list that is a prefix of a longer one is smaller.
+
+---
+
+## 8. Sorting Intervals
+
+```python
+intervals = [[5, 7], [1, 3], [2, 6]]
+
+intervals.sort(key=lambda x: x[0])       # by start: [[1, 3], [2, 6], [5, 7]]
+intervals.sort(key=lambda x: x[1])       # by end:   [[1, 3], [2, 6], [5, 7]]
+```
+
+Plain `intervals.sort()` also sorts by start (then end), because lists compare lexicographically.
+
+| Sort by | Typical problems |
+|---|---|
+| **Start** | Merge Intervals, Meeting Rooms, Insert Interval, Meeting Rooms II |
+| **End** | Non-overlapping Intervals, Minimum Arrows to Burst Balloons, Activity Selection |
+
+Worked solutions are in [section 29](#29-leetcode-pattern-gallery-with-worked-solutions).
+
+---
+
+## 9. Sorting Lists of Dictionaries
+
+```python
+employees = [
+    {"name": "Pawan", "salary": 26},
+    {"name": "Alex",  "salary": 40},
+    {"name": "John",  "salary": 30},
+]
+
+sorted(employees, key=lambda e: e["salary"])                    # salary ascending
+sorted(employees, key=lambda e: e["salary"], reverse=True)      # salary descending
+sorted(employees, key=lambda e: e["name"])                      # by name
+sorted(employees, key=lambda e: (-e["salary"], e["name"]))      # salary desc, name asc
+```
+
+You **must** supply `key`. Dictionaries are not orderable:
+
+```python
+sorted(employees)     # TypeError: '<' not supported between instances of 'dict' and 'dict'
+```
+
+Handle missing fields safely:
+
+```python
+sorted(employees, key=lambda e: e.get("salary", 0))
+```
+
+---
+
+## 10. Multiple Keys and Mixed Directions
+
+Return a **tuple** from the key function. Python compares it lexicographically.
+
+```python
+students = [("Pawan", 90), ("Alex", 85), ("Bob", 90), ("Charlie", 80)]
+```
+
+Marks ascending, then name ascending:
+
+```python
+sorted(students, key=lambda x: (x[1], x[0]))
+# [('Charlie', 80), ('Alex', 85), ('Bob', 90), ('Pawan', 90)]
+```
+
+Marks descending, then name ascending (negate the number):
+
+```python
+sorted(students, key=lambda x: (-x[1], x[0]))
+# [('Bob', 90), ('Pawan', 90), ('Alex', 85), ('Charlie', 80)]
+```
+
+### The problem: you cannot negate a string
+
+Name descending and marks ascending is harder. Three options:
+
+**Option 1: two passes (rely on stability).** Sort by the **least** significant key first.
+
+```python
+students.sort(key=lambda x: x[1])                    # secondary: marks ascending
+students.sort(key=lambda x: x[0], reverse=True)      # primary: name descending
+```
+
+**Option 2: `cmp_to_key`** with a comparator (see [section 16](#16-custom-comparators-with-cmp_to_key)).
+
+**Option 3: negate character codes** (works for strings of equal semantics):
+
+```python
+sorted(words, key=lambda w: [-ord(c) for c in w])    # reverse alphabetical
+```
+
+Option 1 is the cleanest and the one interviewers like to see.
+
+---
+
+## 11. Sorting Custom Class Objects
+
+```python
+class Employee:
+    def __init__(self, name, salary):
+        self.name = name
+        self.salary = salary
+
+    def __repr__(self):
+        return f"Employee({self.name!r}, {self.salary})"
+
+employees = [Employee("Pawan", 26), Employee("Alex", 40), Employee("Bob", 30)]
+
+employees.sort(key=lambda e: e.salary)
+employees.sort(key=lambda e: (-e.salary, e.name))     # salary desc, name asc
+```
+
+### Make the class sortable by default
+
+Define `__lt__` and `sorted()` / `.sort()` work with no key. (Sorting only uses `<`.)
+
+```python
+class Employee:
+    def __init__(self, name, salary):
+        self.name, self.salary = name, salary
+
+    def __lt__(self, other):
+        return self.salary < other.salary
+
+sorted(employees)         # uses __lt__
+```
+
+Alternatives: `@functools.total_ordering`, or `@dataclass(order=True)`, which compares fields in declaration order.
+
+```python
+from dataclasses import dataclass
+
+@dataclass(order=True)
+class Point:
+    x: int
+    y: int
+
+sorted([Point(2, 1), Point(1, 5), Point(1, 2)])
+# [Point(x=1, y=2), Point(x=1, y=5), Point(x=2, y=1)]
+```
+
+---
+
+## 12. itemgetter and attrgetter
+
+Faster and cleaner than a lambda. Both live in the `operator` module.
+
+```python
+from operator import itemgetter, attrgetter
+```
+
+Tuples and lists (by index):
+
+```python
+arr.sort(key=itemgetter(1))              # by second element
+students.sort(key=itemgetter(1, 0))      # by (marks, name)
+```
+
+Dictionaries (by key):
+
+```python
+employees.sort(key=itemgetter("salary"))
+employees.sort(key=itemgetter("salary", "name"))
+```
+
+Objects (by attribute):
+
+```python
+employees.sort(key=attrgetter("salary"))
+employees.sort(key=attrgetter("salary", "name"))
+```
+
+Limitations: they cannot negate or transform values. For `-x[1]` you still need a lambda (or the two-pass trick).
+
+---
+
+## 13. Sorting a Dictionary
+
+Dictionaries preserve insertion order (Python 3.7+), but they are not sorted. To "sort a dict" you sort its keys or items and rebuild.
+
+```python
+scores = {"Bob": 80, "Alex": 95, "Pawan": 90}
+
+sorted(scores)                                  # ['Alex', 'Bob', 'Pawan']  (keys)
+sorted(scores.keys(), reverse=True)             # ['Pawan', 'Bob', 'Alex']
+
+sorted(scores.items(), key=lambda kv: kv[1])
+# [('Bob', 80), ('Pawan', 90), ('Alex', 95)]
+
+dict(sorted(scores.items(), key=lambda kv: kv[1]))
+# {'Bob': 80, 'Pawan': 90, 'Alex': 95}
+```
+
+Highest value first, ties broken alphabetically by key:
+
+```python
+sorted(scores.items(), key=lambda kv: (-kv[1], kv[0]))
+```
+
+Key with the max value (no sort needed, O(n)):
+
+```python
+max(scores, key=scores.get)                     # 'Alex'
+```
+
+Sort by value using `itemgetter`:
+
+```python
+from operator import itemgetter
+sorted(scores.items(), key=itemgetter(1), reverse=True)
+```
+
+---
+
+## 14. Sorting Characters, Anagrams
+
+```python
+s = "leetcode"
+
+sorted(s)                                # ['c','d','e','e','e','l','o','t']  (a list!)
+"".join(sorted(s))                       # 'cdeeelot'
+"".join(sorted(s, reverse=True))         # 'toleeedc'
+```
+
+### Anagram check
+
+```python
+def is_anagram(a, b):
+    return sorted(a) == sorted(b)        # O(n log n)
+# faster: Counter(a) == Counter(b)       # O(n)
+```
+
+### Group Anagrams (LeetCode 49)
+
+The sorted string is a canonical signature for all anagrams.
+
+```python
+from collections import defaultdict
+
+def group_anagrams(words):
+    groups = defaultdict(list)
+    for w in words:
+        groups["".join(sorted(w))].append(w)
+    return list(groups.values())
+
+group_anagrams(["eat", "tea", "tan", "ate", "nat", "bat"])
+# [['eat', 'tea', 'ate'], ['tan', 'nat'], ['bat']]
+```
+
+---
+
+## 15. Sorting by Length
+
+```python
+words = ["apple", "kiwi", "banana", "cat"]
+
+sorted(words, key=len)                           # ['cat', 'kiwi', 'apple', 'banana']
+sorted(words, key=len, reverse=True)             # ['banana', 'apple', 'kiwi', 'cat']
+sorted(words, key=lambda w: (len(w), w))         # length, then alphabetical
+sorted(words, key=lambda w: (-len(w), w))        # longest first, ties alphabetical
+```
+
+---
+
+## 16. Custom Comparators with cmp_to_key
+
+Some problems cannot be expressed as "compute a key per element". The order depends on comparing **two** elements. Use a comparator with `functools.cmp_to_key`.
+
+A comparator `cmp(a, b)` returns:
+
+- a **negative** number if `a` should come **first**
+- **zero** if they are equal
+- a **positive** number if `b` should come first
+
+```python
+from functools import cmp_to_key
+```
+
+### Largest Number (LeetCode 179)
+
+Arrange numbers to form the largest concatenation.
+
+```python
+def largest_number(nums):
+    strs = list(map(str, nums))
+
+    def compare(a, b):
+        if a + b > b + a:
+            return -1          # a first
+        elif a + b < b + a:
+            return 1           # b first
+        return 0
+
+    strs.sort(key=cmp_to_key(compare))
+    result = "".join(strs)
+    return "0" if result[0] == "0" else result     # handle [0, 0, 0]
+
+largest_number([3, 30, 34, 5, 9])      # '9534330'
+```
+
+### A comparator-free trick (when values are bounded)
+
+If numbers are at most 10 digits (`10^9`), repeating each string 10 times makes plain lexicographic order correct:
+
+```python
+"".join(sorted(map(str, nums), key=lambda s: s * 10, reverse=True))
+```
+
+Use this as a shortcut only if you can justify the bound. `cmp_to_key` is the general answer.
+
+### Why not just pass `cmp=`?
+
+Python 3 removed the `cmp` argument. `cmp_to_key` wraps your comparator into a key object. It is slower than a plain key, so prefer `key=` whenever you can.
+
+---
+
+## 17. Stable Sorting
+
+Stable means equal keys keep their original order.
+
+```python
+people = [("Alice", 90), ("Bob", 90), ("Charlie", 80)]
+sorted(people, key=lambda x: x[1], reverse=True)
+# [('Alice', 90), ('Bob', 90), ('Charlie', 80)]  -> Alice still before Bob
+```
+
+Note: `reverse=True` **preserves** the original order of equal elements. It is not the same as `sorted(...)[::-1]`, which reverses ties.
+
+### Multi-pass sorting
+
+Sort by the **least significant key first**, then the most significant.
+
+```python
+students = [("Pawan", 90), ("Alex", 85), ("Bob", 90), ("Charlie", 80)]
+
+students.sort(key=lambda x: x[0])                    # 1. by name
+students.sort(key=lambda x: x[1], reverse=True)      # 2. by marks descending
+# ties on marks stay alphabetical:
+# [('Bob', 90), ('Pawan', 90), ('Alex', 85), ('Charlie', 80)]
+```
+
+---
+
+## 18. Sorting Matrices
+
+### Sort rows by a column
+
+```python
+matrix = [[3, 1], [2, 4], [5, 0]]
+
+matrix.sort(key=lambda row: row[1])     # [[5, 0], [3, 1], [2, 4]]
+matrix.sort(key=sum)                    # by row sum
+```
+
+### Sort every row in place
+
+```python
+for row in matrix:
+    row.sort()
+```
+
+Avoid the list comprehension version `[row.sort() for row in matrix]`. It works but builds a useless list of `None` values.
+
+### Sort each row and return a new matrix
+
+```python
+[sorted(row) for row in matrix]
+```
+
+### Sort columns
+
+```python
+cols = sorted(zip(*matrix))             # tuples, sorted by first column
+transposed_sorted = [sorted(col) for col in zip(*matrix)]
+```
+
+### Flatten and sort
+
+```python
+sorted(cell for row in matrix for cell in row)
+```
+
+---
+
+## 19. Sorting by Frequency
+
+```python
+from collections import Counter
+
+nums = [4, 6, 4, 3, 6, 6, 2]
+freq = Counter(nums)          # {4: 2, 6: 3, 3: 1, 2: 1}
+
+sorted(nums, key=lambda x: (freq[x], x))     # [2, 3, 4, 4, 6, 6, 6]   least frequent first
+sorted(nums, key=lambda x: (-freq[x], x))    # [6, 6, 6, 4, 4, 2, 3]   most frequent first
+```
+
+Shortcut with `most_common`:
+
+```python
+Counter(nums).most_common()             # [(6, 3), (4, 2), (3, 1), (2, 1)]
+Counter(nums).most_common(2)            # top 2 by count
+```
+
+Sort Characters by Frequency (LeetCode 451):
+
+```python
+def frequency_sort(s):
+    return "".join(ch * n for ch, n in Counter(s).most_common())
+
+frequency_sort("tree")     # 'eert' (or 'eetr')
+```
+
+---
+
+## 20. Indices, Argsort, Parallel Lists
+
+### Keep original indices
+
+```python
+nums = [40, 20, 10]
+sorted(enumerate(nums), key=lambda x: x[1])
+# [(2, 10), (1, 20), (0, 40)]   -> (original_index, value)
+```
+
+### Argsort (indices that would sort the list)
+
+```python
+nums = [40, 20, 10]
+order = sorted(range(len(nums)), key=nums.__getitem__)    # [2, 1, 0]
+# equivalent: key=lambda i: nums[i]
+```
+
+### Sort one list by another
+
+```python
+names  = ["a", "b", "c"]
+scores = [30, 10, 20]
+
+sorted(names, key=lambda n: scores[names.index(n)])       # O(n^2) - avoid
+[n for _, n in sorted(zip(scores, names))]                # ['b', 'c', 'a']
+```
+
+### Sort two lists together
+
+```python
+a, b = [3, 1, 2], ["c", "a", "b"]
+a_sorted, b_sorted = map(list, zip(*sorted(zip(a, b))))
+# a_sorted = [1, 2, 3], b_sorted = ['a', 'b', 'c']
+```
+
+---
+
+## 21. Top K Without Full Sorting (heapq)
+
+If you only need the k largest or smallest, a heap gives O(n log k) instead of O(n log n).
+
+```python
+import heapq
+
+nums = [8, 2, 5, 1, 9, 4]
+
+heapq.nlargest(3, nums)         # [9, 8, 5]
+heapq.nsmallest(2, nums)        # [1, 2]
+```
+
+With a key:
+
+```python
+points = [[1, 3], [-2, 2], [5, 8], [0, 1]]
+
+heapq.nsmallest(2, points, key=lambda p: p[0] ** 2 + p[1] ** 2)   # K Closest Points
+```
+
+### When to use what
+
+| Situation | Best tool |
+|---|---|
+| k is 1 | `min()` / `max()` (O(n)) |
+| k is small compared to n | `heapq.nlargest` / `nsmallest` |
+| k is close to n | `sorted(...)[:k]` |
+| Streaming data, keep top k | Min-heap of size k |
+| Need the whole order | `sorted` |
+
+### Manual min-heap of size k (kth largest)
+
+```python
+def kth_largest(nums, k):
+    heap = nums[:k]
+    heapq.heapify(heap)
+    for x in nums[k:]:
+        if x > heap[0]:
+            heapq.heapreplace(heap, x)
+    return heap[0]
+
+kth_largest([3, 2, 1, 5, 6, 4], 2)     # 5
+```
+
+### Top K Frequent Elements (LeetCode 347)
+
+```python
+[x for x, _ in Counter(nums).most_common(k)]
+```
+
+---
+
+## 22. Descending Without reverse=True
+
+Negating works for numbers:
+
+```python
+sorted(nums, key=lambda x: -x)
+```
+
+Its real value is **mixed directions in one pass**:
+
+```python
+points = [(1, 5), (3, 2), (3, 1), (2, 9)]
+sorted(points, key=lambda p: (-p[0], p[1]))
+# x descending, y ascending: [(3, 1), (3, 2), (2, 9), (1, 5)]
+```
+
+Remember: negation works only for numbers. For strings use the two-pass trick from [section 10](#10-multiple-keys-and-mixed-directions).
+
+---
+
+## 23. Sorting Sets, Booleans, Generators, Other Iterables
+
+`sorted()` accepts any iterable and always returns a **list**.
+
+```python
+sorted({4, 1, 8, 2})                          # [1, 2, 4, 8]   set -> list
+sorted((x * x for x in range(5)), reverse=True)   # [16, 9, 4, 1, 0]
+sorted("hello")                               # ['e', 'h', 'l', 'l', 'o']
+sorted((3, 1, 2))                             # [1, 2, 3]      tuple -> list
+sorted({"b": 1, "a": 2})                      # ['a', 'b']     dict -> keys
+sorted([True, False, True])                   # [False, True, True]  (False=0, True=1)
+```
+
+Sort a list slice in place:
+
+```python
+nums[2:6] = sorted(nums[2:6])
+```
+
+Sorting a `tuple` returns a list. Convert back with `tuple(sorted(t))`.
+
+---
+
+## 24. Custom Orderings and Natural Sort
+
+### Order defined by a lookup table
+
+```python
+priority = {"high": 0, "medium": 1, "low": 2}
+tasks = ["low", "high", "medium", "high"]
+
+sorted(tasks, key=priority.get)          # ['high', 'high', 'medium', 'low']
+```
+
+Or by a custom alphabet (Alien Dictionary verification, LeetCode 953):
+
+```python
+order = "hlabcdefgijkmnopqrstuvwxyz"
+rank = {c: i for i, c in enumerate(order)}
+
+def is_alien_sorted(words):
+    key = lambda w: [rank[c] for c in w]
+    return all(key(a) <= key(b) for a, b in zip(words, words[1:]))
+```
+
+### Natural sort ("file2" before "file10")
+
+```python
+import re
+
+def natural_key(s):
+    return [int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", s)]
+
+sorted(["file10", "file2", "file1"], key=natural_key)
+# ['file1', 'file2', 'file10']
+```
+
+### Put items first with a condition
+
+```python
+nums = [3, 0, 5, 0, 1]
+sorted(nums, key=lambda x: x == 0)       # non-zeros first (stable): [3, 5, 1, 0, 0]
+```
+
+---
+
+## 25. Checking Sortedness and bisect
+
+### Is the list sorted?
+
+```python
+all(a <= b for a, b in zip(nums, nums[1:]))      # non-decreasing
+all(a < b for a, b in zip(nums, nums[1:]))       # strictly increasing
+nums == sorted(nums)                             # simple but O(n log n)
+```
+
+### Binary search on a sorted list
+
+```python
+from bisect import bisect_left, bisect_right, insort
+
+a = [1, 3, 3, 5, 8]
+
+bisect_left(a, 3)      # 1  (first index where 3 could be inserted)
+bisect_right(a, 3)     # 3  (index after the last 3)
+bisect_right(a, 3) - bisect_left(a, 3)     # 2  (count of 3s)
+
+insort(a, 4)           # inserts keeping order: [1, 3, 3, 4, 5, 8]  (O(n) insertion)
+```
+
+Since Python 3.10, `bisect` functions accept a `key=` argument.
+
+---
+
+## 26. Common Pitfalls
+
+**1. Assigning the result of `.sort()`**
+
+```python
+nums = nums.sort()     # nums is now None
+```
+
+**2. Mixed types**
+
+```python
+sorted([3, "a", 1])    # TypeError
+sorted([3, None, 1])   # TypeError
+sorted(nums, key=lambda x: (x is None, x))   # pushes None to the end
+```
+
+The tuple key works because `False` sorts before `True`, so real numbers (`False`) come first. Two `None` values never trigger a `None < None` comparison, since tuple comparison stops at the first position where items differ, and equal items are skipped. If you prefer to be explicit, use `(x is None, 0 if x is None else x)`.
+
+**3. Negating strings or non-numbers**
+
+```python
+key=lambda x: -x[0]    # fine for numbers, TypeError for strings
+```
+
+**4. Sorting strings of digits**
+
+```python
+sorted(["10", "9"])                 # ['10', '9']  (text order)
+sorted(["10", "9"], key=int)        # ['9', '10']
+```
+
+**5. Forgetting sorted() returns a list**
+
+```python
+sorted("cab")           # ['a', 'b', 'c'], not 'abc'
+"".join(sorted("cab"))  # 'abc'
+```
+
+**6. `sorted(x)[::-1]` vs `reverse=True`**: they differ for ties (stability).
+
+**7. Modifying a list while iterating over it**: never sort or mutate the list you are looping through.
+
+**8. NaN in floats**: `float("nan")` breaks ordering because it compares false with everything. Filter it out first.
+
+**9. Sorting inside a loop**: calling `sort()` in every iteration turns O(n log n) into O(n² log n). Use a heap or `bisect.insort`, or sort once outside.
+
+**10. Overusing sort**: if you only need min/max/kth element, `min`, `max`, `heapq`, or quickselect is cheaper.
+
+**11. Stale `dict(sorted(...))` expectations**: the dict keeps insertion order, so the result *is* ordered, but any later insertion goes to the end.
+
+**12. Comparing lists of different lengths**: `[1, 2] < [1, 2, 0]` is `True` (prefix rule).
+
+---
+
+## 27. Time and Space Complexity
+
+| Operation | Time | Extra space |
+|---|---|---|
+| `list.sort()` | O(n log n) | up to O(n) buffer |
+| `sorted(iterable)` | O(n log n) | O(n) (new list) |
+| Sort already-sorted data | O(n) | O(1) to O(n) |
+| `heapq.nlargest(k, n items)` | O(n log k) | O(k) |
+| `heapq.heapify` | O(n) | O(1) |
+| `min()` / `max()` | O(n) | O(1) |
+| `bisect` search | O(log n) | O(1) |
+| `insort` | O(n) (shifting) | O(1) |
+| Counting sort | O(n + range) | O(range) |
+
+**Comparison cost matters.** Sorting `n` strings of length `L` costs O(L · n log n), because each comparison can take O(L). Sorting `n` tuples costs about the same as sorting their first elements, unless there are many ties.
+
+**Key function cost.** Total cost is O(n · cost(key)) for computing keys plus the sort itself.
+
+---
+
+## 28. Beyond Comparison Sorts
+
+Comparison sorts cannot beat O(n log n). If the value range is small, you can do better.
+
+### Counting sort (small integer range)
+
+```python
+def counting_sort(nums, max_val):
+    count = [0] * (max_val + 1)
+    for x in nums:
+        count[x] += 1
+    return [v for v, c in enumerate(count) for _ in range(c)]
+
+counting_sort([3, 1, 2, 3, 0], 3)      # [0, 1, 2, 3, 3]
+```
+
+### Bucket approach (Top K Frequent in O(n))
+
+```python
+def top_k_frequent(nums, k):
+    freq = Counter(nums)
+    buckets = [[] for _ in range(len(nums) + 1)]
+    for num, c in freq.items():
+        buckets[c].append(num)
+    result = []
+    for c in range(len(buckets) - 1, 0, -1):
+        result.extend(buckets[c])
+        if len(result) >= k:
+            return result[:k]
+```
+
+### Sort Colors: Dutch National Flag, O(n) one pass, O(1) space (LeetCode 75)
+
+```python
+def sort_colors(nums):
+    lo, mid, hi = 0, 0, len(nums) - 1
+    while mid <= hi:
+        if nums[mid] == 0:
+            nums[lo], nums[mid] = nums[mid], nums[lo]
+            lo += 1
+            mid += 1
+        elif nums[mid] == 1:
+            mid += 1
+        else:
+            nums[mid], nums[hi] = nums[hi], nums[mid]
+            hi -= 1
+```
+
+If an interviewer says "without using the library sort", this is the expected answer. `nums.sort()` is acceptable only if sorting is allowed.
+
+---
+
+## 29. LeetCode Pattern Gallery with Worked Solutions
+
+| Problem | Sorting pattern |
+|---|---|
+| Merge Intervals (56) | `intervals.sort(key=lambda x: x[0])` |
+| Meeting Rooms (252) | sort by start, check neighbors |
+| Meeting Rooms II (253) | sort starts and ends separately, or heap |
+| Non-overlapping Intervals (435) | sort by **end**, greedy |
+| Car Fleet (853) | `sorted(zip(position, speed), reverse=True)` |
+| Largest Number (179) | `cmp_to_key(compare)` |
+| K Closest Points (973) | key = squared distance, or `heapq.nsmallest` |
+| Top K Frequent (347) | `Counter.most_common(k)` or buckets |
+| Sort Characters by Frequency (451) | `Counter` + `most_common()` |
+| Group Anagrams (49) | `"".join(sorted(word))` as dict key |
+| Valid Anagram (242) | `sorted(a) == sorted(b)` |
+| 3Sum (15) | sort, then two pointers |
+| Two City Scheduling (1029) | sort by `a - b` |
+| Assign Cookies (455) | sort both lists, greedy two pointers |
+| Height Checker (1051) | compare with `sorted(heights)` |
+| Sort Colors (75) | Dutch flag, or `nums.sort()` if allowed |
+| Contains Duplicate (217) | sort, compare neighbors (or use a set) |
+
+### Merge Intervals
+
+```python
+def merge(intervals):
+    if not intervals:
+        return []
+    intervals.sort(key=lambda x: x[0])
+    merged = [intervals[0]]
+    for start, end in intervals[1:]:
+        if start <= merged[-1][1]:                       # overlap
+            merged[-1][1] = max(merged[-1][1], end)
+        else:
+            merged.append([start, end])
+    return merged
+
+merge([[1, 3], [2, 6], [8, 10], [15, 18]])    # [[1, 6], [8, 10], [15, 18]]
+```
+
+### Meeting Rooms (can one person attend all?)
+
+```python
+def can_attend(intervals):
+    intervals.sort()
+    return all(a[1] <= b[0] for a, b in zip(intervals, intervals[1:]))
+```
+
+### Non-overlapping Intervals (minimum removals)
+
+Sort by **end time** and greedily keep the interval that finishes earliest.
+
+```python
+def erase_overlap(intervals):
+    intervals.sort(key=lambda x: x[1])
+    end, removed = float("-inf"), 0
+    for s, e in intervals:
+        if s >= end:
+            end = e
+        else:
+            removed += 1
+    return removed
+
+erase_overlap([[1, 2], [2, 3], [3, 4], [1, 3]])    # 1
+```
+
+### Car Fleet
+
+```python
+def car_fleet(target, position, speed):
+    fleets, slowest = 0, 0
+    for pos, spd in sorted(zip(position, speed), reverse=True):   # closest to target first
+        time = (target - pos) / spd
+        if time > slowest:
+            fleets += 1
+            slowest = time
+    return fleets
+
+car_fleet(12, [10, 8, 0, 5, 3], [2, 4, 1, 1, 3])    # 3
+```
+
+### K Closest Points to Origin
+
+```python
+def k_closest(points, k):
+    points.sort(key=lambda p: p[0] ** 2 + p[1] ** 2)
+    return points[:k]
+# better for small k:
+# heapq.nsmallest(k, points, key=lambda p: p[0] ** 2 + p[1] ** 2)
+```
+
+No need for `sqrt`: comparing squared distances gives the same order.
+
+### Two City Scheduling (greedy by difference)
+
+```python
+def two_city_cost(costs):
+    costs.sort(key=lambda c: c[0] - c[1])       # who is cheapest to send to city A
+    n = len(costs) // 2
+    return sum(c[0] for c in costs[:n]) + sum(c[1] for c in costs[n:])
+
+two_city_cost([[10, 20], [30, 200], [400, 50], [30, 20]])    # 110
+```
+
+### Height Checker
+
+```python
+def height_checker(heights):
+    return sum(a != b for a, b in zip(heights, sorted(heights)))
+```
+
+### 3Sum (sort + two pointers, skeleton)
+
+```python
+def three_sum(nums):
+    nums.sort()
+    res = []
+    for i, a in enumerate(nums):
+        if i and a == nums[i - 1]:
+            continue
+        lo, hi = i + 1, len(nums) - 1
+        while lo < hi:
+            s = a + nums[lo] + nums[hi]
+            if s < 0:
+                lo += 1
+            elif s > 0:
+                hi -= 1
+            else:
+                res.append([a, nums[lo], nums[hi]])
+                lo += 1
+                while lo < hi and nums[lo] == nums[lo - 1]:
+                    lo += 1
+    return res
+```
+
+---
+
+## 30. Cheat Sheet
+
+### Top one-liners
+
+```python
+# Basic
+nums.sort()
+sorted(nums)
+
+# Descending
+nums.sort(reverse=True)
+
+# Absolute value / length / case-insensitive
+sorted(nums, key=abs)
+sorted(words, key=len)
+sorted(words, key=str.lower)
+
+# Tuple / list element
+arr.sort(key=lambda x: x[1])
+arr.sort(key=itemgetter(1))
+
+# Multiple keys
+arr.sort(key=lambda x: (x[0], x[1]))
+arr.sort(key=itemgetter(0, 1))
+
+# Descending + ascending
+arr.sort(key=lambda x: (-x[0], x[1]))
+
+# Dictionary by value
+sorted(scores.items(), key=lambda kv: kv[1])
+dict(sorted(scores.items(), key=lambda kv: kv[1]))
+
+# Object attribute
+employees.sort(key=lambda e: e.salary)
+employees.sort(key=attrgetter("salary", "name"))
+
+# Intervals
+intervals.sort(key=lambda x: x[0])      # by start
+intervals.sort(key=lambda x: x[1])      # by end
+
+# Characters
+"".join(sorted(s))
+
+# Frequency
+freq = Counter(nums)
+sorted(nums, key=lambda x: (-freq[x], x))
+
+# Indices
+sorted(enumerate(nums), key=lambda x: x[1])
+sorted(range(len(nums)), key=nums.__getitem__)
+
+# Top K
+heapq.nlargest(k, nums)
+heapq.nsmallest(k, items, key=fn)
+
+# Comparator
+sorted(nums, key=cmp_to_key(compare))
+
+# Mixed direction on strings (two-pass)
+arr.sort(key=lambda x: x[1])
+arr.sort(key=lambda x: x[0], reverse=True)
+```
+
+### Behavior quick facts
+
+| Fact | Detail |
+|---|---|
+| `.sort()` returns | `None` |
+| `sorted()` returns | Always a `list` |
+| Stable? | Yes, including with `reverse=True` |
+| `key` called | Once per element |
+| `key` and `reverse` | Keyword-only |
+| Tuples/lists compare | Lexicographically |
+| Dicts sortable directly? | No, supply `key` |
+| `False` / `True` | Sort as 0 / 1 |
+| `sorted(dict)` | Sorts the keys |
+| Python 3 `cmp=` | Removed, use `cmp_to_key` |
+| Timsort best / worst | O(n) / O(n log n) |
+
+### Decision guide
+
+```text
+Need original untouched or input not a list?    -> sorted()
+Mutate in place?                                -> list.sort()
+Sort by a computed value?                       -> key=
+Sort by several fields?                         -> key returning a tuple
+Numbers, mixed asc/desc?                        -> negate in the tuple
+Strings, mixed asc/desc?                        -> two-pass stable sort or cmp_to_key
+Order depends on comparing two items?           -> cmp_to_key
+Only need top k?                                -> heapq.nlargest / nsmallest
+Small integer range?                            -> counting / bucket sort
+Data already sorted, need lookups?              -> bisect
+```
+
+### What to memorize
+
+1. `.sort()` vs `sorted()` and the `None` return
+2. `key=lambda ...`
+3. Tuple keys for multiple criteria: `(x[1], x[0])`
+4. Descending numeric with `-x`
+5. Sorting intervals by start vs end
+6. Sorting dicts and custom objects
+7. `cmp_to_key` for pairwise comparison (Largest Number)
+8. Stability and the two-pass trick
+9. `heapq` for top-k
+
+---
+
+## 31. Practice Problems
+
+1. Sort a list of words by length, ties alphabetical.
+2. Sort employee dicts by salary descending, then name ascending.
+3. Sort points by x descending and y ascending.
+4. Sort a list of strings case-insensitively but keep original casing.
+5. Return the indices that would sort a list.
+6. Sort words by last character.
+7. Find the 3 smallest numbers without fully sorting.
+8. Sort names in reverse alphabetical order, ties broken by age ascending (age is a number).
+9. Sort numbers by number of 1 bits, then by value.
+10. Given `nums = [1, 5, 2, 5, 3, 3, 3]`, output numbers by frequency descending, ties by value ascending.
+
+<details>
+<summary>Answers</summary>
+
+```python
+# 1
+sorted(words, key=lambda w: (len(w), w))
+# 2
+sorted(emps, key=lambda e: (-e["salary"], e["name"]))
+# 3
+sorted(points, key=lambda p: (-p[0], p[1]))
+# 4
+sorted(words, key=str.lower)
+# 5
+sorted(range(len(a)), key=a.__getitem__)
+# 6
+sorted(words, key=lambda w: w[-1])
+# 7
+heapq.nsmallest(3, nums)
+# 8  (two-pass, since names are strings)
+people.sort(key=lambda p: p[1])                 # age ascending
+people.sort(key=lambda p: p[0], reverse=True)   # name descending
+# 9
+sorted(nums, key=lambda x: (bin(x).count("1"), x))
+# 10
+freq = Counter(nums)
+sorted(nums, key=lambda x: (-freq[x], x))       # [3, 3, 3, 5, 5, 1, 2]
+```
+
+</details>
+
+---
+
+## 32. Interview Tips
+
+- Say "Python's sort is stable Timsort, O(n log n)" out loud. It shows you know what you are using.
+- Prefer `key=` over `cmp_to_key`. Reach for the comparator only when a key truly cannot express the order.
+- Sorting is often the setup step: intervals, greedy problems, two pointers, and duplicate detection all start with `sort()`.
+- Always mention the cost of sorting (O(n log n)) when you use it, and whether a heap, hash map, or counting approach could beat it.
+- For "top k" say "heap of size k, O(n log k)" before reaching for a full sort.
+- Handle edge cases: empty list, single element, ties, negative numbers, duplicates.
+- If asked for an "in-place" or "O(1) space" sort, remember `.sort()` is only in place at the API level.
+- For mixed ascending/descending on strings, use the two-pass stable sort. It is the cleanest answer.
+- If the interviewer forbids built-in sort, know one manual algorithm (merge sort or quicksort) and the Dutch flag for three values.
+
+---
+
+*Happy sorting!*

@@ -1,0 +1,785 @@
+# Python Generator Expressions for DSA
+
+A **generator expression** lets you put a `for` loop *inside* a function call. It is one of the most common Pythonic patterns in coding interviews and LeetCode solutions.
+
+```python
+function(expression for item in iterable if condition)
+```
+
+---
+
+## Table of Contents
+
+1. [Theory: What Is a Generator Expression?](#1-theory-what-is-a-generator-expression)
+2. [Syntax and Anatomy](#2-syntax-and-anatomy)
+3. [Generator vs List Comprehension](#3-generator-vs-list-comprehension)
+4. [The Parentheses Rule](#4-the-parentheses-rule)
+5. [`sum()`](#5-sum)
+6. [`min()` and `max()`](#6-min-and-max)
+7. [`any()` and `all()`](#7-any-and-all)
+8. [`sorted()`](#8-sorted)
+9. [`list()`, `set()`, `tuple()`, `dict()`](#9-list-set-tuple-dict)
+10. [Counting Patterns](#10-counting-patterns)
+11. [Nested Loops](#11-nested-loops)
+12. [`zip()`, `enumerate()`, `range()` Combos](#12-zip-enumerate-range-combos)
+13. [Dictionary Iteration](#13-dictionary-iteration)
+14. [`next()` for First Match](#14-next-for-first-match)
+15. [`str.join()` and Strings](#15-strjoin-and-strings)
+16. [Other Handy Consumers](#16-other-handy-consumers)
+17. [Conditions: Filter vs Ternary](#17-conditions-filter-vs-ternary)
+18. [Short-Circuiting](#18-short-circuiting)
+19. [Common Pitfalls](#19-common-pitfalls)
+20. [Time and Space Complexity](#20-time-and-space-complexity)
+21. [DSA Pattern Gallery](#21-dsa-pattern-gallery)
+22. [Cheat Sheet](#22-cheat-sheet)
+23. [Practice Problems](#23-practice-problems)
+24. [Interview Tips](#24-interview-tips)
+
+---
+
+## 1. Theory: What Is a Generator Expression?
+
+A generator expression creates a **lazy iterator**. It does not build the whole result in memory. Instead it produces one value at a time, only when something asks for the next value.
+
+```python
+nums = [1, 2, 3]
+
+gen = (x * x for x in nums)
+print(gen)          # <generator object <genexpr> at 0x...>
+print(next(gen))    # 1
+print(next(gen))    # 4
+print(next(gen))    # 9
+# next(gen) again raises StopIteration
+```
+
+Key properties:
+
+- **Lazy**: values are computed on demand.
+- **Memory-efficient**: uses O(1) extra space regardless of input size.
+- **Single-use**: once consumed, it is exhausted.
+- **Iterable**: works anywhere an iterable is accepted (`sum`, `min`, `max`, `any`, `all`, `sorted`, `list`, `set`, `tuple`, `dict`, `str.join`, `for` loops, ...).
+
+---
+
+## 2. Syntax and Anatomy
+
+```python
+(expression  for item in iterable  if condition)
+#   ^             ^                     ^
+#  output      loop part           optional filter
+```
+
+| Part | Meaning | Example |
+|---|---|---|
+| `expression` | What each produced value looks like | `x * x` |
+| `for item in iterable` | The loop | `for x in nums` |
+| `if condition` | Optional filter (keeps only matching items) | `if x % 2 == 0` |
+
+Equivalent long form:
+
+```python
+def gen(nums):
+    for x in nums:
+        if x % 2 == 0:
+            yield x * x
+```
+
+You can chain multiple `for` and `if` clauses:
+
+```python
+(x * y for x in range(3) for y in range(3) if x != y)
+```
+
+---
+
+## 3. Generator vs List Comprehension
+
+```python
+nums = [1, 2, 3, 4, 5]
+
+sum([x for x in nums])   # builds a full list first
+sum(x for x in nums)     # streams values, no intermediate list
+```
+
+| Feature | List comprehension `[...]` | Generator expression `(...)` |
+|---|---|---|
+| Result type | `list` | `generator` |
+| Memory | O(n) | O(1) |
+| Evaluation | Eager | Lazy |
+| Reusable | Yes | No (single pass) |
+| Indexing / `len()` | Yes | No |
+| Supports early exit in `any`/`all` | Computes everything first | Stops as soon as answer is known |
+
+**Rule of thumb**
+
+- Only need to **consume once** (sum, min, max, any, all, count, join) → generator.
+- Need to **reuse**, **index**, **slice**, or get `len()` → list.
+
+> Note: for tiny inputs a list comprehension can be marginally faster. The generator advantage is memory and short-circuiting, not raw speed. `str.join` in particular is often a bit faster with a list.
+
+---
+
+## 4. The Parentheses Rule
+
+When the generator expression is the **only argument**, the function's own parentheses are enough:
+
+```python
+sum(x for x in nums)        # OK
+```
+
+When there are **other arguments**, wrap the generator in its own parentheses:
+
+```python
+max((x for x in nums if x > 0), default=-1)   # OK
+max(x for x in nums if x > 0, default=-1)     # SyntaxError
+```
+
+---
+
+## 5. `sum()`
+
+```python
+nums = [1, 2, 3, 4, 5]
+
+sum(x for x in nums)                 # 15
+sum(x for x in nums if x % 2 == 0)   # 6   (2 + 4)
+sum(x * x for x in nums)             # 55
+```
+
+Extra features:
+
+```python
+sum((x for x in nums), 100)          # 115 (start value)
+sum(x > 2 for x in nums)             # 3   (True counts as 1)
+```
+
+Sum of digits:
+
+```python
+n = 12345
+sum(int(d) for d in str(n))          # 15
+```
+
+---
+
+## 6. `min()` and `max()`
+
+```python
+nums = [8, 3, 10, 1, 5]
+
+min(x for x in nums)     # 1
+max(x for x in nums)     # 10
+```
+
+(For plain values, `min(nums)` is simpler. The generator form matters when you **transform** or **filter**.)
+
+Transformed value:
+
+```python
+nums = [-10, 5, -2, 8]
+min(abs(x) for x in nums)          # 2
+```
+
+Length of longest word:
+
+```python
+words = ["cat", "elephant", "dog"]
+max(len(w) for w in words)         # 8
+```
+
+### Value vs. the item itself: `key=`
+
+```python
+max(len(w) for w in words)         # 8          -> the transformed value
+max(words, key=len)                # "elephant" -> the original item
+```
+
+Use `key=` when you want **which element** won. Use a generator when you want the **computed value**.
+
+### Empty input and `default=`
+
+```python
+min([])                                    # ValueError
+max((x for x in [] ), default=0)           # 0
+max((x for x in nums if x > 100), default=-1)   # -1
+```
+
+Always think about the empty case in interviews.
+
+---
+
+## 7. `any()` and `all()`
+
+`any` returns `True` if **at least one** item is truthy. `all` returns `True` if **every** item is truthy.
+
+```python
+nums = [1, 3, 5, 8]
+
+any(x % 2 == 0 for x in nums)      # True
+all(x % 2 == 0 for x in nums)      # False
+all(x > 0 for x in nums)           # True
+```
+
+Empty iterable behavior (important):
+
+```python
+any([])    # False
+all([])    # True   (vacuous truth)
+```
+
+Board search:
+
+```python
+board = [["X", "O"], ["O", "X"]]
+any(cell == "X" for row in board for cell in row)    # True
+```
+
+Check a list is sorted:
+
+```python
+a = [1, 2, 2, 5, 9]
+all(a[i] <= a[i + 1] for i in range(len(a) - 1))     # True
+all(x <= y for x, y in zip(a, a[1:]))                # True (same idea)
+```
+
+Palindrome check:
+
+```python
+s = "racecar"
+all(s[i] == s[-1 - i] for i in range(len(s) // 2))   # True
+```
+
+Prime check (for `n >= 2`):
+
+```python
+n = 29
+all(n % i != 0 for i in range(2, int(n ** 0.5) + 1))  # True
+```
+
+---
+
+## 8. `sorted()`
+
+`sorted()` accepts any iterable and **always returns a list**.
+
+```python
+nums = [3, 1, 2]
+
+sorted(x * x for x in nums)                      # [1, 4, 9]
+sorted((x * x for x in nums), reverse=True)      # [9, 4, 1]
+```
+
+Sorting with `key=` (this is a **key function**, not a generator expression):
+
+```python
+words = ["apple", "kiwi", "banana"]
+
+sorted(words, key=len)                     # ['kiwi', 'apple', 'banana']
+sorted(words, key=lambda w: len(w))        # same
+
+nums = [-5, 2, -1, 7]
+sorted(nums, key=abs)                      # [-1, 2, -5, 7]
+```
+
+Multi-key sort (length, then alphabetical):
+
+```python
+sorted(words, key=lambda w: (len(w), w))
+```
+
+Descending by one key:
+
+```python
+sorted(words, key=lambda w: -len(w))
+```
+
+`sorted` is **stable**: equal keys keep their original relative order.
+
+---
+
+## 9. `list()`, `set()`, `tuple()`, `dict()`
+
+```python
+nums = [1, 2, 3]
+
+list(x * x for x in nums)        # [1, 4, 9]
+set(x % 2 for x in nums)         # {0, 1}
+tuple(x for x in nums)           # (1, 2, 3)
+dict((x, x * x) for x in nums)   # {1: 1, 2: 4, 3: 9}
+```
+
+Equivalent comprehension forms (often preferred for building collections):
+
+```python
+[x * x for x in nums]                # list comprehension
+{x % 2 for x in nums}                # set comprehension
+{x: x * x for x in nums}             # dict comprehension
+```
+
+> There is **no tuple comprehension**. `(x for x in nums)` is a generator, so use `tuple(...)`.
+
+---
+
+## 10. Counting Patterns
+
+The single most useful pattern:
+
+```python
+nums = [1, 2, 4, 7, 8]
+
+sum(1 for x in nums if x % 2 == 0)     # 3
+```
+
+Shorter variant using booleans:
+
+```python
+sum(x % 2 == 0 for x in nums)          # 3
+```
+
+Why not `len([x for x in nums if ...])`? It builds a list just to measure it. The `sum` version uses O(1) memory.
+
+More counting examples:
+
+```python
+s = "hello world"
+sum(c in "aeiou" for c in s)                       # 3 vowels
+
+grid = [[1, 0, 1], [0, 1, 0]]
+sum(cell == 1 for row in grid for cell in row)     # 3
+
+# pairs with a given sum (O(n^2), brute force)
+a, t = [1, 2, 3, 4], 5
+sum(1 for i in range(len(a)) for j in range(i + 1, len(a)) if a[i] + a[j] == t)   # 2
+```
+
+---
+
+## 11. Nested Loops
+
+Read nested `for` clauses **left to right, exactly like nested loops** (outer first).
+
+```python
+matrix = [
+    [1, 2],
+    [3, 4],
+    [5, 6],
+]
+
+sum(cell for row in matrix for cell in row)     # 21
+```
+
+Equivalent:
+
+```python
+total = 0
+for row in matrix:
+    for cell in row:
+        total += cell
+```
+
+More matrix patterns:
+
+```python
+n = len(matrix[0])
+
+max(cell for row in matrix for cell in row)                      # 6  (global max)
+max(sum(row) for row in matrix)                                  # 11 (best row sum)
+[sum(row[j] for row in matrix) for j in range(n)]                # [9, 12] (column sums)
+
+sq = [[1, 2], [3, 4]]
+sum(sq[i][i] for i in range(len(sq)))                            # 5  (trace / main diagonal)
+```
+
+With a filter on the inner loop:
+
+```python
+sum(cell for row in matrix for cell in row if cell % 2 == 0)     # 12
+```
+
+---
+
+## 12. `zip()`, `enumerate()`, `range()` Combos
+
+### `zip()`: parallel iteration
+
+```python
+a = [1, 2, 3]
+b = [4, 5, 6]
+
+sum(x * y for x, y in zip(a, b))                 # 32 (dot product)
+max(abs(x - y) for x, y in zip(a, b))            # 3
+```
+
+Adjacent pairs:
+
+```python
+a = [3, 8, 2, 9]
+max(y - x for x, y in zip(a, a[1:]))             # 7 (largest jump)
+```
+
+### `enumerate()`: index and value
+
+```python
+a = [5, 3, 8]
+sum(i * x for i, x in enumerate(a))              # 0*5 + 1*3 + 2*8 = 19
+sum(x for i, x in enumerate(a) if i % 2 == 0)    # 13 (even indices)
+```
+
+### `range()`: index-based loops
+
+```python
+max(sum(nums[i:i + 3]) for i in range(len(nums) - 2))    # best window of size 3
+```
+
+> The window example is O(n·k). For large `k`, use a sliding window.
+
+---
+
+## 13. Dictionary Iteration
+
+```python
+scores = {"Alice": 90, "Bob": 70, "Charlie": 95}
+
+max(scores.values())                          # 95
+sum(score for score in scores.values())       # 255  (or sum(scores.values()))
+max(scores, key=scores.get)                   # "Charlie"  (key with max value)
+sum(1 for s in scores.values() if s >= 80)    # 2
+```
+
+Iterating items:
+
+```python
+{name: s for name, s in scores.items() if s >= 80}      # dict comprehension
+any(s < 50 for s in scores.values())                    # False
+all(s >= 70 for s in scores.values())                   # True
+```
+
+---
+
+## 14. `next()` for First Match
+
+`next()` pulls the first value from a generator. Give a default to avoid `StopIteration`.
+
+```python
+nums = [4, 7, 10, 13]
+
+next(x for x in nums if x > 8)                    # 10
+next((x for x in nums if x > 100), None)          # None
+
+# first index that matches
+next((i for i, x in enumerate(nums) if x == 10), -1)   # 2
+```
+
+This is a clean replacement for a search loop with `break`.
+
+---
+
+## 15. `str.join()` and Strings
+
+`join` needs strings, so convert inside the generator:
+
+```python
+nums = [1, 2, 3]
+
+",".join(str(x) for x in nums)                        # "1,2,3"
+
+s = "A man, a plan!"
+"".join(c.lower() for c in s if c.isalnum())          # "amanaplan"
+```
+
+Valid palindrome (LeetCode 125 style):
+
+```python
+clean = "".join(c.lower() for c in s if c.isalnum())
+clean == clean[::-1]
+```
+
+---
+
+## 16. Other Handy Consumers
+
+```python
+from math import prod
+from collections import Counter
+from functools import reduce
+
+nums = [1, 2, 3, 4]
+
+prod(x for x in nums)                       # 24
+Counter(x % 2 for x in nums)                # Counter({1: 2, 0: 2})
+reduce(lambda a, b: a ^ b, (x for x in nums))   # XOR of all
+```
+
+Other functions that accept a generator: `frozenset`, `heapq.nlargest(k, gen)`, `heapq.nsmallest(k, gen)`, `statistics.mean(gen)`, `"".join(gen)`, `collections.deque(gen)`.
+
+```python
+import heapq
+heapq.nlargest(2, (x * x for x in nums))    # [16, 9]
+```
+
+---
+
+## 17. Conditions: Filter vs Ternary
+
+Two different places for `if`:
+
+```python
+# 1) Filter (at the END): decides whether the item is included
+[x for x in nums if x % 2 == 0]
+
+# 2) Ternary (in the EXPRESSION): decides what value to produce; needs else
+[x if x % 2 == 0 else 0 for x in nums]
+```
+
+```python
+nums = [1, 2, 3, 4]
+
+sum(x for x in nums if x % 2 == 0)          # 6  (filter)
+sum(x if x % 2 == 0 else -x for x in nums)  # 2  (ternary: -1 + 2 - 3 + 4)
+```
+
+Multiple conditions:
+
+```python
+sum(x for x in nums if x > 1 and x % 2 == 0)
+sum(x for x in nums if x > 1 if x % 2 == 0)   # same, chained ifs
+```
+
+---
+
+## 18. Short-Circuiting
+
+`any` and `all` stop consuming the generator as soon as the answer is decided:
+
+```python
+def check(x):
+    print("checking", x)
+    return x > 2
+
+any(check(x) for x in [1, 2, 3, 4, 5])
+# checking 1
+# checking 2
+# checking 3
+# -> stops, returns True
+```
+
+With a list comprehension all five would be evaluated first:
+
+```python
+any([check(x) for x in [1, 2, 3, 4, 5]])   # evaluates every element
+```
+
+This matters for expensive checks or huge inputs. `next()` short-circuits too.
+
+---
+
+## 19. Common Pitfalls
+
+**1. Generators are single-use**
+
+```python
+gen = (x * x for x in [1, 2, 3])
+print(sum(gen))    # 14
+print(sum(gen))    # 0  (exhausted!)
+```
+
+If you need two passes, use a list.
+
+**2. No `len()`, indexing, or slicing**
+
+```python
+gen = (x for x in nums)
+len(gen)       # TypeError
+gen[0]         # TypeError
+```
+
+**3. `max`/`min` on empty input**
+
+```python
+max(x for x in [])                  # ValueError
+max((x for x in []), default=0)     # 0
+```
+
+**4. Missing extra parentheses when passing other arguments** (see [section 4](#4-the-parentheses-rule)).
+
+**5. Confusing `all([])` and `any([])`**: `all` is `True` on empty, `any` is `False`.
+
+**6. `join` with non-strings**
+
+```python
+",".join(x for x in [1, 2])        # TypeError
+",".join(str(x) for x in [1, 2])    # OK
+```
+
+**7. Readability**: if the generator needs more than one `for` plus multiple conditions and is hard to read, use a regular loop. Interviewers value clarity.
+
+**8. The outermost iterable is evaluated immediately, the rest lazily.** Mutating the source list *while* a generator is partially consumed leads to confusing results. Avoid it.
+
+**9. Redundant forms**
+
+```python
+min(x for x in nums)     # just min(nums)
+sum(x for x in nums)     # just sum(nums)
+any(cell == "X" for row in board for cell in row)   # fine, but ...
+```
+
+Use the generator only when you **transform or filter**.
+
+---
+
+## 20. Time and Space Complexity
+
+| Pattern | Time | Extra space |
+|---|---|---|
+| `sum(x for x in nums)` | O(n) | O(1) |
+| `max(f(x) for x in nums)` | O(n) · cost of `f` | O(1) |
+| `any(...)` / `all(...)` | O(n) worst, often less | O(1) |
+| `sum(1 for row in g for c in row if ...)` | O(rows × cols) | O(1) |
+| `sorted(gen)` | O(n log n) | O(n) (result list) |
+| `list(gen)`, `set(gen)` | O(n) | O(n) |
+| `next(gen, default)` | O(k) up to first match | O(1) |
+
+A generator does **not** make your algorithm asymptotically faster. It saves memory and can exit early. Nested generators still cost O(n²) time.
+
+---
+
+## 21. DSA Pattern Gallery
+
+| Problem | One-liner |
+|---|---|
+| Count evens | `sum(1 for x in nums if x % 2 == 0)` |
+| Max row sum | `max(sum(row) for row in grid)` |
+| Any duplicate (brute force) | `any(nums[i] == nums[j] for i in range(n) for j in range(i + 1, n))` |
+| Contains duplicate (fast) | `len(set(nums)) != len(nums)` |
+| Is sorted | `all(a <= b for a, b in zip(nums, nums[1:]))` |
+| Longest word length | `max(len(w) for w in words)` |
+| Longest word | `max(words, key=len)` |
+| Sum of digits | `sum(int(d) for d in str(n))` |
+| Dot product | `sum(x * y for x, y in zip(a, b))` |
+| Matrix trace | `sum(m[i][i] for i in range(len(m)))` |
+| Column sums | `[sum(r[j] for r in m) for j in range(len(m[0]))]` |
+| Valid palindrome | `all(s[i] == s[~i] for i in range(len(s) // 2))` |
+| Vowel count | `sum(c in "aeiou" for c in s)` |
+| First index of target | `next((i for i, x in enumerate(a) if x == t), -1)` |
+| Max jump between neighbors | `max(y - x for x, y in zip(a, a[1:]))` |
+| Total score of passers | `sum(s for s in scores.values() if s >= 40)` |
+| Is prime (`n >= 2`) | `all(n % i for i in range(2, int(n ** 0.5) + 1))` |
+| Grid has a target cell | `any(target in row for row in grid)` |
+| All rows same length | `len({len(r) for r in grid}) == 1` |
+| Min absolute difference (brute force) | `min(abs(a[i] - a[j]) for i in range(n) for j in range(i + 1, n))` |
+
+`~i` is shorthand for `-1 - i`, so `s[~i]` is the mirrored character from the end.
+
+---
+
+## 22. Cheat Sheet
+
+### Core patterns
+
+| Pattern | Example |
+|---|---|
+| Sum | `sum(x for x in nums)` |
+| Sum with condition | `sum(x for x in nums if x % 2 == 0)` |
+| Sum of transformed | `sum(x * x for x in nums)` |
+| Count matches | `sum(1 for x in nums if cond)` |
+| Count via booleans | `sum(cond for x in nums)` |
+| Max of transformed | `max(len(s) for s in words)` |
+| Min of transformed | `min(abs(x) for x in nums)` |
+| Max with fallback | `max((x for x in nums if cond), default=-1)` |
+| Item with max score | `max(items, key=score_fn)` |
+| Any match | `any(x == target for x in nums)` |
+| All match | `all(x > 0 for x in nums)` |
+| Flatten and sum | `sum(c for row in matrix for c in row)` |
+| Parallel loop | `sum(x * y for x, y in zip(a, b))` |
+| Index and value | `sum(i * x for i, x in enumerate(a))` |
+| First match | `next((x for x in nums if cond), None)` |
+| Join strings | `",".join(str(x) for x in nums)` |
+| Sorted transform | `sorted(x * x for x in nums)` |
+| Sort by key | `sorted(items, key=lambda t: (t[1], t[0]))` |
+| Build list / set / dict | `list(...)`, `set(...)`, `dict(...)` |
+
+### Behavior quick facts
+
+| Fact | Detail |
+|---|---|
+| Empty `sum` | `0` |
+| Empty `min` / `max` | `ValueError` unless `default=` given |
+| Empty `any` | `False` |
+| Empty `all` | `True` |
+| Extra args | Wrap generator in its own `( )` |
+| Reuse | Generators are exhausted after one pass |
+| Short-circuit | `any`, `all`, `next` stop early |
+| Return type of `sorted` | Always a `list` |
+| Tuple comprehension | Does not exist, use `tuple(...)` |
+
+### Decision guide
+
+```text
+Need to reuse / index / len()?      -> list comprehension
+Just consuming once?                -> generator expression
+Need which ITEM won?                -> max(items, key=...)
+Need the computed VALUE?            -> max(f(x) for x in items)
+Searching for first match?          -> next(gen, default)
+Complex logic, hard to read?        -> plain for loop
+```
+
+---
+
+## 23. Practice Problems
+
+Try each with a one-line generator solution first.
+
+1. Count numbers in a list greater than 10.
+2. Return the sum of squares of odd numbers.
+3. Check whether every string in a list is non-empty.
+4. Find the length of the shortest word.
+5. Return the largest row sum of a matrix.
+6. Check if any row of a grid is entirely zeros.
+7. Compute the dot product of two vectors.
+8. Return the first negative number in a list, or `None`.
+9. Check if a string is a palindrome ignoring case and punctuation.
+10. Find the key with the highest value in a dictionary.
+
+<details>
+<summary>Answers</summary>
+
+```python
+# 1
+sum(1 for x in nums if x > 10)
+# 2
+sum(x * x for x in nums if x % 2)
+# 3
+all(s for s in words)            # or all(len(s) > 0 for s in words)
+# 4
+min(len(w) for w in words)
+# 5
+max(sum(row) for row in matrix)
+# 6
+any(all(c == 0 for c in row) for row in grid)
+# 7
+sum(x * y for x, y in zip(a, b))
+# 8
+next((x for x in nums if x < 0), None)
+# 9
+c = "".join(ch.lower() for ch in s if ch.isalnum()); c == c[::-1]
+# 10
+max(d, key=d.get)
+```
+
+</details>
+
+---
+
+## 24. Interview Tips
+
+- `sum(1 for x in nums if cond)` is the Pythonic counter. You will see it constantly on LeetCode.
+- Say the complexity out loud. A generator is still O(n) time; its win is O(1) extra space and early exit.
+- Prefer `max(items, key=...)` when you need the element, and a generator when you need the value.
+- Always handle empty input: `default=` for `min`/`max`.
+- Use `any`/`all` for existence and universal checks instead of flag variables.
+- Do not cram too much into one line. If a teammate cannot read it in five seconds, write a loop.
+- Know the manual loop equivalent. Interviewers often ask you to expand the one-liner.
+
+---
+
+*Happy coding!*

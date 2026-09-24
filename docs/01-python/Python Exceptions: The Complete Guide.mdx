@@ -1,0 +1,1650 @@
+# Python Exceptions: The Complete Guide
+
+Exceptions are how Python reports that something went wrong at runtime: a bad value, a missing key, a file that does not exist, a network that dropped. Knowing how to raise, catch, wrap and design them is a core skill for interviews, backend work and writing reliable libraries.
+
+---
+
+## Table of Contents
+
+1. [Theory: What Is an Exception?](#1-theory-what-is-an-exception)
+2. [The Exception Hierarchy](#2-the-exception-hierarchy)
+3. [try and except Basics](#3-try-and-except-basics)
+4. [Multiple except Clauses](#4-multiple-except-clauses)
+5. [else and finally](#5-else-and-finally)
+6. [Raising Exceptions](#6-raising-exceptions)
+7. [Exception Chaining](#7-exception-chaining)
+8. [Inspecting Exceptions and Tracebacks](#8-inspecting-exceptions-and-tracebacks)
+9. [Common Built-in Exceptions](#9-common-built-in-exceptions)
+10. [Custom Exceptions](#10-custom-exceptions)
+11. [Designing an Exception Hierarchy](#11-designing-an-exception-hierarchy)
+12. [Context Managers and Exceptions](#12-context-managers-and-exceptions)
+13. [assert](#13-assert)
+14. [Exception Groups (Python 3.11+)](#14-exception-groups-python-311)
+15. [Warnings vs Exceptions](#15-warnings-vs-exceptions)
+16. [EAFP vs LBYL](#16-eafp-vs-lbyl)
+17. [Control-Flow Exceptions](#17-control-flow-exceptions)
+18. [Logging Exceptions](#18-logging-exceptions)
+19. [Retry and Wrapper Patterns](#19-retry-and-wrapper-patterns)
+20. [Testing Exceptions](#20-testing-exceptions)
+21. [Performance Notes](#21-performance-notes)
+22. [Common Pitfalls and Anti-patterns](#22-common-pitfalls-and-anti-patterns)
+23. [Exceptions in DSA and Interviews](#23-exceptions-in-dsa-and-interviews)
+24. [Cheat Sheet](#24-cheat-sheet)
+25. [Practice Problems](#25-practice-problems)
+26. [Interview Questions and Answers](#26-interview-questions-and-answers)
+
+---
+
+## 1. Theory: What Is an Exception?
+
+Python has two broad kinds of errors:
+
+| Kind | When detected | Example |
+|---|---|---|
+| **Syntax error** | Before the program runs (compile time) | `if x = 5:` |
+| **Exception** | While the program runs | `1 / 0`, `int("abc")`, `d["missing"]` |
+
+An **exception** is an object that represents an error event. When one is raised:
+
+1. Normal execution stops at that line.
+2. Python looks for a matching `except` in the current function.
+3. If none is found, the function exits and Python looks in the **caller**, then the caller's caller, and so on. This is called **stack unwinding** (propagation).
+4. If nothing catches it, the program prints a **traceback** and terminates.
+
+```python
+def c():
+    return 1 / 0
+
+def b():
+    return c()
+
+def a():
+    try:
+        return b()
+    except ZeroDivisionError:
+        return "handled in a()"
+
+print(a())      # handled in a()
+```
+
+The exception started in `c()`, propagated through `b()`, and was caught in `a()`.
+
+Every exception is an **instance of a class** that derives from `BaseException`. That is what makes custom exceptions possible: you just write a new class.
+
+---
+
+## 2. The Exception Hierarchy
+
+```text
+BaseException
+ +-- SystemExit                 (sys.exit())
+ +-- KeyboardInterrupt          (Ctrl+C)
+ +-- GeneratorExit              (generator.close())
+ +-- BaseExceptionGroup
+ |    +-- ExceptionGroup        (also a subclass of Exception)
+ +-- Exception                  <- catch and subclass THIS one
+      +-- ArithmeticError
+      |    +-- ZeroDivisionError
+      |    +-- OverflowError
+      |    +-- FloatingPointError
+      +-- AssertionError
+      +-- AttributeError
+      +-- EOFError
+      +-- ImportError
+      |    +-- ModuleNotFoundError
+      +-- LookupError
+      |    +-- IndexError
+      |    +-- KeyError
+      +-- MemoryError
+      +-- NameError
+      |    +-- UnboundLocalError
+      +-- OSError               (aliases: IOError, EnvironmentError)
+      |    +-- FileNotFoundError
+      |    +-- FileExistsError
+      |    +-- PermissionError
+      |    +-- IsADirectoryError
+      |    +-- TimeoutError
+      |    +-- ConnectionError
+      |         +-- ConnectionResetError, ConnectionRefusedError, BrokenPipeError, ...
+      +-- RuntimeError
+      |    +-- NotImplementedError
+      |    +-- RecursionError
+      +-- StopIteration
+      +-- StopAsyncIteration
+      +-- SyntaxError
+      |    +-- IndentationError
+      +-- TypeError
+      +-- ValueError
+      |    +-- UnicodeError
+      |    +-- json.JSONDecodeError
+      +-- Warning
+```
+
+Why it matters:
+
+- **Catching a parent catches all its children.** `except LookupError` catches both `KeyError` and `IndexError`. `except OSError` catches `FileNotFoundError`, `PermissionError`, and more.
+- **Your custom exceptions should inherit from `Exception`**, not `BaseException`.
+- **`SystemExit`, `KeyboardInterrupt` and `GeneratorExit` are not `Exception` subclasses.** A plain `except Exception` deliberately lets them through so the program can still exit or be interrupted.
+
+You can inspect the hierarchy yourself:
+
+```python
+KeyError.__mro__
+# (KeyError, LookupError, Exception, BaseException, object)
+
+issubclass(FileNotFoundError, OSError)     # True
+```
+
+---
+
+## 3. try and except Basics
+
+```python
+try:
+    n = int(input("Enter a number: "))
+    print(10 / n)
+except ValueError:
+    print("That was not a number")
+except ZeroDivisionError:
+    print("Cannot divide by zero")
+```
+
+Rules of thumb:
+
+- Keep the `try` body **small**: only the lines that can raise the exception you are handling.
+- Catch the **most specific** exception you can handle.
+- Only catch what you can actually do something about.
+
+### Catching several types at once
+
+```python
+try:
+    value = int(text)
+except (ValueError, TypeError):
+    value = 0
+```
+
+### Binding the exception with `as`
+
+```python
+try:
+    int("abc")
+except ValueError as e:
+    print(e)        # invalid literal for int() with base 10: 'abc'
+```
+
+The name `e` is **deleted at the end of the except block**:
+
+```python
+try:
+    1 / 0
+except ZeroDivisionError as e:
+    pass
+print(e)            # NameError: name 'e' is not defined
+```
+
+Save it to another variable if you need it later.
+
+### Catch-all forms
+
+```python
+except Exception as e:      # OK at boundaries (top-level handler, worker loop)
+    ...
+
+except:                     # AVOID: also swallows KeyboardInterrupt and SystemExit
+    ...
+```
+
+---
+
+## 4. Multiple except Clauses
+
+Clauses are checked **top to bottom**; the **first match wins**.
+
+```python
+try:
+    d = {"a": 1}
+    print(d["b"])
+except KeyError:
+    print("key missing")
+except LookupError:
+    print("lookup problem")       # never runs for KeyError, it was already handled
+```
+
+**Put subclasses before their parents.** This is a bug:
+
+```python
+try:
+    ...
+except Exception:          # catches everything
+    ...
+except ValueError:         # unreachable, and Python will not warn you
+    ...
+```
+
+Handling different exceptions with a shared block:
+
+```python
+try:
+    process()
+except (FileNotFoundError, PermissionError) as e:
+    print(f"file problem: {e}")
+except OSError as e:               # other OS errors
+    print(f"os error: {e}")
+```
+
+---
+
+## 5. else and finally
+
+The full form:
+
+```python
+try:
+    # code that may raise
+except SomeError:
+    # runs if SomeError was raised
+else:
+    # runs ONLY if the try block raised nothing
+finally:
+    # ALWAYS runs (error, no error, return, break, continue)
+```
+
+```python
+def demo(x):
+    try:
+        print("try")
+        result = 10 / x
+    except ZeroDivisionError:
+        print("except")
+        return "error"
+    else:
+        print("else")
+        return result
+    finally:
+        print("finally")
+
+demo(2)
+# try
+# else
+# finally          -> returns 5.0
+
+demo(0)
+# try
+# except
+# finally          -> returns 'error'
+```
+
+### Why use `else`?
+
+Code in `else` is **not protected** by the preceding `except` clauses, so it cannot accidentally catch errors it should not.
+
+```python
+try:
+    n = int(s)
+except ValueError:
+    print("bad input")
+else:
+    process(n)          # if process() raises ValueError, it is NOT swallowed above
+```
+
+### finally is for cleanup
+
+```python
+f = open("data.txt")
+try:
+    data = f.read()
+finally:
+    f.close()           # runs even if read() raises
+```
+
+(A `with` statement does this for you, see [section 12](#12-context-managers-and-exceptions).)
+
+### Gotcha: `return` inside `finally` overrides everything
+
+```python
+def f():
+    try:
+        return "try"
+    finally:
+        return "finally"
+
+f()      # 'finally'
+```
+
+A `return`, `break` or `continue` in `finally` also **silently discards any in-flight exception**. Avoid it. Newer Python versions emit a warning for this pattern.
+
+---
+
+## 6. Raising Exceptions
+
+```python
+raise ValueError("age must be positive")     # raise an instance
+raise ValueError                             # raise the class (Python creates the instance)
+```
+
+```python
+def set_age(age):
+    if not isinstance(age, int):
+        raise TypeError("age must be an int")
+    if age < 0:
+        raise ValueError("age must be non-negative")
+    return age
+```
+
+### Which built-in to raise?
+
+| Situation | Raise |
+|---|---|
+| Right type, unacceptable value | `ValueError` |
+| Wrong type | `TypeError` |
+| Missing key / bad index in your own container | `KeyError` / `IndexError` |
+| Method must be overridden | `NotImplementedError` |
+| Object in the wrong state for this call | `RuntimeError` (or custom) |
+| Domain-specific problem | A **custom exception** |
+
+### Re-raising: bare `raise`
+
+Inside an `except` block, `raise` with no argument re-raises the **current** exception with its original traceback.
+
+```python
+try:
+    risky()
+except Exception:
+    cleanup()
+    raise                 # preferred over `raise e`
+```
+
+Outside an except block, a bare `raise` fails:
+
+```python
+raise      # RuntimeError: No active exception to reraise
+```
+
+### `NotImplementedError` vs `NotImplemented`
+
+```python
+class Shape:
+    def area(self):
+        raise NotImplementedError("subclasses must implement area()")   # exception, raised
+```
+
+`NotImplemented` (no "Error") is a different thing: a special **return value** used in binary operator methods like `__eq__` and `__add__`. Never `raise NotImplemented`.
+
+### You can only raise exceptions
+
+```python
+raise "oops"        # TypeError: exceptions must derive from BaseException
+```
+
+---
+
+## 7. Exception Chaining
+
+When one exception leads to another, Python links them so the traceback tells the whole story.
+
+### Explicit chaining: `raise ... from ...`
+
+Use this to **translate** a low-level error into a meaningful one while keeping the original as the cause.
+
+```python
+class ConfigError(Exception):
+    pass
+
+def load(path):
+    try:
+        with open(path) as f:
+            return f.read()
+    except FileNotFoundError as e:
+        raise ConfigError(f"config not found: {path}") from e
+```
+
+The traceback shows:
+
+```text
+FileNotFoundError: [Errno 2] No such file or directory: 'app.cfg'
+
+The above exception was the direct cause of the following exception:
+
+ConfigError: config not found: app.cfg
+```
+
+The original is stored in `err.__cause__`:
+
+```python
+try:
+    try:
+        int("x")
+    except ValueError as e:
+        raise RuntimeError("parse failed") from e
+except RuntimeError as err:
+    print(err.__cause__)       # invalid literal for int() with base 10: 'x'
+```
+
+### Implicit chaining: `__context__`
+
+If a new exception is raised **while handling** another (without `from`), Python records the first one automatically:
+
+```python
+try:
+    1 / 0
+except ZeroDivisionError:
+    raise ValueError("bad")
+# During handling of the above exception, another exception occurred:
+```
+
+This is stored in `__context__`. The message wording differs ("direct cause" vs "during handling"), which helps you tell deliberate wrapping from an accident.
+
+### Suppress the context: `from None`
+
+Hide the noisy original when it would only confuse the reader:
+
+```python
+def get_setting(cfg, name):
+    try:
+        return cfg[name]
+    except KeyError:
+        raise ConfigError(f"missing setting: {name}") from None
+```
+
+| Form | Effect |
+|---|---|
+| `raise New from old` | `__cause__ = old`, shown as "direct cause" |
+| `raise New` inside `except` | `__context__ = old`, shown as "during handling" |
+| `raise New from None` | Suppresses the context display |
+
+---
+
+## 8. Inspecting Exceptions and Tracebacks
+
+### Basic attributes
+
+```python
+try:
+    raise ValueError("bad value", 42)
+except ValueError as e:
+    print(e.args)          # ('bad value', 42)
+    print(str(e))          # ('bad value', 42)   (multiple args -> tuple text)
+    print(repr(e))         # ValueError('bad value', 42)
+    print(type(e).__name__)   # ValueError
+```
+
+With a single argument, `str(e)` is just that argument.
+
+**`KeyError` gotcha:** `str()` shows the repr of the key.
+
+```python
+str(KeyError("name"))      # "'name'"
+```
+
+### OSError extras
+
+```python
+import errno
+
+try:
+    open("missing.txt")
+except FileNotFoundError as e:
+    print(e.errno == errno.ENOENT)     # True
+    print(e.filename)                  # missing.txt
+    print(e.strerror)                  # No such file or directory
+```
+
+### Tracebacks
+
+```python
+import traceback
+
+try:
+    1 / 0
+except ZeroDivisionError as e:
+    traceback.print_exc()                 # print full traceback to stderr
+    text = traceback.format_exc()         # traceback as a string
+    tb = e.__traceback__                  # traceback object attached to the exception
+```
+
+`sys.exc_info()` returns `(type, value, traceback)` for the exception being handled.
+
+### Adding notes (Python 3.11+)
+
+Attach extra context without changing the message:
+
+```python
+try:
+    int("abc")
+except ValueError as e:
+    e.add_note(f"while parsing row {row_number}")
+    raise
+# the note appears under the error message in the traceback
+# e.__notes__ -> ['while parsing row 7']
+```
+
+---
+
+## 9. Common Built-in Exceptions
+
+| Exception | Typical trigger | Example |
+|---|---|---|
+| `ValueError` | Right type, bad value | `int("abc")`, `math.sqrt(-1)`, `[1].index(9)` |
+| `TypeError` | Wrong type or wrong argument count | `"a" + 1`, `len(5)`, `f()` with missing arg |
+| `KeyError` | Missing dict key | `{"a": 1}["b"]`, `set().remove(1)` |
+| `IndexError` | Index out of range, empty container | `[][0]`, `[].pop()` |
+| `AttributeError` | Attribute does not exist | `None.append(1)`, `"a".foo` |
+| `NameError` | Name not defined | using a variable before assignment |
+| `UnboundLocalError` | Local variable used before assignment | assigning to a global name inside a function without `global` |
+| `ZeroDivisionError` | Division or modulo by zero | `1 / 0`, `5 % 0`, `1.0 / 0` |
+| `OverflowError` | Result too large (mainly floats) | `2.0 ** 10000` (ints never overflow) |
+| `RecursionError` | Recursion limit exceeded (default about 1000) | unbounded recursion |
+| `StopIteration` | Iterator exhausted | `next(iter([]))` |
+| `ImportError` / `ModuleNotFoundError` | Bad import | `import nosuchmodule` |
+| `FileNotFoundError` | File missing | `open("nope.txt")` |
+| `PermissionError` | Not allowed | writing a read-only file |
+| `IsADirectoryError` | Opened a directory as a file | `open("/tmp")` |
+| `AssertionError` | `assert` failed | `assert x > 0` |
+| `NotImplementedError` | Abstract method | placeholder methods |
+| `UnicodeDecodeError` | Bad bytes for the encoding | `b"\xff".decode("utf-8")` |
+| `MemoryError` | Out of memory | huge allocations |
+| `KeyboardInterrupt` | User pressed Ctrl+C | long-running loop |
+| `SystemExit` | `sys.exit()` called | scripts exiting |
+
+### Two classic surprises
+
+```python
+x = 5
+def f():
+    print(x)        # UnboundLocalError, because x is assigned below
+    x = 10
+f()
+```
+
+```python
+None.append(1)      # AttributeError: 'NoneType' object has no attribute 'append'
+```
+
+The second is very often caused by a function that returned `None` (for example `nums = nums.sort()`).
+
+---
+
+## 10. Custom Exceptions
+
+Create one by subclassing `Exception`. The simplest version needs no body:
+
+```python
+class InvalidAgeError(Exception):
+    """Raised when an age is out of the allowed range."""
+
+raise InvalidAgeError("age must be between 0 and 150")
+```
+
+Naming convention: end the class name with `Error` (or `Exception`/`Warning` where appropriate) and use CapWords.
+
+### Default message
+
+```python
+class InsufficientFundsError(Exception):
+    def __init__(self, message="Insufficient funds"):
+        super().__init__(message)
+```
+
+### Extra data attributes
+
+Custom exceptions can carry structured data so callers can react programmatically instead of parsing strings.
+
+```python
+class InsufficientFundsError(Exception):
+    def __init__(self, balance, amount):
+        self.balance = balance
+        self.amount = amount
+        self.shortfall = amount - balance
+        super().__init__(f"Cannot withdraw {amount}: balance is {balance}")
+
+class BankAccount:
+    def __init__(self, balance=0):
+        self.balance = balance
+
+    def withdraw(self, amount):
+        if amount > self.balance:
+            raise InsufficientFundsError(self.balance, amount)
+        self.balance -= amount
+
+acct = BankAccount(100)
+try:
+    acct.withdraw(250)
+except InsufficientFundsError as e:
+    print(e)                 # Cannot withdraw 250: balance is 100
+    print(e.shortfall)       # 150
+```
+
+### Customizing `__str__`
+
+```python
+class ValidationError(Exception):
+    def __init__(self, field, message):
+        super().__init__(field, message)      # keeps args = (field, message)
+        self.field = field
+        self.message = message
+
+    def __str__(self):
+        return f"{self.field}: {self.message}"
+```
+
+Passing the constructor arguments to `super().__init__(...)` keeps `e.args` meaningful. This matters for **pickling and copying** (for example when exceptions cross process boundaries in `multiprocessing`). If `args` does not match your `__init__` signature, unpickling fails with a `TypeError`.
+
+### Class-level attributes for codes
+
+```python
+class HttpError(Exception):
+    status = 500
+    reason = "Internal Server Error"
+
+class NotFoundError(HttpError):
+    status = 404
+    reason = "Not Found"
+
+class ForbiddenError(HttpError):
+    status = 403
+    reason = "Forbidden"
+
+def handle(exc):
+    return exc.status, exc.reason
+
+handle(NotFoundError())      # (404, 'Not Found')
+```
+
+### Inherit from a built-in when it fits
+
+Inheriting from a built-in lets callers catch either your specific type or the general one.
+
+```python
+class EmptyStackError(IndexError):
+    """Raised when popping or peeking an empty stack."""
+
+class Stack:
+    def __init__(self):
+        self._items = []
+
+    def push(self, x):
+        self._items.append(x)
+
+    def pop(self):
+        if not self._items:
+            raise EmptyStackError("pop from empty stack")
+        return self._items.pop()
+
+try:
+    Stack().pop()
+except IndexError as e:          # works because EmptyStackError is an IndexError
+    print(e)                     # pop from empty stack
+```
+
+### Wrapping low-level errors
+
+```python
+import json
+
+class ConfigError(Exception):
+    pass
+
+def load_config(path):
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except FileNotFoundError as e:
+        raise ConfigError(f"config file not found: {path}") from e
+    except json.JSONDecodeError as e:
+        raise ConfigError(f"invalid JSON in {path}") from e
+```
+
+### Custom exceptions: do and do not
+
+| Do | Do not |
+|---|---|
+| Inherit from `Exception` (or a fitting subclass) | Inherit from `BaseException` |
+| Give it a docstring | Put heavy logic in `__init__` |
+| Carry useful data as attributes | Force callers to parse message strings |
+| Pass args to `super().__init__` | Override `__init__` and forget `args` |
+| Create one only when callers will catch it specifically | Create dozens of near-identical classes |
+
+---
+
+## 11. Designing an Exception Hierarchy
+
+For a library or application, define **one base exception** for everything you raise, then specific subclasses. Callers can then catch broadly or narrowly.
+
+```python
+class ShopError(Exception):
+    """Base class for all errors in the shop package."""
+
+class CartError(ShopError):
+    pass
+
+class OutOfStockError(CartError):
+    def __init__(self, sku, requested, available):
+        self.sku = sku
+        self.requested = requested
+        self.available = available
+        super().__init__(sku, requested, available)
+
+    def __str__(self):
+        return f"{self.sku}: requested {self.requested}, only {self.available} left"
+
+class PaymentError(ShopError):
+    pass
+
+class CardDeclinedError(PaymentError):
+    pass
+```
+
+Usage:
+
+```python
+try:
+    checkout(cart)
+except CardDeclinedError:
+    ask_for_another_card()
+except PaymentError:
+    show_payment_help()
+except ShopError:
+    show_generic_error()          # anything else from this package
+```
+
+Design guidelines:
+
+- One base class per package lets users write `except ShopError`.
+- Group by **what the caller will do**, not by where the error came from.
+- Keep the tree shallow (two or three levels is plenty).
+- Document which functions raise which exceptions.
+
+---
+
+## 12. Context Managers and Exceptions
+
+`with` guarantees cleanup even when an exception occurs.
+
+```python
+with open("data.txt") as f:
+    data = f.read()
+# file is closed here, even if read() raised
+```
+
+### How a context manager sees exceptions
+
+```python
+class Managed:
+    def __enter__(self):
+        print("enter")
+        return self
+
+    def __exit__(self, exc_type, exc_value, tb):
+        print("exit", exc_type)
+        return False        # False/None: let the exception continue
+                            # True: suppress it
+
+with Managed():
+    raise ValueError("boom")
+# enter
+# exit <class 'ValueError'>
+# ValueError: boom
+```
+
+If `__exit__` returns a truthy value, the exception is **swallowed**. Do this deliberately and rarely.
+
+### `contextlib.suppress`: ignore specific exceptions
+
+```python
+from contextlib import suppress
+import os
+
+with suppress(FileNotFoundError):
+    os.remove("temp.txt")
+```
+
+Equivalent to `try: ... except FileNotFoundError: pass`, but clearer about intent.
+
+### `@contextmanager`: generator style
+
+Wrap the `yield` in `try/finally` so cleanup always runs.
+
+```python
+from contextlib import contextmanager
+import time
+
+@contextmanager
+def timer(label):
+    start = time.perf_counter()
+    try:
+        yield
+    finally:
+        print(f"{label}: {time.perf_counter() - start:.3f}s")
+
+with timer("work"):
+    do_work()               # time is printed even if do_work() raises
+```
+
+### `contextlib.ExitStack`
+
+Manage a variable number of resources:
+
+```python
+from contextlib import ExitStack
+
+with ExitStack() as stack:
+    files = [stack.enter_context(open(name)) for name in names]
+    ...                     # all files close on exit, even on error
+```
+
+---
+
+## 13. assert
+
+```python
+assert condition, "message if it fails"
+```
+
+```python
+assert len(nums) > 0, "nums must not be empty"
+```
+
+Raises `AssertionError` when the condition is false.
+
+**Important:** assertions are **removed** when Python runs with `-O` (optimized mode). So:
+
+| Use `assert` for | Do NOT use `assert` for |
+|---|---|
+| Internal sanity checks and invariants | Validating user input |
+| Debugging assumptions in tests | Security or permission checks |
+| Documenting "this should never happen" | Anything that must run in production |
+
+Validate input with `if ...: raise ValueError(...)`.
+
+---
+
+## 14. Exception Groups (Python 3.11+)
+
+An `ExceptionGroup` bundles several unrelated exceptions into one, which is useful for concurrent tasks (for example `asyncio.TaskGroup`) and batch validation.
+
+```python
+raise ExceptionGroup(
+    "batch failed",
+    [ValueError("bad row 1"), TypeError("bad type"), ValueError("bad row 3")],
+)
+```
+
+Handle parts of a group with **`except*`**:
+
+```python
+try:
+    raise ExceptionGroup(
+        "batch failed",
+        [ValueError("a"), TypeError("b"), ValueError("c")],
+    )
+except* ValueError as eg:
+    print("value errors:", len(eg.exceptions))      # 2
+except* TypeError as eg:
+    print("type errors:", len(eg.exceptions))       # 1
+```
+
+Facts:
+
+- Each `except*` clause receives a **sub-group** containing only the matching exceptions.
+- Every matching clause can run for the same group (unlike plain `except`, where only the first match runs).
+- Unmatched exceptions are re-raised as a group afterwards.
+- You cannot mix `except` and `except*` in one `try`.
+- `return`, `break` and `continue` are not allowed inside an `except*` block.
+- Attributes: `eg.message`, `eg.exceptions`. Split with `eg.split(ValueError)` and filter with `eg.subgroup(...)`.
+
+Collect errors from a batch:
+
+```python
+def parse_all(items):
+    nums, errors = [], []
+    for s in items:
+        try:
+            nums.append(int(s))
+        except ValueError as e:
+            errors.append(e)
+    if errors:
+        raise ExceptionGroup("parse failures", errors)
+    return nums
+```
+
+---
+
+## 15. Warnings vs Exceptions
+
+Warnings tell the user about something questionable **without stopping the program**.
+
+```python
+import warnings
+
+def old_api():
+    warnings.warn("old_api() is deprecated, use new_api()", DeprecationWarning, stacklevel=2)
+```
+
+Turn warnings into exceptions (useful in tests and CI):
+
+```python
+warnings.simplefilter("error")           # any warning now raises
+# or from the command line: python -W error script.py
+```
+
+| Exception | Warning |
+|---|---|
+| Interrupts execution | Execution continues |
+| Must be handled or the program stops | Shown once, can be filtered |
+| `raise` | `warnings.warn` |
+
+---
+
+## 16. EAFP vs LBYL
+
+Two styles of dealing with things that might fail.
+
+**LBYL** ("Look Before You Leap"): check first.
+
+```python
+if key in d:
+    value = d[key]
+else:
+    value = default
+```
+
+**EAFP** ("Easier to Ask Forgiveness than Permission"): try it and handle the failure. This is the idiomatic Python style.
+
+```python
+try:
+    value = d[key]
+except KeyError:
+    value = default
+```
+
+(For this specific case `d.get(key, default)` is simplest.)
+
+### Why EAFP is often better
+
+- **Race conditions.** Checking then acting is not atomic:
+
+  ```python
+  # LBYL: file could be deleted between the check and the open
+  if os.path.exists(path):
+      with open(path) as f: ...
+
+  # EAFP: no gap
+  try:
+      with open(path) as f: ...
+  except FileNotFoundError:
+      ...
+  ```
+
+- **Duck typing.** Try the operation instead of checking `isinstance`.
+- **Less duplicated logic.** The check often repeats what the operation does anyway.
+
+### When LBYL is better
+
+- When failure is **common** and cheap to check (raising is slower than an `if`).
+- When the failing operation has **side effects** you cannot undo.
+- When a clear precondition check gives a **better error message**.
+
+---
+
+## 17. Control-Flow Exceptions
+
+Some exceptions are part of normal Python machinery.
+
+### `StopIteration`
+
+Raised when an iterator is exhausted. A `for` loop catches it for you.
+
+```python
+it = iter([1, 2])
+next(it)          # 1
+next(it)          # 2
+next(it)          # StopIteration
+next(it, None)    # None, using the default avoids the exception
+```
+
+Inside a **generator**, raising `StopIteration` becomes a `RuntimeError` (PEP 479). Just `return` instead.
+
+```python
+def gen():
+    yield 1
+    return          # correct way to finish
+```
+
+Custom iterators signal the end with `raise StopIteration` inside `__next__`.
+
+### `SystemExit`
+
+```python
+import sys
+sys.exit(1)         # raises SystemExit(1); the process exits with code 1
+```
+
+`finally` blocks and context managers still run on the way out.
+
+### `KeyboardInterrupt`
+
+```python
+try:
+    while True:
+        work()
+except KeyboardInterrupt:
+    print("shutting down cleanly")
+```
+
+### `GeneratorExit`
+
+Raised inside a generator when it is closed. Do not yield in response; do cleanup and let it propagate.
+
+### `asyncio.CancelledError`
+
+In async code, `CancelledError` derives from `BaseException` (since Python 3.8). If you catch it, **re-raise** it after cleanup, or task cancellation will break.
+
+### Using exceptions deliberately as flow control
+
+Breaking out of deeply nested loops:
+
+```python
+class Found(Exception):
+    pass
+
+try:
+    for row in grid:
+        for cell in row:
+            if cell == target:
+                raise Found
+except Found:
+    print("found")
+```
+
+A helper function with an early `return` is usually cleaner, but this is a known pattern.
+
+---
+
+## 18. Logging Exceptions
+
+Do not just `print` errors. Use `logging` so you keep the traceback and severity.
+
+```python
+import logging
+
+logger = logging.getLogger(__name__)
+
+def run():
+    try:
+        risky()
+    except Exception:
+        logger.exception("risky() failed")     # ERROR level + full traceback
+        raise
+```
+
+- `logger.exception(msg)` is `logger.error(msg, exc_info=True)` and should be called **inside an except block**.
+- `logger.warning("...", exc_info=True)` lets you pick a different level.
+- **Log or re-raise, but avoid doing both at every layer.** Otherwise the same error is logged many times. Log at the boundary where you finally handle it.
+
+### Top-level handler
+
+```python
+import sys
+
+def main():
+    ...
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        sys.exit(130)
+    except Exception:
+        logging.exception("unhandled error")
+        sys.exit(1)
+```
+
+`sys.excepthook` lets you customize what happens for uncaught exceptions in the main thread.
+
+---
+
+## 19. Retry and Wrapper Patterns
+
+### Retry decorator with exponential backoff
+
+```python
+import functools
+import time
+
+def retry(times=3, delay=0.5, exceptions=(ConnectionError, TimeoutError)):
+    def decorator(fn):
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            for attempt in range(1, times + 1):
+                try:
+                    return fn(*args, **kwargs)
+                except exceptions:
+                    if attempt == times:
+                        raise                                  # out of attempts
+                    time.sleep(delay * 2 ** (attempt - 1))     # 0.5, 1.0, 2.0 ...
+        return wrapper
+    return decorator
+
+@retry(times=4, delay=0.2)
+def fetch():
+    ...
+```
+
+Retry only **transient** errors (timeouts, connection resets). Never retry `ValueError` or other bugs.
+
+### Convert exceptions at an API boundary
+
+```python
+def handler(request):
+    try:
+        return service.process(request)
+    except NotFoundError:
+        return {"status": 404}
+    except ValidationError as e:
+        return {"status": 400, "error": str(e)}
+    except Exception:
+        logger.exception("unexpected")
+        return {"status": 500}
+```
+
+### Return a result instead of raising (when failure is expected)
+
+```python
+def to_int(s, default=None):
+    try:
+        return int(s)
+    except (ValueError, TypeError):
+        return default
+
+to_int("42")      # 42
+to_int("x", 0)    # 0
+to_int(None)      # None
+```
+
+---
+
+## 20. Testing Exceptions
+
+### pytest
+
+```python
+import pytest
+
+def test_pop_empty():
+    with pytest.raises(EmptyStackError):
+        Stack().pop()
+
+def test_message():
+    with pytest.raises(ValueError, match="must be positive"):
+        set_age(-1)
+
+def test_inspect():
+    with pytest.raises(InsufficientFundsError) as info:
+        BankAccount(100).withdraw(250)
+    assert info.value.shortfall == 150
+```
+
+`match` is a regular expression searched in `str(exception)`.
+
+### unittest
+
+```python
+import unittest
+
+class TestStack(unittest.TestCase):
+    def test_pop_empty(self):
+        with self.assertRaises(EmptyStackError):
+            Stack().pop()
+
+    def test_message(self):
+        with self.assertRaisesRegex(ValueError, "positive"):
+            set_age(-1)
+```
+
+Also test that **no** exception is raised on valid input, and test the `__cause__` when you wrap exceptions.
+
+---
+
+## 21. Performance Notes
+
+- Since Python 3.11, entering a `try` block costs essentially **nothing** when no exception occurs ("zero-cost" exceptions). Older versions had a small setup cost.
+- **Raising and catching** an exception is comparatively expensive (creating the object, building the traceback, unwinding). It is fine for rare events, but avoid it in a hot loop where failure is the common case.
+- So: use EAFP when failure is **rare**, an `if` check when failure is **frequent**.
+- Do not use exceptions to replace simple conditionals.
+
+```python
+# If misses are common, this is cleaner and faster:
+count = d.get(x, 0)
+
+# Or:
+d[x] = d.get(x, 0) + 1
+```
+
+---
+
+## 22. Common Pitfalls and Anti-patterns
+
+**1. Bare `except:`**
+
+```python
+try:
+    work()
+except:              # also catches KeyboardInterrupt and SystemExit
+    pass
+```
+
+Use `except Exception:` at the very least, and preferably a specific type.
+
+**2. Swallowing silently**
+
+```python
+except Exception:
+    pass             # bugs disappear without a trace
+```
+
+At minimum, log it. If you truly want to ignore a specific error, use `contextlib.suppress(SpecificError)`.
+
+**3. Huge `try` blocks**
+
+```python
+try:
+    a = load()
+    b = transform(a)
+    c = save(b)
+except ValueError:       # which of the three raised it?
+    ...
+```
+
+Wrap only the risky line, or use separate handlers.
+
+**4. Catching too broadly, too early**
+
+Handle an error where you can do something useful about it, not at every level.
+
+**5. Wrong order of clauses**: a parent before its child makes the child unreachable.
+
+**6. `raise e` instead of `raise`**
+
+```python
+except Exception as e:
+    raise e          # adds an extra traceback entry
+    raise            # preferred, preserves the original traceback cleanly
+```
+
+**7. Losing the cause**
+
+```python
+except KeyError:
+    raise ConfigError("bad config")           # implicit context only
+except KeyError as e:
+    raise ConfigError("bad config") from e    # explicit cause, better
+```
+
+**8. Using `return` in `finally`**: discards exceptions ([section 5](#5-else-and-finally)).
+
+**9. Using `assert` for validation**: disabled under `-O` ([section 13](#13-assert)).
+
+**10. Message-only exceptions**: if callers need to distinguish cases, give them attributes or subclasses instead of making them parse strings.
+
+**11. Mutable default state in exception classes**: avoid shared class-level lists or dicts on exceptions.
+
+**12. Catching `Exception` in generator or async cleanup** and accidentally swallowing `GeneratorExit` or `CancelledError` (both are `BaseException`, so this is safe by default, but a bare `except:` breaks it).
+
+**13. Modifying a variable bound by `as e`**: the name is deleted after the block ([section 3](#3-try-and-except-basics)).
+
+**14. Assuming `str(e)` is always the useful part**: for `KeyError` it shows the quoted key only. Use `repr(e)` or `type(e).__name__` too.
+
+---
+
+## 23. Exceptions in DSA and Interviews
+
+### Operations that raise vs safe alternatives
+
+| Raises | Safe alternative |
+|---|---|
+| `d[key]` (`KeyError`) | `d.get(key, default)`, `key in d`, `defaultdict` |
+| `lst.index(x)` (`ValueError`) | `x in lst` first |
+| `s.index(sub)` (`ValueError`) | `s.find(sub)` returns `-1` |
+| `set.remove(x)` (`KeyError`) | `set.discard(x)` |
+| `lst.pop()` on empty (`IndexError`) | `if lst:` first |
+| `next(it)` (`StopIteration`) | `next(it, default)` |
+| `max([])` / `min([])` (`ValueError`) | `max(lst, default=0)` |
+| `int(s)` (`ValueError`) | `s.isdigit()` (limited) or `try/except` |
+| `a / b` (`ZeroDivisionError`) | `if b:` first |
+| `heapq.heappop([])` (`IndexError`) | `if heap:` first |
+| `deque.popleft()` on empty (`IndexError`) | `if dq:` first |
+
+### Where you will meet exceptions in interviews
+
+- **Empty container handling.** Stacks, queues, heaps: what happens on `pop` from empty? Raise a clear exception or return a sentinel, and say which you chose.
+- **Input parsing.** Parsing numbers from strings (`atoi`-style problems). Show `try/except ValueError`.
+- **Recursion depth.** DFS on a long chain can hit `RecursionError` (default limit about 1000). Fix by iterating with an explicit stack, or as a last resort `sys.setrecursionlimit(...)`.
+- **Iterators.** Implementing `__iter__` and `__next__` requires `StopIteration`.
+- **Design questions.** Custom exceptions for domain rules (`InsufficientFundsError`, `EmptyStackError`, `CacheMissError`).
+- **Integer overflow.** Python ints are unbounded, so there is no overflow for ints. Mention this when a problem talks about 32-bit limits.
+
+### Example: safe stack with a custom exception
+
+```python
+class EmptyStackError(IndexError):
+    """Raised when accessing an empty stack."""
+
+class MinStack:
+    def __init__(self):
+        self._stack = []
+        self._mins = []
+
+    def push(self, x):
+        self._stack.append(x)
+        self._mins.append(x if not self._mins else min(x, self._mins[-1]))
+
+    def pop(self):
+        if not self._stack:
+            raise EmptyStackError("pop from empty stack")
+        self._mins.pop()
+        return self._stack.pop()
+
+    def get_min(self):
+        if not self._mins:
+            raise EmptyStackError("get_min on empty stack")
+        return self._mins[-1]
+```
+
+### Example: parse a string to an integer safely
+
+```python
+def parse_int(s):
+    s = s.strip()
+    try:
+        return int(s)
+    except ValueError:
+        return None
+
+parse_int(" 42 ")     # 42
+parse_int("4x2")      # None
+```
+
+### Example: RecursionError and the iterative fix
+
+```python
+def depth_recursive(node):
+    return 0 if node is None else 1 + max(depth_recursive(node.left), depth_recursive(node.right))
+# a degenerate tree with 100,000 nodes -> RecursionError
+
+def depth_iterative(root):
+    if root is None:
+        return 0
+    best, stack = 0, [(root, 1)]
+    while stack:
+        node, d = stack.pop()
+        best = max(best, d)
+        if node.left:
+            stack.append((node.left, d + 1))
+        if node.right:
+            stack.append((node.right, d + 1))
+    return best
+```
+
+---
+
+## 24. Cheat Sheet
+
+### Syntax
+
+```python
+try:
+    risky()
+except (ValueError, TypeError) as e:       # specific first
+    handle(e)
+except OSError:
+    ...
+except Exception:                          # broad, last
+    logger.exception("unexpected")
+    raise
+else:
+    ...                                    # only if no exception
+finally:
+    cleanup()                              # always
+
+raise ValueError("msg")                    # raise
+raise                                      # re-raise current (inside except)
+raise Wrapper("msg") from e                # explicit cause
+raise Wrapper("msg") from None             # hide context
+
+class MyError(Exception):                  # custom
+    pass
+
+with suppress(FileNotFoundError): ...      # ignore one error type
+assert cond, "message"                     # debug check only
+```
+
+### Behavior quick facts
+
+| Fact | Detail |
+|---|---|
+| Custom exceptions inherit from | `Exception` |
+| Bare `except:` catches | Everything, including `KeyboardInterrupt` |
+| `except Exception` does not catch | `SystemExit`, `KeyboardInterrupt`, `GeneratorExit` |
+| Clause matching | First match wins, top to bottom |
+| `else` runs when | The `try` block raised nothing |
+| `finally` runs when | Always |
+| `return` in `finally` | Overrides other returns and swallows exceptions |
+| `as e` variable | Deleted after the except block |
+| Bare `raise` | Re-raises with the original traceback |
+| `__cause__` | Set by `raise ... from ...` |
+| `__context__` | Set automatically when raising during handling |
+| `assert` | Removed with `python -O` |
+| `str(KeyError("k"))` | `"'k'"` (quoted) |
+| Generator raising `StopIteration` | Becomes `RuntimeError` |
+| `except*` | Handles parts of an `ExceptionGroup`, Python 3.11+ |
+| `add_note()` | Attach extra context, Python 3.11+ |
+
+### Decision guide
+
+```text
+Bad value of correct type?             -> ValueError
+Wrong type?                            -> TypeError
+Domain rule broken?                    -> custom exception
+Want to translate a low-level error?   -> raise Custom(...) from e
+Need to clean up regardless?           -> with statement, else finally
+Ignoring one specific error?           -> contextlib.suppress
+Failure is common and cheap to check?  -> if check (LBYL)
+Failure is rare?                       -> try/except (EAFP)
+Several errors at once?                -> ExceptionGroup and except*
+Need the traceback in logs?            -> logger.exception(...)
+Internal invariant, not user input?    -> assert
+```
+
+---
+
+## 25. Practice Problems
+
+1. Write `safe_divide(a, b)` that returns `None` when dividing by zero.
+2. Create `InsufficientFundsError` carrying `balance` and `amount`, and use it in `withdraw`.
+3. What does this print?
+
+   ```python
+   def f():
+       try:
+           raise ValueError
+       except ValueError:
+           return 1
+       finally:
+           print("cleanup")
+           return 2
+
+   print(f())
+   ```
+
+4. Convert a `KeyError` from a settings dict into a `ConfigError` without showing the original `KeyError` in the traceback.
+5. Write a `retry(times)` decorator that retries only on `ConnectionError`.
+6. What is the output?
+
+   ```python
+   try:
+       try:
+           raise KeyError("a")
+       except ValueError:
+           print("inner")
+       finally:
+           print("inner finally")
+   except KeyError:
+       print("outer")
+   ```
+
+7. Which clause is unreachable, and how do you fix it?
+
+   ```python
+   try:
+       work()
+   except Exception:
+       ...
+   except ValueError:
+       ...
+   ```
+
+8. Write a context manager that counts how many exceptions of a given type were suppressed inside it.
+9. Parse a list of strings to ints, and if any fail, raise one `ExceptionGroup` containing all the failures.
+10. Make `EmptyQueueError` catchable both as `EmptyQueueError` and as `IndexError`.
+
+<details>
+<summary>Answers</summary>
+
+```python
+# 1
+def safe_divide(a, b):
+    try:
+        return a / b
+    except ZeroDivisionError:
+        return None
+
+# 2
+class InsufficientFundsError(Exception):
+    def __init__(self, balance, amount):
+        self.balance, self.amount = balance, amount
+        super().__init__(f"balance {balance}, requested {amount}")
+
+def withdraw(balance, amount):
+    if amount > balance:
+        raise InsufficientFundsError(balance, amount)
+    return balance - amount
+
+# 3
+# prints "cleanup" then "2"  (return in finally wins)
+
+# 4
+def get(cfg, key):
+    try:
+        return cfg[key]
+    except KeyError:
+        raise ConfigError(f"missing setting: {key}") from None
+
+# 5
+import functools
+
+def retry(times):
+    def deco(fn):
+        @functools.wraps(fn)
+        def wrapper(*a, **k):
+            for i in range(times):
+                try:
+                    return fn(*a, **k)
+                except ConnectionError:
+                    if i == times - 1:
+                        raise
+        return wrapper
+    return deco
+
+# 6
+# inner finally
+# outer
+
+# 7
+# `except ValueError` is unreachable because Exception already catches it.
+# Put the specific clause first:
+try:
+    work()
+except ValueError:
+    ...
+except Exception:
+    ...
+
+# 8
+class CountSuppressed:
+    def __init__(self, exc_type):
+        self.exc_type = exc_type
+        self.count = 0
+    def __enter__(self):
+        return self
+    def __exit__(self, exc_type, exc, tb):
+        if exc_type is not None and issubclass(exc_type, self.exc_type):
+            self.count += 1
+            return True          # suppress
+        return False
+
+# 9
+def parse_all(items):
+    nums, errors = [], []
+    for s in items:
+        try:
+            nums.append(int(s))
+        except ValueError as e:
+            errors.append(e)
+    if errors:
+        raise ExceptionGroup("parse failures", errors)
+    return nums
+
+# 10
+class EmptyQueueError(IndexError):
+    pass
+```
+
+</details>
+
+---
+
+## 26. Interview Questions and Answers
+
+**What is the difference between `Exception` and `BaseException`?**
+`BaseException` is the root of all exceptions. `Exception` is its subclass for ordinary errors. `SystemExit`, `KeyboardInterrupt` and `GeneratorExit` derive from `BaseException` directly so that `except Exception` does not stop the program from exiting or being interrupted. Custom exceptions should derive from `Exception`.
+
+**What is the difference between `else` and `finally`?**
+`else` runs only when the `try` block did not raise. `finally` runs always, for cleanup. Code in `else` is not covered by the `except` clauses.
+
+**What happens if you `return` inside `finally`?**
+It overrides any earlier `return` and swallows any in-flight exception. Avoid it.
+
+**`raise` vs `raise e` inside an except block?**
+Both re-raise, but bare `raise` keeps the original traceback intact and is preferred. `raise e` adds an extra traceback entry for that line.
+
+**What is exception chaining?**
+Linking exceptions to show cause and effect. `raise New from old` sets `__cause__`. Raising during handling sets `__context__` automatically. `from None` suppresses the display of the context.
+
+**How do you create a custom exception, and why?**
+Subclass `Exception` (or a more specific built-in), give it a docstring, and optionally add attributes. It lets callers catch domain-specific problems precisely and carry structured data.
+
+**Why not use a bare `except:`?**
+It catches `KeyboardInterrupt` and `SystemExit` too, hides bugs, and makes programs hard to stop. Catch specific exceptions, or `Exception` at a top-level boundary.
+
+**What is EAFP?**
+"Easier to ask forgiveness than permission": attempt the operation and handle failure, instead of checking conditions first. It avoids race conditions and fits duck typing.
+
+**What is the difference between an exception and a warning?**
+An exception interrupts execution unless handled. A warning is reported but the program continues, and it can be filtered or turned into an exception.
+
+**Does `assert` belong in production validation?**
+No. Assertions are stripped under `python -O`. Use explicit `raise` statements for real validation.
+
+**What are `ExceptionGroup` and `except*`?**
+Python 3.11 features to raise and handle several unrelated exceptions together, for example from concurrent tasks. Each `except*` clause handles the matching subset.
+
+**How do you handle an exception and still let the caller see it?**
+Do your cleanup or logging in the `except` block and then use bare `raise`.
+
+**What is the cost of using exceptions?**
+Almost none when nothing is raised (Python 3.11+). Raising and catching is comparatively slow, so do not use exceptions for frequent, expected branches.
+
+---
+
+*Happy debugging!*
