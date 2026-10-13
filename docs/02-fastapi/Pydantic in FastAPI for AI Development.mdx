@@ -1,0 +1,1537 @@
+---
+title: "Pydantic in FastAPI for AI Development"
+description: "A practical, basics-to-advanced guide to using Pydantic v2 with FastAPI for building LLM, RAG, and agent APIs."
+---
+
+# Pydantic in FastAPI for AI Development
+
+Pydantic is the data layer of FastAPI. Every request body, query parameter, response, and settings object is validated and serialized by Pydantic. For AI apps, it also does something extra: it gives you **schemas for LLM structured output and tool calling** for free.
+
+This guide starts from the basics and builds toward real AI patterns: chat APIs, structured extraction, tool calling, streaming, RAG, and settings.
+
+> Targets **Pydantic v2** and **FastAPI 0.100+**.
+
+## Table of Contents
+
+1. [Why Pydantic for AI APIs](#why-pydantic-for-ai-apis)
+2. [Installation and Setup](#installation-and-setup)
+3. [Pydantic Basics](#pydantic-basics)
+4. [Using Models in FastAPI Requests](#using-models-in-fastapi-requests)
+5. [Field Constraints and Metadata](#field-constraints-and-metadata)
+6. [Nested Models, Lists, Enums, and Literals](#nested-models-lists-enums-and-literals)
+7. [Response Models](#response-models)
+8. [Validators](#validators)
+9. [Serialization, Aliases, and Computed Fields](#serialization-aliases-and-computed-fields)
+10. [Query, Path, Header, and Form Parameters](#query-path-header-and-form-parameters)
+11. [Model Configuration](#model-configuration)
+12. [Discriminated Unions](#discriminated-unions)
+13. [Generic Models (Pagination and Envelopes)](#generic-models-pagination-and-envelopes)
+14. [Building a Chat Completion API](#building-a-chat-completion-api)
+15. [Structured Output from LLMs](#structured-output-from-llms)
+16. [Tool and Function Calling Schemas](#tool-and-function-calling-schemas)
+17. [Validation Retry Loop for LLM Output](#validation-retry-loop-for-llm-output)
+18. [Streaming Responses (SSE)](#streaming-responses-sse)
+19. [RAG Models: Documents, Embeddings, Search](#rag-models-documents-embeddings-search)
+20. [File Uploads and Multimodal Inputs](#file-uploads-and-multimodal-inputs)
+21. [Settings with pydantic-settings](#settings-with-pydantic-settings)
+22. [Dependency Injection with Models](#dependency-injection-with-models)
+23. [Custom Error Handling](#custom-error-handling)
+24. [TypeAdapter for Non-Model Types](#typeadapter-for-non-model-types)
+25. [Background Jobs and Async Task Status](#background-jobs-and-async-task-status)
+26. [Testing Pydantic Models and Endpoints](#testing-pydantic-models-and-endpoints)
+27. [Performance Tips](#performance-tips)
+28. [Best Practices Checklist](#best-practices-checklist)
+
+---
+
+## Why Pydantic for AI APIs
+
+| Need | How Pydantic helps |
+| --- | --- |
+| Validate user prompts and parameters | Typed request models with constraints |
+| Document your API | Automatic OpenAPI and Swagger docs |
+| Get reliable JSON from an LLM | `model_json_schema()` and `model_validate_json()` |
+| Define tools for agents | JSON Schema generated from a class |
+| Manage API keys and config | `pydantic-settings` |
+| Keep response shapes stable | `response_model` filters and validates output |
+
+LLMs are probabilistic. Pydantic is the deterministic gate between the model and the rest of your system.
+
+---
+
+## Installation and Setup
+
+```bash
+pip install "fastapi[standard]" pydantic pydantic-settings
+# optional LLM SDKs
+pip install openai anthropic
+```
+
+Minimal app:
+
+```python title="main.py"
+from fastapi import FastAPI
+
+app = FastAPI(title="AI API")
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+```
+
+Run it:
+
+```bash
+fastapi dev main.py
+```
+
+Docs are available at `/docs` (Swagger) and `/redoc`.
+
+---
+
+## Pydantic Basics
+
+A model is a class that inherits from `BaseModel`. Annotations become validated fields.
+
+```python
+from pydantic import BaseModel
+
+class Prompt(BaseModel):
+    text: str
+    temperature: float = 0.7      # default value
+    max_tokens: int = 512
+
+p = Prompt(text="Hello", temperature="0.2")   # "0.2" is coerced to 0.2
+print(p.temperature)        # 0.2
+print(p.model_dump())       # {'text': 'Hello', 'temperature': 0.2, 'max_tokens': 512}
+```
+
+### Validation errors
+
+```python
+from pydantic import ValidationError
+
+try:
+    Prompt(text=123, max_tokens="many")
+except ValidationError as e:
+    print(e.errors())
+```
+
+### Optional and nullable fields
+
+```python
+class Message(BaseModel):
+    role: str
+    content: str
+    name: str | None = None      # optional, defaults to None
+```
+
+### Required vs optional
+
+```python
+class A(BaseModel):
+    x: int                # required
+    y: int | None         # required, but may be None
+    z: int | None = None  # optional
+```
+
+### Mutable defaults
+
+Pydantic copies defaults safely, but `Field(default_factory=...)` is the clearest option:
+
+```python
+from pydantic import BaseModel, Field
+
+class Conversation(BaseModel):
+    messages: list[Message] = Field(default_factory=list)
+```
+
+### Useful model methods
+
+```python
+m = Message(role="user", content="hi")
+
+m.model_dump()                       # dict
+m.model_dump(exclude_none=True)      # drop None values
+m.model_dump_json()                  # JSON string
+Message.model_validate({"role": "user", "content": "hi"})
+Message.model_validate_json('{"role":"user","content":"hi"}')
+Message.model_json_schema()          # JSON Schema dict
+m.model_copy(update={"content": "bye"})
+```
+
+---
+
+## Using Models in FastAPI Requests
+
+Declare a model as a parameter. FastAPI reads the JSON body, validates it, and gives you a typed object.
+
+```python
+from fastapi import FastAPI
+from pydantic import BaseModel
+
+app = FastAPI()
+
+class GenerateRequest(BaseModel):
+    prompt: str
+    temperature: float = 0.7
+    max_tokens: int = 256
+
+class GenerateResponse(BaseModel):
+    text: str
+    tokens_used: int
+
+@app.post("/generate", response_model=GenerateResponse)
+async def generate(req: GenerateRequest):
+    # call your LLM here
+    return GenerateResponse(text=f"Echo: {req.prompt}", tokens_used=5)
+```
+
+Invalid input automatically returns **HTTP 422** with details about which field failed.
+
+### Multiple body parameters and `Body`
+
+```python
+from fastapi import Body
+
+class User(BaseModel):
+    id: int
+
+@app.post("/ask")
+async def ask(user: User, req: GenerateRequest, priority: int = Body(1)):
+    ...
+```
+
+The body is then expected as `{"user": {...}, "req": {...}, "priority": 1}`.
+
+### Embedding a single model
+
+```python
+@app.post("/embed-one")
+async def embed_one(req: GenerateRequest = Body(embed=True)):
+    ...
+# expects {"req": {...}}
+```
+
+---
+
+## Field Constraints and Metadata
+
+Use `Field` for constraints, descriptions, and examples. These show up in Swagger **and** in LLM tool schemas.
+
+```python
+from pydantic import BaseModel, Field
+
+class ChatParams(BaseModel):
+    model: str = Field(default="claude-sonnet-5-5", description="Model identifier")
+    temperature: float = Field(0.7, ge=0.0, le=2.0, description="Sampling temperature")
+    max_tokens: int = Field(512, gt=0, le=8192)
+    top_p: float = Field(1.0, gt=0.0, le=1.0)
+    stop: list[str] = Field(default_factory=list, max_length=4)
+    user_id: str = Field(..., min_length=3, max_length=64, pattern=r"^[a-zA-Z0-9_-]+$")
+```
+
+Common constraints:
+
+| Constraint | Applies to |
+| --- | --- |
+| `gt`, `ge`, `lt`, `le` | numbers |
+| `min_length`, `max_length` | strings, lists |
+| `pattern` | strings |
+| `multiple_of` | numbers |
+| `max_digits`, `decimal_places` | Decimal |
+
+### Annotated style (recommended)
+
+Reusable constrained types:
+
+```python
+from typing import Annotated
+from pydantic import Field
+
+Temperature = Annotated[float, Field(ge=0, le=2, description="Sampling temperature")]
+MaxTokens = Annotated[int, Field(gt=0, le=8192)]
+
+class Params(BaseModel):
+    temperature: Temperature = 0.7
+    max_tokens: MaxTokens = 512
+```
+
+### Examples for Swagger
+
+```python
+class GenerateRequest(BaseModel):
+    prompt: str = Field(..., examples=["Summarize the French Revolution"])
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {"prompt": "Explain transformers in one paragraph", "temperature": 0.3}
+            ]
+        }
+    }
+```
+
+### Built-in specialized types
+
+```python
+from pydantic import EmailStr, HttpUrl, SecretStr, UUID4, PositiveInt
+# EmailStr requires: pip install "pydantic[email]"
+
+class Webhook(BaseModel):
+    url: HttpUrl
+    secret: SecretStr          # hidden in repr and logs
+    owner_email: EmailStr
+    request_id: UUID4
+    retries: PositiveInt = 3
+```
+
+---
+
+## Nested Models, Lists, Enums, and Literals
+
+### Nested models
+
+```python
+class Message(BaseModel):
+    role: str
+    content: str
+
+class ChatRequest(BaseModel):
+    model: str
+    messages: list[Message]
+```
+
+Valid body:
+
+```json
+{
+  "model": "claude-sonnet-5-5",
+  "messages": [{"role": "user", "content": "Hi"}]
+}
+```
+
+### Enums
+
+```python
+from enum import Enum
+
+class Role(str, Enum):
+    system = "system"
+    user = "user"
+    assistant = "assistant"
+
+class Message(BaseModel):
+    role: Role
+    content: str
+```
+
+### Literal (lighter than Enum)
+
+```python
+from typing import Literal
+
+class Message(BaseModel):
+    role: Literal["system", "user", "assistant"]
+    content: str
+```
+
+### Dicts and sets
+
+```python
+class Metadata(BaseModel):
+    tags: set[str] = set()
+    labels: dict[str, str] = {}
+    scores: dict[str, float] = {}
+```
+
+### Self-referencing models
+
+```python
+class Node(BaseModel):
+    name: str
+    children: list["Node"] = []
+```
+
+Useful for agent plan trees and document hierarchies.
+
+---
+
+## Response Models
+
+`response_model` validates and **filters** what you return. This protects you from leaking internal fields.
+
+```python
+class UserDB(BaseModel):
+    id: int
+    email: str
+    hashed_password: str
+    api_key: str
+
+class UserPublic(BaseModel):
+    id: int
+    email: str
+
+@app.get("/users/{user_id}", response_model=UserPublic)
+async def get_user(user_id: int):
+    user = UserDB(id=user_id, email="a@b.com", hashed_password="x", api_key="secret")
+    return user    # hashed_password and api_key are stripped
+```
+
+### Return type annotation (modern style)
+
+```python
+@app.get("/users/{user_id}")
+async def get_user(user_id: int) -> UserPublic:
+    ...
+```
+
+### Response control options
+
+```python
+@app.get(
+    "/items/{id}",
+    response_model=Item,
+    response_model_exclude_none=True,
+    response_model_exclude_unset=True,
+    response_model_exclude={"internal_notes"},
+)
+async def get_item(id: int): ...
+```
+
+### Multiple response types
+
+```python
+@app.post(
+    "/generate",
+    response_model=GenerateResponse,
+    responses={
+        429: {"model": ErrorResponse, "description": "Rate limited"},
+        503: {"model": ErrorResponse, "description": "Model unavailable"},
+    },
+)
+async def generate(req: GenerateRequest): ...
+```
+
+```python
+class ErrorResponse(BaseModel):
+    error: str
+    code: str
+```
+
+### Input and output model separation
+
+A common pattern: `Base`, `Create`, `Update`, `Public`.
+
+```python
+class DocumentBase(BaseModel):
+    title: str
+    content: str
+
+class DocumentCreate(DocumentBase):
+    pass
+
+class DocumentUpdate(BaseModel):
+    title: str | None = None
+    content: str | None = None
+
+class DocumentPublic(DocumentBase):
+    id: int
+    created_at: datetime
+```
+
+For partial updates, use `exclude_unset`:
+
+```python
+@app.patch("/documents/{id}", response_model=DocumentPublic)
+async def update(id: int, patch: DocumentUpdate):
+    data = patch.model_dump(exclude_unset=True)   # only fields the client sent
+    ...
+```
+
+---
+
+## Validators
+
+### Field validators
+
+```python
+from pydantic import BaseModel, field_validator
+
+class GenerateRequest(BaseModel):
+    prompt: str
+
+    @field_validator("prompt")
+    @classmethod
+    def prompt_not_blank(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("prompt must not be empty")
+        return v
+```
+
+### Before and after modes
+
+```python
+class Query(BaseModel):
+    tags: list[str]
+
+    @field_validator("tags", mode="before")
+    @classmethod
+    def split_csv(cls, v):
+        if isinstance(v, str):
+            return [t.strip() for t in v.split(",")]
+        return v
+```
+
+`mode="before"` runs on raw input, `mode="after"` (default) runs after type validation.
+
+### Model validators (cross-field)
+
+```python
+from pydantic import model_validator
+
+class RangeRequest(BaseModel):
+    start: int
+    end: int
+
+    @model_validator(mode="after")
+    def check_order(self):
+        if self.end <= self.start:
+            raise ValueError("end must be greater than start")
+        return self
+```
+
+### Validate that a prompt fits a token budget
+
+```python
+class ChatRequest(BaseModel):
+    messages: list[Message]
+    max_tokens: int = 512
+
+    @model_validator(mode="after")
+    def check_budget(self):
+        approx_tokens = sum(len(m.content) for m in self.messages) // 4
+        if approx_tokens + self.max_tokens > 128_000:
+            raise ValueError("Request exceeds context window")
+        return self
+```
+
+### Annotated validators (reusable)
+
+```python
+from pydantic import AfterValidator
+
+def strip_and_check(v: str) -> str:
+    v = v.strip()
+    if not v:
+        raise ValueError("empty")
+    return v
+
+NonBlank = Annotated[str, AfterValidator(strip_and_check)]
+
+class Req(BaseModel):
+    prompt: NonBlank
+```
+
+---
+
+## Serialization, Aliases, and Computed Fields
+
+### Aliases (camelCase API, snake_case Python)
+
+```python
+from pydantic import BaseModel, ConfigDict
+from pydantic.alias_generators import to_camel
+
+class ApiModel(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+class ChatRequest(ApiModel):
+    max_tokens: int
+    system_prompt: str | None = None
+
+# Accepts {"maxTokens": 100, "systemPrompt": "..."}
+```
+
+Return aliases from FastAPI with:
+
+```python
+@app.post("/chat", response_model=ChatResponse, response_model_by_alias=True)
+```
+
+### Computed fields
+
+```python
+from pydantic import computed_field
+
+class Usage(BaseModel):
+    prompt_tokens: int
+    completion_tokens: int
+
+    @computed_field
+    @property
+    def total_tokens(self) -> int:
+        return self.prompt_tokens + self.completion_tokens
+```
+
+### Custom serializers
+
+```python
+from datetime import datetime
+from pydantic import field_serializer
+
+class Event(BaseModel):
+    at: datetime
+
+    @field_serializer("at")
+    def ser_at(self, v: datetime) -> str:
+        return v.isoformat()
+```
+
+### Dump modes
+
+```python
+m.model_dump(mode="json")       # JSON-safe types (datetime to str, UUID to str)
+m.model_dump(include={"id"})
+m.model_dump(exclude={"password"})
+```
+
+---
+
+## Query, Path, Header, and Form Parameters
+
+### Path and Query with validation
+
+```python
+from fastapi import Query, Path
+
+@app.get("/search/{collection}")
+async def search(
+    collection: str = Path(..., min_length=1),
+    q: str = Query(..., min_length=2, description="Search text"),
+    top_k: int = Query(5, ge=1, le=50),
+):
+    ...
+```
+
+### Query parameter models (FastAPI 0.115+)
+
+Group query params into a Pydantic model:
+
+```python
+from typing import Annotated
+from fastapi import Query
+
+class SearchParams(BaseModel):
+    model_config = {"extra": "forbid"}
+    q: str
+    top_k: int = Field(5, ge=1, le=50)
+    tags: list[str] = []
+
+@app.get("/search")
+async def search(params: Annotated[SearchParams, Query()]):
+    return params
+```
+
+### Header models
+
+```python
+from fastapi import Header
+
+class CommonHeaders(BaseModel):
+    x_request_id: str | None = None
+    user_agent: str | None = None
+
+@app.get("/info")
+async def info(headers: Annotated[CommonHeaders, Header()]):
+    return headers
+```
+
+### Form data
+
+```python
+from fastapi import Form
+
+class LoginForm(BaseModel):
+    username: str
+    password: str
+
+@app.post("/login")
+async def login(data: Annotated[LoginForm, Form()]):
+    ...
+```
+
+---
+
+## Model Configuration
+
+`ConfigDict` controls model behavior.
+
+```python
+from pydantic import ConfigDict
+
+class StrictRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",            # reject unknown fields
+        str_strip_whitespace=True, # trim strings
+        str_min_length=1,
+        frozen=True,               # immutable and hashable
+        strict=False,              # True disables type coercion
+        validate_assignment=True,  # validate on attribute set
+        from_attributes=True,      # allow ORM objects
+    )
+```
+
+| Option | Why it matters for AI APIs |
+| --- | --- |
+| `extra="forbid"` | Catch typos in parameters and stop LLMs from inventing fields |
+| `str_strip_whitespace` | Clean prompts |
+| `frozen` | Safe to share config objects |
+| `from_attributes` | Convert SQLAlchemy objects to response models |
+| `strict` | Avoid surprising coercion like `"1"` to `1` |
+
+### ORM mode
+
+```python
+class DocumentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    title: str
+
+doc = DocumentOut.model_validate(sqlalchemy_obj)
+```
+
+---
+
+## Discriminated Unions
+
+When a field can be one of several shapes, use a discriminator. This is the right way to model **multimodal message content**, **tool calls**, and **stream events**.
+
+```python
+from typing import Annotated, Literal, Union
+from pydantic import BaseModel, Field
+
+class TextBlock(BaseModel):
+    type: Literal["text"]
+    text: str
+
+class ImageBlock(BaseModel):
+    type: Literal["image"]
+    url: str
+
+class ToolUseBlock(BaseModel):
+    type: Literal["tool_use"]
+    id: str
+    name: str
+    input: dict
+
+ContentBlock = Annotated[
+    Union[TextBlock, ImageBlock, ToolUseBlock],
+    Field(discriminator="type"),
+]
+
+class Message(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str | list[ContentBlock]
+```
+
+Benefits: faster validation, precise error messages, and a clean `oneOf` in OpenAPI.
+
+---
+
+## Generic Models (Pagination and Envelopes)
+
+```python
+from typing import Generic, TypeVar
+from pydantic import BaseModel
+
+T = TypeVar("T")
+
+class Page(BaseModel, Generic[T]):
+    items: list[T]
+    total: int
+    page: int
+    page_size: int
+
+class Envelope(BaseModel, Generic[T]):
+    data: T
+    request_id: str
+
+@app.get("/documents", response_model=Page[DocumentPublic])
+async def list_documents(page: int = 1, page_size: int = 20):
+    ...
+```
+
+Python 3.12+ syntax:
+
+```python
+class Page[T](BaseModel):
+    items: list[T]
+    total: int
+```
+
+---
+
+## Building a Chat Completion API
+
+A complete, OpenAI-style chat endpoint using everything so far.
+
+```python title="schemas.py"
+from typing import Literal
+from pydantic import BaseModel, ConfigDict, Field, computed_field
+
+class ChatMessage(BaseModel):
+    role: Literal["system", "user", "assistant"]
+    content: str = Field(..., min_length=1)
+
+class ChatRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    model: str = "claude-sonnet-5-5"
+    messages: list[ChatMessage] = Field(..., min_length=1)
+    temperature: float = Field(0.7, ge=0, le=2)
+    max_tokens: int = Field(512, gt=0, le=8192)
+    stream: bool = False
+
+class Usage(BaseModel):
+    prompt_tokens: int
+    completion_tokens: int
+
+    @computed_field
+    @property
+    def total_tokens(self) -> int:
+        return self.prompt_tokens + self.completion_tokens
+
+class Choice(BaseModel):
+    index: int
+    message: ChatMessage
+    finish_reason: Literal["stop", "length", "tool_calls"]
+
+class ChatResponse(BaseModel):
+    id: str
+    model: str
+    choices: list[Choice]
+    usage: Usage
+```
+
+```python title="main.py"
+import uuid
+from fastapi import FastAPI
+from schemas import *
+
+app = FastAPI()
+
+@app.post("/v1/chat/completions", response_model=ChatResponse)
+async def chat(req: ChatRequest):
+    reply = "Hello! (stub)"
+    return ChatResponse(
+        id=f"chatcmpl-{uuid.uuid4().hex[:12]}",
+        model=req.model,
+        choices=[Choice(
+            index=0,
+            message=ChatMessage(role="assistant", content=reply),
+            finish_reason="stop",
+        )],
+        usage=Usage(prompt_tokens=10, completion_tokens=5),
+    )
+```
+
+---
+
+## Structured Output from LLMs
+
+Define the shape you want. Use the same class to generate the schema and to validate the result.
+
+```python
+from pydantic import BaseModel, Field
+
+class Invoice(BaseModel):
+    vendor: str
+    invoice_number: str
+    total: float = Field(..., description="Total amount in USD")
+    line_items: list["LineItem"]
+
+class LineItem(BaseModel):
+    description: str
+    quantity: int
+    unit_price: float
+
+Invoice.model_rebuild()
+```
+
+### OpenAI native structured outputs
+
+```python
+from openai import AsyncOpenAI
+
+client = AsyncOpenAI()
+
+@app.post("/extract/invoice", response_model=Invoice)
+async def extract_invoice(text: str = Body(..., embed=True)):
+    completion = await client.beta.chat.completions.parse(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": "Extract invoice data."},
+            {"role": "user", "content": text},
+        ],
+        response_format=Invoice,
+    )
+    return completion.choices[0].message.parsed
+```
+
+### Anthropic via forced tool use
+
+Claude returns structured data when you force a tool whose input schema is your model.
+
+```python
+import anthropic
+
+client = anthropic.AsyncAnthropic()
+
+async def extract(text: str, schema: type[BaseModel]) -> BaseModel:
+    resp = await client.messages.create(
+        model="claude-sonnet-5-5",
+        max_tokens=1024,
+        tools=[{
+            "name": "record",
+            "description": "Record the extracted data.",
+            "input_schema": schema.model_json_schema(),
+        }],
+        tool_choice={"type": "tool", "name": "record"},
+        messages=[{"role": "user", "content": text}],
+    )
+    tool_block = next(b for b in resp.content if b.type == "tool_use")
+    return schema.model_validate(tool_block.input)
+```
+
+### Plain JSON mode (any provider)
+
+```python
+raw = await call_llm_returning_json(prompt)
+invoice = Invoice.model_validate_json(raw)
+```
+
+### Schema tips for better LLM results
+
+- Write `description=` on every field. The model reads it.
+- Use `Literal` or `Enum` for categories.
+- Prefer flat structures over deeply nested ones.
+- Make fields optional (`| None`) when the information may be missing, so the model is not forced to hallucinate.
+- Put reasoning fields **before** answer fields to improve accuracy:
+
+```python
+class Classification(BaseModel):
+    reasoning: str = Field(..., description="Brief step-by-step reasoning")
+    label: Literal["spam", "ham"]
+    confidence: float = Field(..., ge=0, le=1)
+```
+
+---
+
+## Tool and Function Calling Schemas
+
+Each tool's arguments are a Pydantic model.
+
+```python
+from pydantic import BaseModel, Field
+
+class GetWeatherArgs(BaseModel):
+    """Get the current weather for a city."""
+    city: str = Field(..., description="City name, e.g. Lucknow")
+    unit: Literal["celsius", "fahrenheit"] = "celsius"
+
+class SearchDocsArgs(BaseModel):
+    """Search the knowledge base."""
+    query: str
+    top_k: int = Field(5, ge=1, le=20)
+```
+
+### Tool registry
+
+```python
+from typing import Callable, Awaitable
+
+class Tool:
+    def __init__(self, name: str, args_model: type[BaseModel], fn: Callable[..., Awaitable]):
+        self.name = name
+        self.args_model = args_model
+        self.fn = fn
+
+    def spec(self) -> dict:
+        schema = self.args_model.model_json_schema()
+        return {
+            "name": self.name,
+            "description": (self.args_model.__doc__ or "").strip(),
+            "input_schema": schema,
+        }
+
+    async def run(self, raw_args: dict):
+        args = self.args_model.model_validate(raw_args)   # validate before executing
+        return await self.fn(args)
+
+async def get_weather(args: GetWeatherArgs):
+    return {"city": args.city, "temp": 31, "unit": args.unit}
+
+TOOLS = {
+    "get_weather": Tool("get_weather", GetWeatherArgs, get_weather),
+}
+```
+
+### Agent loop with validated tool calls
+
+```python
+async def run_agent(user_msg: str):
+    messages = [{"role": "user", "content": user_msg}]
+    while True:
+        resp = await client.messages.create(
+            model="claude-sonnet-5-5",
+            max_tokens=1024,
+            tools=[t.spec() for t in TOOLS.values()],
+            messages=messages,
+        )
+        if resp.stop_reason != "tool_use":
+            return "".join(b.text for b in resp.content if b.type == "text")
+
+        messages.append({"role": "assistant", "content": resp.content})
+        results = []
+        for block in resp.content:
+            if block.type != "tool_use":
+                continue
+            try:
+                out = await TOOLS[block.name].run(block.input)
+                results.append({"type": "tool_result", "tool_use_id": block.id,
+                                "content": json.dumps(out)})
+            except ValidationError as e:
+                results.append({"type": "tool_result", "tool_use_id": block.id,
+                                "is_error": True, "content": e.json()})
+        messages.append({"role": "user", "content": results})
+```
+
+Sending the `ValidationError` back to the model lets it correct its own arguments.
+
+### Cleaning the schema
+
+Some providers dislike `$defs` or `title` keys. Strip them if needed:
+
+```python
+def clean_schema(schema: dict) -> dict:
+    schema = dict(schema)
+    schema.pop("title", None)
+    return schema
+```
+
+---
+
+## Validation Retry Loop for LLM Output
+
+LLMs sometimes return invalid JSON or wrong types. Retry with the error message.
+
+```python
+import json
+from pydantic import ValidationError
+
+async def structured_call(prompt: str, model_cls: type[BaseModel], retries: int = 3):
+    messages = [
+        {"role": "user",
+         "content": f"{prompt}\n\nReturn ONLY JSON matching this schema:\n"
+                    f"{json.dumps(model_cls.model_json_schema())}"},
+    ]
+    for attempt in range(retries):
+        resp = await client.messages.create(
+            model="claude-sonnet-5-5", max_tokens=1024, messages=messages
+        )
+        text = resp.content[0].text
+        try:
+            return model_cls.model_validate_json(extract_json(text))
+        except (ValidationError, ValueError) as e:
+            messages.append({"role": "assistant", "content": text})
+            messages.append({
+                "role": "user",
+                "content": f"That output was invalid:\n{e}\nFix it and return only JSON.",
+            })
+    raise RuntimeError("LLM failed to produce valid output")
+
+def extract_json(text: str) -> str:
+    start, end = text.find("{"), text.rfind("}")
+    return text[start:end + 1]
+```
+
+Handling partial or malformed JSON from streams:
+
+```python
+from pydantic import BaseModel
+
+partial = Invoice.model_validate_json(chunk, experimental_allow_partial=True)
+```
+
+Partial validation is experimental in recent Pydantic v2 releases. Check your installed version's docs before relying on it.
+
+---
+
+## Streaming Responses (SSE)
+
+Define the event models first.
+
+```python
+from typing import Literal, Union, Annotated
+from pydantic import BaseModel, Field
+
+class DeltaEvent(BaseModel):
+    type: Literal["delta"] = "delta"
+    text: str
+
+class DoneEvent(BaseModel):
+    type: Literal["done"] = "done"
+    usage: Usage
+
+class ErrorEvent(BaseModel):
+    type: Literal["error"] = "error"
+    message: str
+
+StreamEvent = Annotated[Union[DeltaEvent, DoneEvent, ErrorEvent], Field(discriminator="type")]
+```
+
+SSE endpoint:
+
+```python
+from fastapi.responses import StreamingResponse
+
+def sse(event: BaseModel) -> str:
+    return f"data: {event.model_dump_json()}\n\n"
+
+@app.post("/chat/stream")
+async def chat_stream(req: ChatRequest):
+    async def gen():
+        try:
+            async with client.messages.stream(
+                model=req.model,
+                max_tokens=req.max_tokens,
+                messages=[m.model_dump() for m in req.messages if m.role != "system"],
+            ) as stream:
+                async for text in stream.text_stream:
+                    yield sse(DeltaEvent(text=text))
+            yield sse(DoneEvent(usage=Usage(prompt_tokens=0, completion_tokens=0)))
+        except Exception as e:
+            yield sse(ErrorEvent(message=str(e)))
+
+    return StreamingResponse(gen(), media_type="text/event-stream")
+```
+
+Client-side parsing with the same models:
+
+```python
+from pydantic import TypeAdapter
+adapter = TypeAdapter(StreamEvent)
+event = adapter.validate_json(line.removeprefix("data: "))
+```
+
+---
+
+## RAG Models: Documents, Embeddings, Search
+
+```python
+from datetime import datetime
+from pydantic import BaseModel, Field, field_validator
+
+class DocumentIn(BaseModel):
+    source: str
+    text: str = Field(..., min_length=1)
+    metadata: dict[str, str | int | float | bool] = Field(default_factory=dict)
+
+class Chunk(BaseModel):
+    id: str
+    document_id: str
+    text: str
+    embedding: list[float] | None = Field(default=None, exclude=True)  # never sent to clients
+    position: int
+
+    @field_validator("embedding")
+    @classmethod
+    def check_dim(cls, v):
+        if v is not None and len(v) != 1536:
+            raise ValueError("embedding must have 1536 dimensions")
+        return v
+
+class SearchRequest(BaseModel):
+    query: str = Field(..., min_length=2)
+    top_k: int = Field(5, ge=1, le=50)
+    filters: dict[str, str | int | bool] = {}
+    min_score: float = Field(0.0, ge=0, le=1)
+
+class SearchHit(BaseModel):
+    chunk_id: str
+    text: str
+    score: float
+    source: str
+
+class RagAnswer(BaseModel):
+    answer: str
+    citations: list[SearchHit]
+    model: str
+```
+
+Endpoints:
+
+```python
+@app.post("/documents", status_code=202)
+async def ingest(doc: DocumentIn, tasks: BackgroundTasks):
+    doc_id = uuid.uuid4().hex
+    tasks.add_task(chunk_embed_store, doc_id, doc)
+    return {"id": doc_id, "status": "queued"}
+
+@app.post("/rag/ask", response_model=RagAnswer)
+async def ask(req: SearchRequest):
+    hits = await vector_search(req)
+    answer = await generate_with_context(req.query, hits)
+    return RagAnswer(answer=answer, citations=hits, model="claude-sonnet-5-5")
+```
+
+---
+
+## File Uploads and Multimodal Inputs
+
+Files use `UploadFile`, not Pydantic fields. Combine them with a JSON string or form fields.
+
+```python
+from fastapi import UploadFile, File, Form
+
+class AnalyzeOptions(BaseModel):
+    language: str = "en"
+    extract_tables: bool = False
+
+@app.post("/analyze")
+async def analyze(
+    file: UploadFile = File(...),
+    options: str = Form("{}"),
+):
+    opts = AnalyzeOptions.model_validate_json(options)
+    content = await file.read()
+    ...
+```
+
+Base64 image input in JSON:
+
+```python
+import base64
+from pydantic import field_validator
+
+class ImageInput(BaseModel):
+    media_type: Literal["image/png", "image/jpeg", "image/webp"]
+    data: str   # base64
+
+    @field_validator("data")
+    @classmethod
+    def valid_b64(cls, v):
+        base64.b64decode(v, validate=True)
+        if len(v) > 10_000_000:
+            raise ValueError("image too large")
+        return v
+```
+
+---
+
+## Settings with pydantic-settings
+
+Typed configuration from environment variables and `.env` files.
+
+```python title="config.py"
+from functools import lru_cache
+from pydantic import SecretStr, Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_prefix="APP_",
+        extra="ignore",
+    )
+
+    anthropic_api_key: SecretStr
+    openai_api_key: SecretStr | None = None
+    default_model: str = "claude-sonnet-5-5"
+    max_tokens_limit: int = Field(4096, gt=0)
+    redis_url: str = "redis://localhost:6379"
+    debug: bool = False
+    allowed_origins: list[str] = ["http://localhost:3000"]
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
+```
+
+`.env`:
+
+```bash
+APP_ANTHROPIC_API_KEY=sk-ant-...
+APP_DEBUG=true
+APP_ALLOWED_ORIGINS=["http://localhost:3000","https://myapp.com"]
+```
+
+Use in FastAPI:
+
+```python
+from typing import Annotated
+from fastapi import Depends
+
+SettingsDep = Annotated[Settings, Depends(get_settings)]
+
+@app.get("/config")
+def show(settings: SettingsDep):
+    return {"model": settings.default_model, "debug": settings.debug}
+
+client = anthropic.AsyncAnthropic(api_key=get_settings().anthropic_api_key.get_secret_value())
+```
+
+---
+
+## Dependency Injection with Models
+
+### Shared parameters
+
+```python
+class Pagination(BaseModel):
+    page: int = Field(1, ge=1)
+    page_size: int = Field(20, ge=1, le=100)
+
+def pagination(page: int = 1, page_size: int = 20) -> Pagination:
+    return Pagination(page=page, page_size=page_size)
+
+@app.get("/items")
+async def items(p: Annotated[Pagination, Depends(pagination)]):
+    ...
+```
+
+### Authenticated user model
+
+```python
+class CurrentUser(BaseModel):
+    id: str
+    plan: Literal["free", "pro"]
+    rate_limit: int
+
+async def get_current_user(authorization: Annotated[str, Header()]) -> CurrentUser:
+    token = authorization.removeprefix("Bearer ")
+    return await lookup_user(token)
+
+@app.post("/chat")
+async def chat(req: ChatRequest, user: Annotated[CurrentUser, Depends(get_current_user)]):
+    if user.plan == "free" and req.max_tokens > 1024:
+        raise HTTPException(403, "Upgrade to use larger outputs")
+```
+
+### Provider abstraction
+
+```python
+class LLMProvider(Protocol):
+    async def complete(self, req: ChatRequest) -> ChatResponse: ...
+
+def get_provider(settings: SettingsDep) -> LLMProvider:
+    return AnthropicProvider(settings.anthropic_api_key.get_secret_value())
+```
+
+---
+
+## Custom Error Handling
+
+### Customize 422 responses
+
+```python
+from fastapi import Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+
+@app.exception_handler(RequestValidationError)
+async def validation_handler(request: Request, exc: RequestValidationError):
+    return JSONResponse(
+        status_code=422,
+        content={
+            "error": "validation_error",
+            "details": [
+                {"field": ".".join(map(str, e["loc"])), "message": e["msg"]}
+                for e in exc.errors()
+            ],
+        },
+    )
+```
+
+### Handle LLM output validation failures
+
+```python
+class LLMOutputError(Exception):
+    def __init__(self, detail: str):
+        self.detail = detail
+
+@app.exception_handler(LLMOutputError)
+async def llm_error_handler(request: Request, exc: LLMOutputError):
+    return JSONResponse(status_code=502, content={"error": "bad_model_output", "detail": exc.detail})
+```
+
+### Custom error messages in validators
+
+```python
+from pydantic_core import PydanticCustomError
+
+@field_validator("model")
+@classmethod
+def known_model(cls, v):
+    if v not in ALLOWED_MODELS:
+        raise PydanticCustomError(
+            "unknown_model", "Model {model} is not supported", {"model": v}
+        )
+    return v
+```
+
+---
+
+## TypeAdapter for Non-Model Types
+
+Validate any type without defining a class. Great for parsing LLM output that is a list or a union.
+
+```python
+from pydantic import TypeAdapter
+
+ints = TypeAdapter(list[int])
+ints.validate_python(["1", "2", 3])      # [1, 2, 3]
+
+class Entity(BaseModel):
+    name: str
+    kind: Literal["person", "org", "place"]
+
+entities = TypeAdapter(list[Entity])
+result = entities.validate_json(llm_output)
+
+entities.json_schema()                    # schema for a list of Entity
+```
+
+Cache `TypeAdapter` instances at module level. Creating one is relatively expensive.
+
+---
+
+## Background Jobs and Async Task Status
+
+Track long-running AI jobs (batch generation, ingestion, fine-tuning) with a status model.
+
+```python
+from enum import Enum
+from datetime import datetime, timezone
+
+class JobStatus(str, Enum):
+    queued = "queued"
+    running = "running"
+    succeeded = "succeeded"
+    failed = "failed"
+
+class Job(BaseModel):
+    id: str
+    status: JobStatus = JobStatus.queued
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    result: dict | None = None
+    error: str | None = None
+
+JOBS: dict[str, Job] = {}   # use Redis or a DB in production
+
+@app.post("/jobs", response_model=Job, status_code=202)
+async def create_job(req: GenerateRequest, tasks: BackgroundTasks):
+    job = Job(id=uuid.uuid4().hex)
+    JOBS[job.id] = job
+    tasks.add_task(run_job, job.id, req)
+    return job
+
+@app.get("/jobs/{job_id}", response_model=Job)
+async def get_job(job_id: str):
+    if job_id not in JOBS:
+        raise HTTPException(404, "Job not found")
+    return JOBS[job_id]
+```
+
+---
+
+## Testing Pydantic Models and Endpoints
+
+### Model tests
+
+```python
+import pytest
+from pydantic import ValidationError
+
+def test_temperature_bounds():
+    with pytest.raises(ValidationError):
+        ChatRequest(messages=[ChatMessage(role="user", content="hi")], temperature=5)
+
+def test_extra_forbidden():
+    with pytest.raises(ValidationError):
+        ChatRequest.model_validate({"messages": [], "bogus": 1})
+```
+
+### Endpoint tests
+
+```python
+from fastapi.testclient import TestClient
+
+client = TestClient(app)
+
+def test_chat_ok():
+    r = client.post("/v1/chat/completions", json={
+        "messages": [{"role": "user", "content": "Hi"}],
+    })
+    assert r.status_code == 200
+    ChatResponse.model_validate(r.json())    # response matches the schema
+
+def test_chat_invalid():
+    r = client.post("/v1/chat/completions", json={"messages": []})
+    assert r.status_code == 422
+```
+
+### Mock the LLM, keep real validation
+
+```python
+app.dependency_overrides[get_provider] = lambda: FakeProvider()
+```
+
+### Schema snapshot test
+
+Catch accidental breaking changes to your API or tool schemas:
+
+```python
+def test_tool_schema_stable(snapshot):
+    assert GetWeatherArgs.model_json_schema() == snapshot
+```
+
+---
+
+## Performance Tips
+
+- **Reuse models.** Pydantic v2's core is written in Rust, so validation is fast, but building models inside request handlers is wasteful.
+- **Use `model_validate_json`** instead of `json.loads` followed by `model_validate`. It parses and validates in one pass.
+- **Use `TypeAdapter` at module level**, not per request.
+- **Avoid huge embeddings in response models.** Use `Field(exclude=True)` or a separate public model.
+- **Use `Annotated` types** to share constraints without subclassing.
+- **Prefer `Literal` and discriminated unions** over plain `Union`. Smart-mode union validation tries each member.
+- **Use `model_construct`** only for trusted data when you intentionally skip validation.
+- For large numeric arrays, consider `numpy` arrays or `bytes` and convert at the boundary.
+
+---
+
+## Best Practices Checklist
+
+- [ ] Separate **input**, **internal**, and **output** models.
+- [ ] Always set `response_model` or a return annotation.
+- [ ] Use `extra="forbid"` on request models.
+- [ ] Add `description` to every field that an LLM or API consumer will read.
+- [ ] Use `Literal`, `Enum`, and discriminated unions instead of free-form strings and dicts.
+- [ ] Validate **LLM output** with `model_validate_json`, and retry with the error message.
+- [ ] Validate **tool arguments** before executing any tool.
+- [ ] Never expose secrets. Use `SecretStr` and exclude sensitive fields.
+- [ ] Keep API keys and configuration in `pydantic-settings`.
+- [ ] Put upper bounds on `max_tokens`, list lengths, and string sizes to protect cost and memory.
+- [ ] Version your schemas (`/v1/...`) when changing response shapes.
+- [ ] Test schemas with snapshots, and mock the LLM in endpoint tests.
+
+---
+
+## Further Reading
+
+- Pydantic docs: https://docs.pydantic.dev
+- FastAPI docs: https://fastapi.tiangolo.com
+- pydantic-settings: https://docs.pydantic.dev/latest/concepts/pydantic_settings/
