@@ -17,7 +17,7 @@ import styles from './index.module.css';
 const STATS = [
   { value: String(TOTAL_SECTIONS), label: 'sections' },
   { value: String(TOTAL_PAGES), label: 'lesson pages' },
-  { value: '20', label: 'week plan' },
+  { value: '22', label: 'week plan' },
   { value: '0', label: 'API keys needed' },
 ];
 
@@ -57,11 +57,12 @@ const PRINCIPLES = [
 const ENTRY_POINTS = [
   { when: 'New to Python', to: '/docs/00-prerequisites', label: '00 · Prerequisites' },
   { when: 'Know Python, not backend', to: '/docs/02-fastapi', label: '02 · FastAPI' },
-  { when: 'Ship backends already', to: '/docs/03-local-llms-ollama', label: '03 · Local LLMs' },
-  { when: 'Used LLM APIs, not RAG', to: '/docs/04-embeddings-vector-db', label: '04 · Embeddings' },
-  { when: 'RAG demo that underperforms', to: '/docs/06-advanced-rag', label: '06 · Advanced RAG' },
-  { when: 'Shipping but cannot measure it', to: '/docs/11-evaluation', label: '11 · Evaluation' },
-  { when: 'Interview next week', to: '/docs/15-ai-roadmaps', label: '15 · Interview Roadmaps' },
+  { when: 'Ship backends already', to: '/docs/03-llm-fundamentals', label: '03 · LLM Fundamentals' },
+  { when: 'Prompts feel like guesswork', to: '/docs/04-prompt-engineering', label: '04 · Prompt Engineering' },
+  { when: 'Used LLM APIs, not RAG', to: '/docs/05-embeddings-and-semantic-search', label: '05 · Embeddings' },
+  { when: 'RAG demo that underperforms', to: '/docs/07-advanced-rag', label: '07 · Advanced RAG' },
+  { when: 'Shipping but cannot measure it', to: '/docs/12-evaluation-testing-and-observability', label: '12 · Evaluation' },
+  { when: 'Interview next week', to: '/docs/17-interview-roadmaps', label: '17 · Interview Roadmaps' },
 ];
 
 function Hero() {
@@ -269,7 +270,7 @@ function FinalCta() {
             Start here
           </Link>
           <Link className={clsx('button button--lg', styles.ghostButton)} to="/docs/pacing">
-            See the 20-week plan
+            See the 22-week plan
           </Link>
         </div>
       </div>

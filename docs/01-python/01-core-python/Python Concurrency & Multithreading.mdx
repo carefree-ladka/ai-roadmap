@@ -728,7 +728,7 @@ with a fixed number of workers (next section).
 
 Every external call needs a timeout; retry only transient, idempotent failures
 with exponential backoff and jitter (full patterns in
-[API & service design](../../10-production-patterns/01-api-service-design.mdx)):
+[API & service design](../../08-llm-application-development/02-api-service-design.mdx)):
 
 ```python
 import asyncio, random
@@ -894,7 +894,7 @@ Monitor concurrency like any other service component:
 Failure handling checklist: timeouts on everything, retries with backoff,
 idempotent tasks, dead-letter queues, structured logs with a task/request id,
 and alerts on queue growth. See
-[logging & monitoring](../../10-production-patterns/02-logging-monitoring-guardrails.mdx).
+[logging & monitoring](../../13-production-genai-and-llmops/04-logging-monitoring-guardrails.mdx).
 
 ## Phase 6 — FastAPI & GenAI Applications
 
@@ -957,7 +957,7 @@ counts = await asyncio.gather(*(count_for(i) for i in ids))
 
 For HTTP, create **one shared `httpx.AsyncClient`** at startup (in the lifespan
 hook) and reuse its connection pool — never a new client per call (see
-[API & service design](../../10-production-patterns/01-api-service-design.mdx)).
+[API & service design](../../08-llm-application-development/02-api-service-design.mdx)).
 
 ### Parallel LLM Calls with Concurrency Limits
 

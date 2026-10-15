@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { PROGRESS_STORAGE_KEY } from "./sections";
+import { PROGRESS_STORAGE_KEY, RENAMED_SECTION_IDS } from "./sections";
 
 // Custom event name so multiple ProgressToggle / Progress page instances
 // stay in sync within the same tab (the native 'storage' event only fires
@@ -16,9 +16,26 @@ function readProgress(): string[] {
       return [];
     }
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed)
-      ? parsed.filter((x) => typeof x === "string")
-      : [];
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    const ids = parsed.filter((x): x is string => typeof x === "string");
+
+    // Migrate ids for sections whose folder was renamed, then persist so the
+    // mapping only has to happen once per browser.
+    const migrated = Array.from(
+      new Set(ids.map((id) => RENAMED_SECTION_IDS[id] ?? id)),
+    );
+    if (
+      migrated.length !== ids.length ||
+      migrated.some((id, i) => id !== ids[i])
+    ) {
+      window.localStorage.setItem(
+        PROGRESS_STORAGE_KEY,
+        JSON.stringify(migrated),
+      );
+    }
+    return migrated;
   } catch {
     return [];
   }

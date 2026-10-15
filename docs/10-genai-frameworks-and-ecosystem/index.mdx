@@ -1,0 +1,107 @@
+---
+title: GenAI Frameworks and Ecosystem
+description: Compose LLM pipelines with LangChain and LCEL — prompts, models, parsers, retrievers, RAG chains, streaming, memory, agents, and observability — then build RAG the LlamaIndex way and learn when to use each framework.
+slug: /10-genai-frameworks-and-ecosystem
+---
+
+import TOCInline from '@theme/TOCInline';
+
+# 10 · GenAI Frameworks and Ecosystem
+
+<ProgressToggle sectionId="10-genai-frameworks-and-ecosystem" />
+
+<TOCInline toc={toc} minHeadingLevel={2} maxHeadingLevel={2} />
+
+:::tip[In this guide]
+The two dominant LLM frameworks, end to end. You'll master LangChain's building
+blocks — prompts, models, output parsers, Runnables/LCEL, loaders, splitters,
+retrievers, RAG chains, streaming, memory, agents, and tracing — then rebuild
+RAG the LlamaIndex way and learn exactly when to reach for each (or neither).
+:::
+
+## Goal
+
+Compose prompts, models, retrievers, and parsers into pipelines with LCEL, add
+memory, agents, and observability, and build the same RAG with LlamaIndex — then
+choose frameworks deliberately.
+
+## Estimated Time
+
+1–2 weeks.
+
+## Prerequisites
+
+- A working [RAG project](../06-rag/03-first-project.mdx).
+- [Local LLMs / Ollama](../03-llm-fundamentals/index.mdx).
+
+## What You Will Learn
+
+### LangChain building blocks
+
+1. [LangChain Basics](./01-langchain-core/01-langchain-basics.mdx) — components, LCEL, a RAG chain with Ollama.
+2. [Prompt Templates](./01-langchain-core/02-prompt-templates.mdx) — chat templates, roles, partials, `MessagesPlaceholder`, few-shot.
+3. [Models & Output Parsers](./01-langchain-core/03-models-output-parsers.mdx) — `ChatOllama`, structured output, Pydantic parsing.
+4. [Runnables & LCEL (Deep Dive)](./01-langchain-core/04-runnables-lcel.mdx) — passthrough, parallel, branch, fallbacks, retries.
+5. [Document Loaders & Text Splitters](./01-langchain-core/05-document-loaders-splitters.mdx) — loaders, recursive/token/structure-aware splitting.
+6. [Retrievers](./01-langchain-core/06-retrievers.mdx) — MMR, MultiQuery, compression, parent-document, ensemble (hybrid), self-query.
+7. [RAG Chains](./01-langchain-core/07-rag-chains.mdx) — built-in `create_retrieval_chain`, history-aware retrieval, citations.
+8. [Streaming, Async & Batch](./01-langchain-core/08-streaming-async.mdx) — `stream`/`astream`, `astream_events`, FastAPI streaming.
+9. [Memory & Agents](./01-langchain-core/09-memory-agents.mdx) — conversational memory, tools, agents, and their tradeoffs.
+10. [Callbacks, Tracing & LangSmith](./01-langchain-core/10-callbacks-tracing-langsmith.mdx) — observability, debugging, token/cost tracking.
+
+### The LlamaIndex track
+
+11. [LlamaIndex Basics](./02-llamaindex/01-llamaindex-basics.mdx) — Documents/Nodes, indices, query engines, the 5-line RAG.
+12. [LlamaIndex RAG](./02-llamaindex/02-llamaindex-rag.mdx) — ingestion pipelines, Chroma persistence, response modes, reranking, chat engines.
+13. [LangChain vs LlamaIndex](./02-llamaindex/03-langchain-vs-llamaindex.mdx) — focus, tradeoffs, combining them, and how to choose.
+
+### Complete Guides
+
+Standalone, theory-plus-FastAPI references for each library. Use them as the
+deep version of the lessons above, or as a refresher before an interview.
+
+| Guide | What it covers |
+| --- | --- |
+| [LLMs](./03-complete-guides/01-llms-complete-guide.mdx) | Model calls, parameters, tokens and cost, structured output |
+| [LangChain](./03-complete-guides/02-langchain-complete-guide.mdx) | The full framework behind a FastAPI service |
+| [LCEL](./03-complete-guides/03-lcel-complete-guide.mdx) | `Runnable`, the pipe operator, parallel/branching chains, SSE |
+| [LangGraph](./03-complete-guides/04-langgraph-complete-guide.mdx) | Graphs, state, routing, checkpointing, human-in-the-loop |
+| [LangSmith](./03-complete-guides/05-langsmith-complete-guide.mdx) | Tracing, datasets, evaluators, feedback |
+| [LlamaIndex](./03-complete-guides/06-llamaindex-complete-guide.mdx) | Indices, query engines, and FastAPI integration |
+| [LLM Guardrails](./03-complete-guides/07-llm-guardrails-complete-guide.mdx) | Output validation, input filtering, failing safely |
+| [Agent Frameworks Compared](./03-complete-guides/08-agent-frameworks.mdx) | LangGraph, CrewAI, Pydantic AI, LlamaIndex, provider SDKs and plain Python — the same agent in each, and how to choose |
+
+## Where This Fits
+
+```mermaid
+flowchart LR
+    Prompt --> Model[Ollama LLM]
+    Retriever --> Prompt
+    Model --> Parser[Output parser]
+    Parser --> Result
+```
+
+LCEL pipes these components together with a clean `|` syntax.
+
+## A Balanced View
+
+LangChain accelerates prototyping and standardizes integrations, but adds
+abstraction. For simple flows, the hand-written chain from your
+[first project](../06-rag/03-first-project.mdx) is often clearer.
+Learn both; choose deliberately.
+
+## Interview Relevance
+
+Expect "what is LCEL?", "when would you use an agent?", and "LangChain vs
+rolling your own?" — know the tradeoffs.
+
+## Done When
+
+- [ ] You can build a RAG chain with LCEL + Ollama and the built-in helpers.
+- [ ] You can use prompts, output parsers, and the core Runnable primitives.
+- [ ] You can choose and configure the right retriever, and stream results.
+- [ ] You can add conversational memory and explain when agents help or hurt.
+- [ ] You can add observability with callbacks/LangSmith.
+- [ ] You can build the same RAG in LlamaIndex and justify LangChain vs LlamaIndex.
+
+Next: [11 · MCP](../11-mcp/index.mdx).

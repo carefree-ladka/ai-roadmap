@@ -11,8 +11,8 @@ import TOCInline from '@theme/TOCInline';
 # Pacing Plan
 
 :::tip[This timeline is flexible]
-Twenty weeks is a guide, not a rule. Go faster where you're comfortable, slower
-where you're not. Depth and a working project beat rushing to finish.
+Twenty-two weeks is a guide, not a rule. Go faster where you're comfortable,
+slower where you're not. Depth and a working project beat rushing to finish.
 :::
 
 <TOCInline toc={toc} minHeadingLevel={2} maxHeadingLevel={2} />
@@ -21,9 +21,9 @@ where you're not. Depth and a working project beat rushing to finish.
 
 Give your learning a shape so you keep momentum without burning out.
 
-## The 20-Week Plan
+## The 22-Week Plan
 
-Weeks 1–6 build the backend. Weeks 7–14 build the AI system. Weeks 15–20 make
+Weeks 1–6 build the backend. Weeks 7–16 build the AI system. Weeks 17–22 make
 it agentic, measurable and defensible.
 
 ### Weeks 1–6 · Foundations
@@ -37,29 +37,34 @@ it agentic, measurable and defensible.
 | 5 | FastAPI data + auth | [Database](./02-fastapi/01-core-path/05-database.mdx), [migrations](./02-fastapi/01-core-path/06-database-migrations.mdx), [auth](./02-fastapi/01-core-path/07-authentication-authorization.mdx), [async](./02-fastapi/01-core-path/08-async-fastapi.mdx) |
 | 6 | FastAPI production | [Errors](./02-fastapi/01-core-path/09-error-handling.mdx), [caching](./02-fastapi/01-core-path/14-caching.mdx), [testing](./02-fastapi/01-core-path/15-testing.mdx), [security](./02-fastapi/01-core-path/16-security.mdx), [Docker](./02-fastapi/01-core-path/19-docker-deployment.mdx) |
 
-### Weeks 7–14 · Models and Retrieval
+### Weeks 7–16 · Models, Retrieval and the Application Layer
 
 | Week | Focus | Pages |
 | --- | --- | --- |
-| 7 | Local LLMs + how they work | [Install](./03-local-llms-ollama/01-install-basics.mdx), [API usage](./03-local-llms-ollama/02-ollama-api-usage.mdx), [LLM fundamentals](./03-local-llms-ollama/07-llm-fundamentals.mdx), [transformers](./03-local-llms-ollama/08-transformer-architecture.mdx) |
-| 8 | GPU serving + endpoints | [NVIDIA NIM](./03-local-llms-ollama/03-nvidia-nim-endpoints.mdx), [serving engines](./03-local-llms-ollama/04-gpu-serving-engines.mdx), [sizing & quantization](./03-local-llms-ollama/05-gpu-sizing-and-quantization.mdx), [one client](./03-local-llms-ollama/06-one-client-many-backends.mdx) |
-| 9 | Embeddings + vector search | [Embeddings](./04-embeddings-vector-db/01-embeddings.mdx), [Chroma](./04-embeddings-vector-db/02-vector-db-chroma.mdx), [index internals](./04-embeddings-vector-db/03-vector-index-internals.mdx) |
-| 10 | Vector store engineering | [Choosing a store](./04-embeddings-vector-db/04-choosing-a-vector-store.mdx), [pgvector](./04-embeddings-vector-db/05-pgvector-with-fastapi.mdx), [operations](./04-embeddings-vector-db/06-vector-store-operations.mdx) |
-| 11 | **RAG fundamentals — build the project** | [Ingestion](./05-rag-fundamentals/01-ingestion-pipeline.mdx), [retrieval & generation](./05-rag-fundamentals/02-retrieval-generation.mdx), [first project](./05-rag-fundamentals/03-first-project.mdx) |
-| 12 | RAG depth | [Chunking](./05-rag-fundamentals/05-chunking-strategies.mdx), [hybrid search](./05-rag-fundamentals/10-hybrid-search.mdx), [reranking](./05-rag-fundamentals/11-reranking.mdx), [prompts](./05-rag-fundamentals/12-prompt-construction.mdx), [context windows](./05-rag-fundamentals/13-context-windows.mdx), [evaluation](./05-rag-fundamentals/14-rag-evaluation.mdx) |
-| 13 | RAG patterns I | [The catalog](./06-advanced-rag/04-rag-patterns.mdx), [query transformation](./06-advanced-rag/05-query-transformation.mdx), [context construction](./06-advanced-rag/06-context-construction.mdx) |
-| 14 | RAG patterns II | [Self-correcting](./06-advanced-rag/07-self-correcting-rag.mdx), [graph & structured](./06-advanced-rag/08-graph-and-structured-rag.mdx), [agentic RAG](./06-advanced-rag/09-agentic-rag.mdx) |
+| 7 | LLM fundamentals | [Install](./03-llm-fundamentals/01-install-basics.mdx), [API usage](./03-llm-fundamentals/02-ollama-api-usage.mdx), [LLM fundamentals](./03-llm-fundamentals/03-llm-fundamentals.mdx), [transformers](./03-llm-fundamentals/04-transformer-architecture.mdx) |
+| 8 | Decoding + reasoning models | [Decoding & sampling](./03-llm-fundamentals/05-decoding-and-sampling.mdx), [reasoning models](./03-llm-fundamentals/06-reasoning-models.mdx) |
+| 9 | Prompt engineering | [Fundamentals](./04-prompt-engineering/01-prompting-fundamentals.mdx), [techniques](./04-prompt-engineering/02-prompting-techniques.mdx), [structured output](./04-prompt-engineering/03-structured-output.mdx), [context engineering](./04-prompt-engineering/04-context-engineering.mdx), [injection](./04-prompt-engineering/07-prompt-injection.mdx) |
+| 10 | Embeddings + vector search | [Embeddings](./05-embeddings-and-semantic-search/01-embeddings.mdx), [Chroma](./05-embeddings-and-semantic-search/02-vector-db-chroma.mdx), [index internals](./05-embeddings-and-semantic-search/03-vector-index-internals.mdx) |
+| 11 | Vector store engineering | [Choosing a store](./05-embeddings-and-semantic-search/04-choosing-a-vector-store.mdx), [pgvector](./05-embeddings-and-semantic-search/05-pgvector-with-fastapi.mdx), [operations](./05-embeddings-and-semantic-search/06-vector-store-operations.mdx) |
+| 12 | **RAG fundamentals — build the project** | [Ingestion](./06-rag/01-ingestion-pipeline.mdx), [retrieval & generation](./06-rag/02-retrieval-generation.mdx), [first project](./06-rag/03-first-project.mdx) |
+| 13 | RAG depth | [Chunking](./06-rag/05-chunking-strategies.mdx), [hybrid search](./06-rag/10-hybrid-search.mdx), [reranking](./06-rag/11-reranking.mdx), [prompts](./06-rag/12-prompt-construction.mdx), [context windows](./06-rag/13-context-windows.mdx), [evaluation](./06-rag/14-rag-evaluation.mdx) |
+| 14 | RAG patterns I | [The catalog](./07-advanced-rag/04-rag-patterns.mdx), [query transformation](./07-advanced-rag/05-query-transformation.mdx), [context construction](./07-advanced-rag/06-context-construction.mdx) |
+| 15 | RAG patterns II | [Self-correcting](./07-advanced-rag/07-self-correcting-rag.mdx), [graph & structured](./07-advanced-rag/08-graph-and-structured-rag.mdx), [agentic RAG](./07-advanced-rag/09-agentic-rag.mdx) |
+| 16 | The application layer | [One client, many backends](./08-llm-application-development/01-one-client-many-backends.mdx), [service design](./08-llm-application-development/02-api-service-design.mdx), [extraction & classification](./08-llm-application-development/03-extraction-and-classification.mdx), [AI product & UX patterns](./08-llm-application-development/04-ai-product-ux-patterns.mdx) |
 
-### Weeks 15–20 · Agents, Integration and Proof
+### Weeks 17–22 · Agents, Integration and Proof
 
 | Week | Focus | Pages |
 | --- | --- | --- |
-| 15 | LangChain + LlamaIndex | [Basics](./07-langchain-lcel/01-langchain-core/01-langchain-basics.mdx), [retrievers](./07-langchain-lcel/01-langchain-core/06-retrievers.mdx), [RAG chains](./07-langchain-lcel/01-langchain-core/07-rag-chains.mdx), [memory & agents](./07-langchain-lcel/01-langchain-core/09-memory-agents.mdx), [LlamaIndex](./07-langchain-lcel/02-llamaindex/01-llamaindex-basics.mdx) |
-| 16 | Agents + LangGraph | [Fundamentals](./08-agentic-ai/01-agents-fundamentals.mdx), [LangGraph](./08-agentic-ai/02-langgraph-basics.mdx), [building agents](./08-agentic-ai/03-building-agents.mdx), [tool design](./08-agentic-ai/07-tool-design.mdx) |
-| 17 | Agent depth + assistants | [Memory](./08-agentic-ai/08-agent-memory.mdx), [planning](./08-agentic-ai/09-planning-and-reflection.mdx), [multi-agent](./08-agentic-ai/04-multi-agent-systems.mdx), [how assistants work](./08-agentic-ai/05-how-assistants-work.mdx), [build one](./08-agentic-ai/06-build-coding-assistant.mdx) |
-| 18 | MCP | [Fundamentals](./09-mcp/01-mcp-fundamentals.mdx), [protocol](./09-mcp/02-protocol-and-transports.mdx), [build a server](./09-mcp/03-building-a-server.mdx), [build a client](./09-mcp/04-building-a-client.mdx), [security](./09-mcp/05-security-and-auth.mdx) |
-| 19 | Evaluation + observability | [Mindset](./11-evaluation/01-evaluation-mindset.mdx), [datasets](./11-evaluation/02-eval-datasets.mdx), [metrics](./11-evaluation/03-metrics.mdx), [LLM-as-judge](./11-evaluation/04-llm-as-judge.mdx), [CI](./11-evaluation/05-eval-in-ci.mdx), [tracing](./11-evaluation/07-tracing-and-observability.mdx) |
-| 20 | Production, system design, portfolio | [Service design](./10-production-patterns/01-api-service-design.mdx), [guardrails](./10-production-patterns/02-logging-monitoring-guardrails.mdx), [agent safety](./08-agentic-ai/11-agent-safety.mdx), [architecture narratives](./13-system-design-interview/01-architecture-narratives.mdx), [portfolio](./13-system-design-interview/03-portfolio.mdx) |
+| 17 | LangChain + LlamaIndex | [Basics](./10-genai-frameworks-and-ecosystem/01-langchain-core/01-langchain-basics.mdx), [retrievers](./10-genai-frameworks-and-ecosystem/01-langchain-core/06-retrievers.mdx), [RAG chains](./10-genai-frameworks-and-ecosystem/01-langchain-core/07-rag-chains.mdx), [memory & agents](./10-genai-frameworks-and-ecosystem/01-langchain-core/09-memory-agents.mdx), [LlamaIndex](./10-genai-frameworks-and-ecosystem/02-llamaindex/01-llamaindex-basics.mdx) |
+| 18 | Agents + LangGraph | [Fundamentals](./09-tool-calling-and-ai-agents/01-agents-fundamentals.mdx), [LangGraph](./09-tool-calling-and-ai-agents/02-langgraph-basics.mdx), [building agents](./09-tool-calling-and-ai-agents/03-building-agents.mdx), [tool design](./09-tool-calling-and-ai-agents/07-tool-design.mdx) |
+| 19 | Agent depth + assistants | [Memory](./09-tool-calling-and-ai-agents/08-agent-memory.mdx), [planning](./09-tool-calling-and-ai-agents/09-planning-and-reflection.mdx), [multi-agent](./09-tool-calling-and-ai-agents/04-multi-agent-systems.mdx), [how assistants work](./09-tool-calling-and-ai-agents/05-how-assistants-work.mdx), [build one](./09-tool-calling-and-ai-agents/06-build-coding-assistant.mdx) |
+| 20 | MCP | [Fundamentals](./11-mcp/01-mcp-fundamentals.mdx), [protocol](./11-mcp/02-protocol-and-transports.mdx), [build a server](./11-mcp/03-building-a-server.mdx), [build a client](./11-mcp/04-building-a-client.mdx), [security](./11-mcp/05-security-and-auth.mdx) |
+| 21 | Evaluation + observability | [Mindset](./12-evaluation-testing-and-observability/01-evaluation-mindset.mdx), [datasets](./12-evaluation-testing-and-observability/02-eval-datasets.mdx), [metrics](./12-evaluation-testing-and-observability/03-metrics.mdx), [LLM-as-judge](./12-evaluation-testing-and-observability/04-llm-as-judge.mdx), [CI](./12-evaluation-testing-and-observability/05-eval-in-ci.mdx), [tracing](./12-evaluation-testing-and-observability/07-tracing-and-observability.mdx) |
+| 22 | Production, defence, portfolio | [Guardrails](./13-production-genai-and-llmops/04-logging-monitoring-guardrails.mdx), [model selection](./13-production-genai-and-llmops/10-model-selection-and-benchmarking.mdx), [responsible AI](./13-production-genai-and-llmops/11-responsible-ai-and-governance.mdx), [agent safety](./09-tool-calling-and-ai-agents/11-agent-safety.mdx), [architecture narratives](./16-ai-system-design/01-architecture-narratives.mdx), [portfolio](./16-ai-system-design/03-portfolio.mdx) |
+
+Week 21 before week 22 is deliberate. Model selection is a bake-off on your own
+eval set, so it is not a thing you can do well until you have one.
 
 ## Tracks to Run Alongside
 
@@ -68,10 +73,16 @@ material you dip into, not milestones you have to clear.
 
 | Section | When to read it |
 | --- | --- |
-| [12 · Fine-Tuning](./12-fine-tuning/index.mdx) | Only after week 19. Evaluation is what tells you whether you need it — and [the first page](./12-fine-tuning/01-when-to-fine-tune.mdx) will often tell you that you don't. |
-| [13 · System Design](./13-system-design-interview/index.mdx) | From week 11 onward, alongside the build. [AI system design](./13-system-design-interview/06-ai-system-design.mdx) lands best once you have a RAG service to reason about. |
-| [14 · Optional Extensions](./14-optional-extensions/index.mdx) | After week 20, pick one and apply it to your project. |
-| [15 · AI Interview Roadmaps](./15-ai-roadmaps/index.mdx) | Start skimming from week 12; use intensively in the two weeks before an interview. |
+| [14 · Fine-Tuning and Model Adaptation](./14-fine-tuning-and-model-adaptation/index.mdx) | Only after week 21. Evaluation is what tells you whether you need it — and [the first page](./14-fine-tuning-and-model-adaptation/01-when-to-fine-tune.mdx) will often tell you that you don't. |
+| [15 · Multimodal GenAI](./15-multimodal-genai/index.mdx) | Per modality, when a project needs it. [Multimodal RAG](./15-multimodal-genai/02-multimodal-rag.mdx) pairs naturally with week 12 if your documents are scanned PDFs; [voice](./15-multimodal-genai/03-voice-and-realtime.mdx) only once streaming and cancellation from week 16 are solid. |
+| [16 · AI System Design](./16-ai-system-design/index.mdx) | From week 12 onward, alongside the build. [AI system design](./16-ai-system-design/06-ai-system-design.mdx) lands best once you have a RAG service to reason about. |
+| [17 · AI Interview Roadmaps](./17-interview-roadmaps/index.mdx) | Start skimming from week 13; use intensively in the two weeks before an interview. |
+
+The rest of [13 · Production GenAI and LLMOps](./13-production-genai-and-llmops/index.mdx)
+— GPU serving, queues, the model gateway, cost control, security — is reference
+you reach for when the problem arrives. Read
+[GPU serving engines](./13-production-genai-and-llmops/02-gpu-serving-engines.mdx) when
+Ollama stalls under concurrency, not before.
 
 Deep-dive pages inside sections you've already covered — the extra FastAPI
 phases, the remaining Python language guides, the LangChain complete guides —
@@ -80,7 +91,7 @@ are reference too. Read them when you hit the problem they solve.
 ## How to Use It
 
 - **Track it** on the [Progress page](/progress) — tick sections as you finish.
-- **Build as you go**: from week 11, keep improving the *same* [RAG project](./05-rag-fundamentals/03-first-project.mdx). Everything after that week is an upgrade to one codebase, not a new tutorial.
+- **Build as you go**: from week 12, keep improving the *same* [RAG project](./06-rag/03-first-project.mdx). Everything after that week is an upgrade to one codebase, not a new tutorial.
 - **Don't skip fundamentals**: Python and async underpin everything after.
 - **Finish each section's "Done When" checklist** before moving on. It is a better signal than the calendar.
 
@@ -90,17 +101,18 @@ are reference too. Read them when you hit the problem they solve.
 | --- | --- |
 | Already know Python | Skim weeks 1–3, start at week 4 |
 | Experienced backend engineer | Skim weeks 1–6, start at week 7. This is the most common case. |
-| Just want RAG, nothing else | [Prerequisites](./00-prerequisites/index.mdx), enough [async](./01-python/01-core-python/04-professional-python.mdx#async-python), then weeks 7, 9, 11, 12 |
-| No GPU and no interest in serving | Skip week 8; read [NVIDIA NIM](./03-local-llms-ollama/03-nvidia-nim-endpoints.mdx) only, for the hosted-endpoint pattern |
-| Interview in a month | Weeks 11–14 and 19, then [15 · AI Interview Roadmaps](./15-ai-roadmaps/index.mdx) |
-| Building agents at work already | Weeks 16–18 and 19, then back-fill |
+| Just want RAG, nothing else | [Prerequisites](./00-prerequisites/index.mdx), enough [async](./01-python/01-core-python/04-professional-python.mdx#async-python), then weeks 7, 10, 12, 13 |
+| No GPU, no interest in serving | Nothing in the grid needs one. Read [NVIDIA NIM](./13-production-genai-and-llmops/01-nvidia-nim-endpoints.mdx) for the hosted-endpoint pattern and skip the rest of the GPU pages. |
+| Not building chat | Weeks 7–9, then 16 — [extraction & classification](./08-llm-application-development/03-extraction-and-classification.mdx) is the shape most production work takes — then 21 |
+| Interview in a month | Weeks 12–15 and 21, then [17 · AI Interview Roadmaps](./17-interview-roadmaps/index.mdx) |
+| Building agents at work already | Weeks 18–20 and 21, then back-fill |
 
 ## The Minimum Viable Path
 
-If twenty weeks is not realistic, these six weeks get you a defensible project:
-**7, 9, 11, 12, 13, 19.** Local model, embeddings, a working RAG service,
-retrieval you have tuned, one pattern applied deliberately, and numbers proving
-it got better. That is a real portfolio piece.
+If twenty-two weeks is not realistic, these six weeks get you a defensible
+project: **7, 10, 12, 13, 14, 21.** Local model, embeddings, a working RAG
+service, retrieval you have tuned, one pattern applied deliberately, and
+numbers proving it got better. That is a real portfolio piece.
 
 ## Adjusting the Plan
 

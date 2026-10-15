@@ -1462,7 +1462,7 @@ SameSite cookies and CSRF tokens (less relevant for bearer-token APIs).
 outbound URLs you fetch), unsafe deserialization (never unpickle untrusted data),
 rate limiting and quotas, request size limits, secrets in a secret manager, and
 logs that never contain tokens or PII. For timeouts, retries, circuit breakers,
-and bulkheads see [API & service design](../../10-production-patterns/01-api-service-design.mdx).
+and bulkheads see [API & service design](../../08-llm-application-development/02-api-service-design.mdx).
 
 ---
 
@@ -1749,7 +1749,7 @@ Add timeouts per tool, a token/cost budget, **human-in-the-loop approval** for
 irreversible actions, **checkpointing** state (LangGraph) so runs can resume, and
 tracing (LangSmith/OpenTelemetry) for debugging. Treat tool output and retrieved
 text as **untrusted** (prompt injection); see
-[Logging, monitoring & guardrails](../../10-production-patterns/02-logging-monitoring-guardrails.mdx).
+[Logging, monitoring & guardrails](../../13-production-genai-and-llmops/04-logging-monitoring-guardrails.mdx).
 
 **MCP (Model Context Protocol):** a standard for exposing tools, resources, and
 prompts to AI clients. An MCP **server** exposes capabilities; an MCP **client**
@@ -1778,8 +1778,8 @@ no-answer rate, tracing) after.
 latency, error rate, tokens, cache hit rate), OpenTelemetry traces across stages,
 liveness vs readiness probes, SLOs with error budgets, canary releases for
 prompt and model changes, and a rollback path. See
-[Deployment basics](../../10-production-patterns/03-deployment-basics.mdx) and
-[Logging, monitoring & guardrails](../../10-production-patterns/02-logging-monitoring-guardrails.mdx).
+[Deployment basics](../../13-production-genai-and-llmops/05-deployment-basics.mdx) and
+[Logging, monitoring & guardrails](../../13-production-genai-and-llmops/04-logging-monitoring-guardrails.mdx).
 
 ### System Design Answer Template
 

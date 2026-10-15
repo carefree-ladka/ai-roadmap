@@ -132,7 +132,7 @@ const config: Config = {
           label: 'Roadmap',
         },
         {to: '/docs', label: 'Start Here', position: 'left'},
-        {to: '/docs/15-ai-roadmaps', label: 'Interview Prep', position: 'left'},
+        {to: '/docs/17-interview-roadmaps', label: 'Interview Prep', position: 'left'},
         {to: '/progress', label: 'Progress', position: 'left'},
         {to: '/docs/pacing', label: 'Pacing', position: 'left'},
         {
@@ -160,17 +160,18 @@ const config: Config = {
         {
           title: 'Build',
           items: [
-            {label: 'Local LLMs / Ollama', to: '/docs/03-local-llms-ollama'},
-            {label: 'RAG Fundamentals', to: '/docs/05-rag-fundamentals'},
-            {label: 'Advanced RAG', to: '/docs/06-advanced-rag'},
-            {label: 'Agents & Agentic AI', to: '/docs/08-agentic-ai'},
+            {label: 'LLM Fundamentals', to: '/docs/03-llm-fundamentals'},
+            {label: 'Prompt Engineering', to: '/docs/04-prompt-engineering'},
+            {label: 'RAG', to: '/docs/06-rag'},
+            {label: 'Advanced RAG', to: '/docs/07-advanced-rag'},
+            {label: 'Tool Calling and AI Agents', to: '/docs/09-tool-calling-and-ai-agents'},
           ],
         },
         {
           title: 'Prepare',
           items: [
-            {label: 'System Design', to: '/docs/13-system-design-interview'},
-            {label: 'AI Interview Roadmaps', to: '/docs/15-ai-roadmaps'},
+            {label: 'System Design', to: '/docs/16-ai-system-design'},
+            {label: 'AI Interview Roadmaps', to: '/docs/17-interview-roadmaps'},
             {label: 'Progress', to: '/progress'},
             {label: 'Pacing Plan', to: '/docs/pacing'},
           ],

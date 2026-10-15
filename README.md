@@ -7,7 +7,7 @@ The site is built with [Docusaurus](https://docusaurus.io/) and served as a stat
 ## What's inside
 
 The roadmap is organized as a sequence of modules under `docs/`. Sections
-`00`–`14` teach you to build; section `15` prepares you to talk about what you
+`00`–`16` teach you to build; section `17` prepares you to talk about what you
 built.
 
 | Module | Topic |
@@ -15,19 +15,21 @@ built.
 | `00-prerequisites` | Python tooling, core AI concepts, environment setup |
 | `01-python` | Python from basics to backend patterns, plus DSA and SQL |
 | `02-fastapi` | Building production APIs with FastAPI |
-| `03-local-llms-ollama` | Ollama locally, plus NVIDIA NIM, vLLM and GPU sizing |
-| `04-embeddings-vector-db` | Embeddings, index internals, pgvector, store operations |
-| `05-rag-fundamentals` | Core RAG concepts and pipelines |
-| `06-advanced-rag` | The RAG pattern catalog — query transforms through agentic RAG |
-| `07-langchain-lcel` | LangChain, LCEL, and LlamaIndex |
-| `08-agentic-ai` | Agents, tool design, memory, planning, safety, production |
-| `09-mcp` | Model Context Protocol — building and consuming servers |
-| `10-production-patterns` | Production concerns and patterns |
-| `11-evaluation` | Datasets, metrics, LLM-as-judge, CI gates, online evals |
-| `12-fine-tuning` | Whether to fine-tune, then LoRA/QLoRA end to end |
-| `13-system-design-interview` | System design and LLD for interviews |
-| `14-optional-extensions` | Optional deep-dive directions |
-| `15-ai-roadmaps` | Topic-by-topic AI interview roadmaps |
+| `03-llm-fundamentals` | Tokens, context windows, attention, decoding, reasoning models |
+| `04-prompt-engineering` | Prompting techniques, structured output, injection defence |
+| `05-embeddings-and-semantic-search` | Embeddings, index internals, pgvector, hybrid search |
+| `06-rag` | Core RAG concepts and the end-to-end pipeline |
+| `07-advanced-rag` | The RAG pattern catalog, query transforms through agentic RAG |
+| `08-llm-application-development` | Provider abstraction, resilience, extraction and classification, AI UX |
+| `09-tool-calling-and-ai-agents` | Tool calling, agent loops, memory, planning, safety, production |
+| `10-genai-frameworks-and-ecosystem` | LangChain, LCEL, LangGraph, LlamaIndex, CrewAI, Pydantic AI |
+| `11-mcp` | Model Context Protocol — building and consuming servers |
+| `12-evaluation-testing-and-observability` | Datasets, metrics, LLM-as-judge, CI gates, tracing, online evals |
+| `13-production-genai-and-llmops` | GPU serving, queues, gateway, cost, security, model selection, governance |
+| `14-fine-tuning-and-model-adaptation` | Whether to fine-tune, then LoRA/QLoRA end to end |
+| `15-multimodal-genai` | Vision-language models, document intelligence, voice and realtime |
+| `16-ai-system-design` | AI system design, tradeoffs, capacity and cost estimation |
+| `17-interview-roadmaps` | Topic-by-topic AI interview roadmaps |
 
 `docs/index.mdx` is the **Start Here** landing page at `/docs`. There's also a
 **Progress** tracker and a **Pacing** guide (`docs/pacing.mdx`) to help you plan

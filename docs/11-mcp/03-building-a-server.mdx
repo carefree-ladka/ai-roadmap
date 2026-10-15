@@ -1,0 +1,521 @@
+---
+title: Building an MCP Server
+description: Expose tools, resources and prompts with the Python SDK, run over stdio, wire into a host config, and test without a transport.
+sidebar_label: Building a Server
+---
+
+import TOCInline from '@theme/TOCInline';
+
+# Building an MCP Server
+
+<TOCInline toc={toc} minHeadingLevel={2} maxHeadingLevel={2} />
+
+:::tip[In this guide]
+A complete server over the retriever from your RAG project — a search tool, a
+document resource, and a summarise prompt — plus how to run it, connect a host
+to it, and test it without spinning up a transport.
+:::
+
+## What Is It?
+
+A server is a normal Python program that registers handlers and runs an event
+loop. The SDK turns your type hints into JSON Schema and your docstrings into
+the descriptions the model reads.
+
+```bash
+pip install "mcp[cli]"
+```
+
+:::note[SDK names have moved]
+The Python SDK's server class has been renamed across major versions —
+`FastMCP` in v1, `MCPServer` in v2. The decorators and the overall shape have
+stayed stable. Examples here use the v2 name; check the
+[Python SDK docs](https://py.sdk.modelcontextprotocol.io/) for your installed
+version and adjust the import.
+:::
+
+## Why Does It Matter?
+
+Because the server is where the quality of the integration is decided, and
+almost all of it comes down to things the protocol does not enforce: whether
+your tool descriptions let the model route correctly, whether your results fit
+in a context window, and whether a failure comes back as something the model
+can act on.
+
+The protocol is the easy part. The SDK handles it. What is left is
+[tool design](../09-tool-calling-and-ai-agents/07-tool-design.mdx), and it matters more here
+than in a local tool because the consumer might be an IDE you have never seen.
+
+## Your First Server
+
+```python
+"""docs_server.py"""
+import logging
+import sys
+
+from mcp.server import MCPServer
+
+# stdout is the transport. Logs must go to stderr.
+logging.basicConfig(stream=sys.stderr, level=logging.INFO)
+
+mcp = MCPServer("docs-server")
+
+
+@mcp.tool()
+async def search_docs(query: str, top_k: int = 4) -> str:
+    """Search the internal knowledge base for policies, runbooks and
+    architecture notes.
+
+    Use this for questions about how the company works or how our systems are
+    designed. Do NOT use it for source code.
+
+    Pass a focused search phrase, not the user's whole question.
+    """
+    hits = await retriever.search(query, top_k=min(top_k, 10))
+    if not hits:
+        return "No matching documents. Try different terms."
+    return "\n\n".join(f"[{h.path}]\n{h.text[:1500]}" for h in hits)
+
+
+if __name__ == "__main__":
+    mcp.run()
+```
+
+That is a working server. Four things in it are doing real work:
+
+- **The docstring is the model's entire instruction.** First line is the
+  summary, then when to use it, then — crucially — when *not* to. Negative
+  guidance is what makes routing work when a host has several servers attached.
+- **`top_k` is clamped.** The argument came from a model. `min(top_k, 10)`
+  stops `top_k=500` from returning a context-window-destroying payload.
+- **Empty results return a message, not an empty string.** The model can read
+  "try different terms" and do so. An empty string invites a hallucination.
+- **Text is truncated per hit.** Unbounded tool output is the most common way
+  an MCP server breaks a host.
+
+## Tools
+
+The type hints become the schema. Use Pydantic for anything non-trivial:
+
+```python
+from typing import Literal
+
+from pydantic import BaseModel, Field
+
+
+class SearchFilters(BaseModel):
+    """Optional narrowing for a document search."""
+
+    team: Literal["platform", "support", "security"] | None = Field(
+        default=None, description="Restrict results to one team's docs."
+    )
+    updated_after: str | None = Field(
+        default=None, description="ISO date, e.g. 2024-01-01."
+    )
+
+
+@mcp.tool()
+async def search_docs_filtered(
+    query: str,
+    filters: SearchFilters | None = None,
+    top_k: int = Field(default=4, ge=1, le=10),
+) -> str:
+    """Search the knowledge base with optional team and date filters."""
+    results = await retriever.search(
+        query,
+        top_k=top_k,
+        where=filters.model_dump(exclude_none=True) if filters else None,
+    )
+    return format_hits(results)
+```
+
+`Literal` is worth highlighting: it constrains the model to values that
+actually exist in your metadata. Without it, models cheerfully pass
+`team="Platform Engineering"` and your filter silently matches nothing.
+
+### Side effects need a different posture
+
+A tool that writes needs validation the model cannot bypass, and the host
+should be asking the user first.
+
+```python
+@mcp.tool()
+async def create_ticket(title: str, body: str, team: str) -> str:
+    """Create a support ticket. This creates real, visible work — only call it
+    when the user has explicitly asked for a ticket to be filed."""
+    if team not in ALLOWED_TEAMS:
+        return f"Unknown team {team!r}. Valid teams: {sorted(ALLOWED_TEAMS)}."
+    if len(body) > 10_000:
+        return "Body too long; summarise to under 10000 characters."
+
+    ticket = await tickets.create(title=title[:200], body=body, team=team)
+    return f"Created {ticket.key}: {ticket.url}"
+```
+
+Note it returns the error as a string rather than raising — the model can fix a
+bad team name on its own. And note the explicit instruction in the docstring
+about when to call it. That is advisory, not a control; the real control is
+host-side approval, covered in
+[MCP Security & Auth](./05-security-and-auth.mdx).
+
+## Resources
+
+A resource is addressable data the **application** decides to load — the user
+attaches it, or the host includes it as context. The model does not choose to
+fetch it.
+
+```python
+@mcp.resource("docs://{path}")
+async def read_document(path: str) -> str:
+    """Read one document from the knowledge base by its path."""
+    doc = await retriever.read(path)
+    if doc is None:
+        raise FileNotFoundError(f"No document at {path}")
+    return doc.text
+
+
+@mcp.resource("docs://index")
+async def document_index() -> str:
+    """A listing of every available document path."""
+    paths = await retriever.list_paths()
+    return "\n".join(sorted(paths))
+```
+
+The first is a **template** — `docs://{path}` is parameterised, so it shows up
+under `resources/templates/list` rather than as a concrete resource. The second
+is a fixed URI and appears in `resources/list`.
+
+### Resource or tool?
+
+The question that decides it: **who initiates?**
+
+| Scenario | Primitive | Why |
+| --- | --- | --- |
+| Model searches mid-reasoning | Tool | The model decides |
+| User attaches a specific doc to the chat | Resource | The app decides |
+| Model needs to read a doc it just found by path | Tool | The model decides |
+| Host preloads a project README as context | Resource | The app decides |
+
+The common mistake is modelling "read a document" as only a resource. If your
+search tool returns paths and the model then wants the full text, it needs a
+*tool* to get it — it has no way to ask for a resource. Ship both:
+
+```python
+@mcp.tool()
+async def get_document(path: str) -> str:
+    """Read the full text of a document by path. Paths come from search_docs."""
+    doc = await retriever.read(path)
+    if doc is None:
+        return f"No document at {path!r}. Use search_docs to find valid paths."
+    return doc.text[:20_000]
+```
+
+Same data, two primitives, two different initiators. That is not duplication.
+
+## Prompts
+
+A prompt is a named template the **user** picks, usually from a slash-command
+menu. It is the most overlooked primitive and the cheapest to add.
+
+```python
+from mcp.server.prompts import Message
+
+
+@mcp.prompt()
+def summarise_with_citations(path: str, audience: str = "engineer") -> list[Message]:
+    """Summarise a document, citing the sections used."""
+    return [
+        Message(
+            role="user",
+            content=(
+                f"Read the document at `docs://{path}` and summarise it for a "
+                f"{audience}. Cite the section heading for every claim. "
+                "If the document does not support a claim, leave it out."
+            ),
+        )
+    ]
+```
+
+Why bother: it moves prompt engineering to the team that owns the data. The
+people who know the handbook's quirks write the prompt that reads it well, and
+every host gets it for free. Versioning it next to the server beats twelve
+teams each inventing their own.
+
+## Running It
+
+Locally, over stdio:
+
+```bash
+python docs_server.py
+```
+
+Then tell the host about it. Config shape varies by host, but the common form
+is a JSON block naming the command to run:
+
+```json
+{
+  "mcpServers": {
+    "docs": {
+      "command": "python",
+      "args": ["/absolute/path/to/docs_server.py"],
+      "env": {
+        "VECTOR_DB_URL": "postgresql://localhost:5432/rag",
+        "LOG_LEVEL": "INFO"
+      }
+    }
+  }
+}
+```
+
+Two things that waste people's afternoons:
+
+- **Use absolute paths.** The host does not run from your project directory.
+- **The server does not inherit your shell.** No virtualenv activation, no
+  `.bashrc`, no exported variables. Point `command` at the interpreter inside
+  your venv and pass what you need via `env`.
+
+```json
+{
+  "mcpServers": {
+    "docs": {
+      "command": "/Users/you/project/.venv/bin/python",
+      "args": ["/Users/you/project/docs_server.py"]
+    }
+  }
+}
+```
+
+## Testing
+
+### The inspector
+
+```bash
+npx @modelcontextprotocol/inspector python docs_server.py
+```
+
+A browser UI that connects to your server, lists everything, lets you invoke
+tools with arbitrary arguments, and shows the raw JSON-RPC both ways. Use it
+before you point a real host at anything — it turns "the assistant says it
+cannot find the tool" into a visible message.
+
+### Real tests, without a transport
+
+The valuable tests exercise your handler functions directly. No subprocess, no
+protocol, fast enough for CI.
+
+```python
+import pytest
+
+from docs_server import search_docs, get_document
+
+
+@pytest.mark.asyncio
+async def test_search_returns_paths(seeded_retriever) -> None:
+    out = await search_docs.fn(query="refund policy", top_k=2)
+    assert "handbook/refunds.md" in out
+
+
+@pytest.mark.asyncio
+async def test_empty_search_is_recoverable(empty_retriever) -> None:
+    out = await search_docs.fn(query="zzzz", top_k=4)
+    # Must be actionable text, not an empty string or an exception.
+    assert out.strip()
+    assert "try" in out.lower()
+
+
+@pytest.mark.asyncio
+async def test_top_k_is_clamped(seeded_retriever, spy) -> None:
+    await search_docs.fn(query="anything", top_k=500)
+    assert spy.last_call_kwargs["top_k"] <= 10
+
+
+@pytest.mark.asyncio
+async def test_missing_document_does_not_raise(seeded_retriever) -> None:
+    out = await get_document.fn(path="nope/missing.md")
+    assert "No document" in out
+```
+
+:::note
+The decorator wraps your function, so the original is reachable as an
+attribute — `search_docs.fn` in current versions. If that attribute name
+differs in your SDK version, keep the undecorated function as a plain
+`async def _search_docs(...)` and have the decorated tool call it. Then your
+tests target the plain function and are version-proof.
+:::
+
+That last pattern is worth adopting by default:
+
+```python
+async def _search_docs(query: str, top_k: int = 4) -> str:
+    """Pure implementation. Tested directly."""
+    ...
+
+
+@mcp.tool()
+async def search_docs(query: str, top_k: int = 4) -> str:
+    """Search the internal knowledge base... (the model reads this)"""
+    return await _search_docs(query, top_k)
+```
+
+Also add one integration test that actually speaks the protocol, so you catch
+schema generation problems. One is enough.
+
+### What to assert
+
+| Check | Why it matters |
+| --- | --- |
+| Tool appears in `tools/list` with the expected schema | Catches a type hint the SDK could not convert |
+| Required arguments are actually required | A model omitting one should get `-32602`, not a `TypeError` |
+| Empty and not-found paths return actionable text | The model's only recovery route |
+| Output is length-capped | Protects every host's context window |
+| Enum-ish arguments reject invalid values | Catches `team="Platform Engineering"` |
+| Nothing is written to stdout | One `print()` kills the transport |
+
+## The Full Example
+
+Everything together — the server for the
+[RAG project](../06-rag/03-first-project.mdx):
+
+```python
+"""docs_server.py — the RAG knowledge base over MCP."""
+import logging
+import sys
+
+from mcp.server import MCPServer
+from mcp.server.prompts import Message
+
+from app.services.retrieval import RetrievalService
+
+logging.basicConfig(stream=sys.stderr, level=logging.INFO)
+logger = logging.getLogger("docs-server")
+
+mcp = MCPServer("docs-server")
+retriever = RetrievalService.from_env()
+
+MAX_CHARS_PER_HIT = 1500
+MAX_DOC_CHARS = 20_000
+
+
+@mcp.tool()
+async def search_docs(query: str, top_k: int = 4) -> str:
+    """Search the internal knowledge base for policies, runbooks and
+    architecture notes. Returns passages with their document paths.
+
+    Use for questions about how the company or its systems work.
+    Do NOT use for source code.
+    Pass a focused search phrase, not the user's whole question.
+    """
+    try:
+        hits = await retriever.search(query, top_k=min(max(top_k, 1), 10))
+    except TimeoutError:
+        logger.warning("search timed out: %r", query)
+        return "Search timed out. Try a shorter, more specific query."
+
+    if not hits:
+        return "No matching documents. Try different terms, or search_docs with a broader phrase."
+
+    return "\n\n".join(
+        f"[{h.path}]\n{h.text[:MAX_CHARS_PER_HIT]}" for h in hits
+    )
+
+
+@mcp.tool()
+async def get_document(path: str) -> str:
+    """Read the full text of a document by path. Paths come from search_docs."""
+    doc = await retriever.read(path)
+    if doc is None:
+        return f"No document at {path!r}. Use search_docs to find valid paths."
+    return doc.text[:MAX_DOC_CHARS]
+
+
+@mcp.resource("docs://index")
+async def document_index() -> str:
+    """A listing of every available document path."""
+    return "\n".join(sorted(await retriever.list_paths()))
+
+
+@mcp.resource("docs://{path}")
+async def read_document(path: str) -> str:
+    """Read one document from the knowledge base by its path."""
+    doc = await retriever.read(path)
+    if doc is None:
+        raise FileNotFoundError(f"No document at {path}")
+    return doc.text
+
+
+@mcp.prompt()
+def summarise_with_citations(path: str, audience: str = "engineer") -> list[Message]:
+    """Summarise a document, citing the sections used."""
+    return [
+        Message(
+            role="user",
+            content=(
+                f"Read `docs://{path}` and summarise it for a {audience}. "
+                "Cite the section heading for every claim."
+            ),
+        )
+    ]
+
+
+if __name__ == "__main__":
+    mcp.run()
+```
+
+Roughly sixty lines, and your entire RAG system is now available to any
+MCP-capable assistant. The retrieval logic is unchanged — `RetrievalService` is
+the same class your FastAPI routes use. That is the shape to aim for: **the
+server is a thin adapter over a service you already have.**
+
+## Common Mistakes
+
+- Printing to stdout. Log to stderr.
+- Vague docstrings with no "do not use for" guidance, so routing fails.
+- Unbounded output, blowing up the host's context window.
+- Trusting model-supplied arguments — unclamped `top_k`, unvalidated paths, free-text enums.
+- Raising on expected failures instead of returning actionable text.
+- Only a resource for document reads, leaving the model unable to fetch anything.
+- Relative paths or a bare `python` command in the host config.
+- Assuming the server inherits your shell environment.
+- No tests, because "it is just a wrapper".
+
+## Interview Questions
+
+- What turns a Python function into an MCP tool, and where does the schema come from?
+- Why does a docstring matter more in an MCP server than in a local tool?
+- When do you need both a tool and a resource for the same data?
+- Why must a stdio server never write to stdout?
+- How would you test an MCP server without starting a transport?
+- A model passes `top_k=1000`. What should happen, and where?
+- Why would a team ship prompts from a server rather than putting them in the agent?
+
+## Things to Remember
+
+- Type hints become the schema; the docstring becomes the instruction.
+- Clamp, validate and truncate everything that came from or goes to a model.
+- Return recoverable text for expected failures; raise only for bugs.
+- Tool when the model initiates, resource when the app does. Often you need both.
+- Keep the real logic in a service class and make the server a thin adapter.
+- Absolute interpreter path and explicit `env` in the host config.
+- Test the undecorated functions; add one protocol-level test for schema generation.
+
+## Mini Exercise
+
+Wrap your RAG retriever in a server with one tool, then point the inspector at
+it and call the tool with deliberately hostile arguments: `top_k=9999`, an
+empty query, a path like `../../etc/passwd`. Fix whatever breaks.
+
+Then add a second tool with a deliberately vague description ("searches
+things") alongside your good one, connect a host, and ask a question either
+could serve. Watch which one the model picks. Rewrite the vague description
+until routing is reliable. That exercise teaches more about MCP than reading
+the spec.
+
+## Done When
+
+- [ ] You have a server exposing at least one tool over stdio.
+- [ ] You have connected it to a host via a config file and called it for real.
+- [ ] Your tools clamp arguments and cap output.
+- [ ] Expected failures return text a model can act on.
+- [ ] You have tests that run without starting a transport.
+
+Next: [Building an MCP Client](./04-building-a-client.mdx).
