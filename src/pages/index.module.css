@@ -1,31 +1,19 @@
-/* ---------- Hero ---------- */
-.heroBanner {
-  position: relative;
-  padding: 6rem 0 5rem;
-  text-align: center;
-  overflow: hidden;
-  background: radial-gradient(
-      1100px 460px at 50% -20%,
-      color-mix(in srgb, var(--ifm-color-primary) 26%, transparent),
-      transparent 70%
-    ),
-    radial-gradient(
-      700px 400px at 85% 10%,
-      color-mix(in srgb, var(--ra-accent-2) 20%, transparent),
-      transparent 60%
-    );
-}
+/**
+ * Homepage styles.
+ *
+ * Uses only tokens defined in src/css/custom.css (--ra-* and --ifm-*) so the
+ * page stays on the site's ink-on-paper / PCB-schematic identity in both
+ * colour modes. The hero deliberately reuses the global `.hero::before` dot
+ * grid from custom.css rather than inventing a second background treatment.
+ */
 
-/* Subtle animated grid behind the hero */
-.heroGrid {
-  position: absolute;
-  inset: 0;
-  background-image: linear-gradient(var(--ra-hero-grid) 1px, transparent 1px),
-    linear-gradient(90deg, var(--ra-hero-grid) 1px, transparent 1px);
-  background-size: 44px 44px;
-  mask-image: radial-gradient(circle at 50% 30%, #000 0%, transparent 75%);
-  -webkit-mask-image: radial-gradient(circle at 50% 30%, #000 0%, transparent 75%);
-  pointer-events: none;
+/* ============================== Hero ============================== */
+.hero {
+  /* Infima's .hero is display:flex; block keeps the layout predictable
+     now that the hero holds a stacked eyebrow / title / stats column. */
+  display: block;
+  padding: 5.5rem 0 4rem;
+  text-align: center;
 }
 
 .heroInner {
@@ -36,57 +24,56 @@
 .eyebrow {
   display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
-  font-size: 0.82rem;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  padding: 0.35rem 0.85rem;
-  border-radius: 999px;
-  border: 1px solid var(--ra-card-border);
-  background: var(--ifm-background-surface-color);
-  color: var(--ifm-color-emphasis-800);
-  margin-bottom: 1.4rem;
-}
-
-.eyebrowDot {
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  background: var(--ra-accent);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--ra-accent) 25%, transparent);
+  gap: 0.45rem;
+  margin: 0 0 1.5rem;
+  padding: 0.3rem 0.8rem;
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ra-copper);
+  background: var(--ra-copper-soft);
+  border: 1px solid color-mix(in srgb, var(--ra-copper) 32%, transparent);
+  border-radius: 3px;
 }
 
 .heroTitle {
-  font-size: clamp(2.4rem, 6vw, 4rem);
-  line-height: 1.05;
-  margin: 0 auto 1rem;
-  max-width: 16ch;
+  font-size: clamp(2.3rem, 1.4rem + 3.6vw, 4.1rem);
+  line-height: 1.06;
+  letter-spacing: -0.025em;
+  margin: 0 auto 1.1rem;
+  max-width: 19ch;
+  text-wrap: balance;
 }
 
-.gradientText {
+/* Copper highlight instead of a gradient fill — same motif as the H2 rule. */
+.mark {
+  color: inherit;
+  padding: 0 0.06em;
+  white-space: nowrap;
+  /* Highlighter band behind the text rather than a full fill, so the
+     serif letterforms stay legible in both colour modes. */
   background: linear-gradient(
-    120deg,
-    var(--ifm-color-primary),
-    var(--ra-accent-2) 55%,
-    var(--ra-accent)
+    to top,
+    color-mix(in srgb, var(--ra-copper) 30%, transparent) 0.32em,
+    transparent 0.32em
   );
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
 }
 
 .heroSubtitle {
-  font-size: 1.22rem;
-  color: var(--ifm-color-emphasis-800);
-  max-width: 660px;
-  margin: 0 auto 2rem;
+  font-size: clamp(1.02rem, 0.95rem + 0.3vw, 1.2rem);
+  color: var(--ra-ink-soft);
+  max-width: 54ch;
+  margin: 0 auto 2.1rem;
+  text-wrap: pretty;
 }
 
-.buttons {
+.heroActions {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 1rem;
+  gap: 0.8rem;
   flex-wrap: wrap;
 }
 
@@ -94,93 +81,281 @@
   background: var(--ifm-background-surface-color);
   border: 1px solid var(--ra-card-border);
   color: var(--ifm-font-color-base);
+  border-radius: 6px;
 }
+
 .ghostButton:hover {
   border-color: var(--ifm-color-primary);
   color: var(--ifm-color-primary);
 }
 
-.highlights {
-  list-style: none;
-  padding: 0;
-  margin: 2.4rem auto 0;
+/* ---- Stat strip: tabular mono figures on a hairline rail ---- */
+.stats {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: 0.6rem 1.4rem;
+  gap: 0 2.6rem;
+  margin: 2.8rem auto 0;
+  padding-top: 1.6rem;
+  max-width: 46rem;
+  border-top: 1px solid var(--ra-card-border);
 }
 
-.highlight {
+.stat {
+  text-align: center;
+}
+
+.statValue {
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 1.7rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--ra-ink);
+  margin: 0;
+}
+
+.statLabel {
+  margin: 0.15rem 0 0;
+  font-size: 0.74rem;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ra-ink-soft);
+}
+
+/* ========================= Pipeline panel ========================= */
+.pipelineSection {
+  padding: 0 0 1rem;
+}
+
+.pipelinePanel {
+  border: 1px solid var(--ra-card-border);
+  border-radius: 10px;
+  background: var(--ifm-background-surface-color);
+  box-shadow: var(--ra-shadow);
+  overflow: hidden;
+}
+
+.panelHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.6rem 1rem;
+  border-bottom: 1px solid var(--ra-card-border);
+  background: color-mix(in srgb, var(--ifm-color-primary) 5%, transparent);
+}
+
+.panelLabel {
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 0.7rem;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ra-ink-soft);
+}
+
+.panelDots {
+  display: inline-flex;
+  gap: 5px;
+}
+
+.panelDots i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ra-card-border);
+}
+
+.panelDots i:first-child {
+  background: var(--ifm-color-primary);
+}
+
+/* Horizontal trace of pipeline stages; scrolls on narrow screens. */
+.pipeline {
+  list-style: none;
+  display: flex;
+  align-items: flex-start;
+  margin: 0;
+  padding: 1.5rem 1rem 1.35rem;
+  overflow-x: auto;
+}
+
+.pipelineNode {
+  position: relative;
+  flex: 1 0 auto;
+  min-width: 9.5rem;
+  padding: 0 0.9rem;
+  text-align: center;
+}
+
+/* Connecting trace running right from each node, except the last. */
+.pipelineNode::after {
+  content: '';
+  position: absolute;
+  top: 0.95rem;
+  left: 50%;
+  right: -0.1rem;
+  height: 1px;
+  background: var(--ra-card-border);
+}
+
+.pipelineNode:last-child::after {
+  content: none;
+}
+
+.nodeIndex {
+  position: relative;
+  z-index: 1;
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
-  font-size: 0.9rem;
+  justify-content: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  margin-bottom: 0.65rem;
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--ifm-color-primary);
+  background: var(--ifm-background-surface-color);
+  border: 1px solid color-mix(in srgb, var(--ifm-color-primary) 45%, transparent);
+  border-radius: 50%;
+}
+
+.nodeStep {
+  display: block;
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 0.84rem;
   font-weight: 500;
-  color: var(--ifm-color-emphasis-700);
+  color: var(--ra-ink);
+  word-break: break-word;
 }
 
-/* ---------- Cards section ---------- */
-.cardsSection {
-  padding: 3.5rem 0 5rem;
+.nodeDetail {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 0.75rem;
+  color: var(--ra-ink-soft);
 }
 
-.sectionHeading {
-  text-align: center;
-  font-size: 2.1rem;
-  margin-bottom: 0.5rem;
+.panelFoot {
+  margin: 0;
+  padding: 0.85rem 1rem;
+  border-top: 1px solid var(--ra-card-border);
+  font-size: 0.84rem;
+  color: var(--ra-ink-soft);
+}
+
+/* ======================== Generic section ======================== */
+.section {
+  padding: 4.2rem 0 1rem;
+}
+
+.sectionAlt {
+  padding: 4.2rem 0 3.4rem;
+  border-top: 1px solid var(--ra-card-border);
+  border-bottom: 1px solid var(--ra-card-border);
+  margin-top: 3.5rem;
+  background: color-mix(in srgb, var(--ifm-color-primary) 3%, transparent);
+}
+
+.kicker {
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 0.72rem;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--ra-copper);
+  margin: 0 0 0.6rem;
+}
+
+.sectionTitle {
+  font-size: clamp(1.65rem, 1.3rem + 1.2vw, 2.25rem);
+  letter-spacing: -0.02em;
+  margin: 0 0 0.7rem;
+  max-width: 34ch;
+  text-wrap: balance;
 }
 
 .sectionSub {
-  text-align: center;
-  color: var(--ifm-color-emphasis-700);
-  max-width: 720px;
-  margin: 0 auto 2.6rem;
+  color: var(--ra-ink-soft);
+  max-width: 62ch;
+  margin: 0 0 2.4rem;
+  text-wrap: pretty;
+}
+
+/* ============================ Roadmap ============================ */
+.stage {
+  margin-bottom: 2.9rem;
+}
+
+.stageHeader {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.2rem 1rem;
+  padding-bottom: 0.55rem;
+  margin-bottom: 1.2rem;
+  border-bottom: 1px solid var(--ra-card-border);
+}
+
+.stageTitle {
+  font-size: 1.22rem;
+  margin: 0;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+
+.stageBlurb {
+  margin: 0;
+  flex: 1 1 24ch;
+  font-size: 0.86rem;
+  color: var(--ra-ink-soft);
 }
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
-  gap: 1.2rem;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 16.5rem), 1fr));
+  gap: 1rem;
 }
 
 .card {
   position: relative;
   display: flex;
   flex-direction: column;
-  padding: 1.4rem;
+  padding: 1.25rem;
   border: 1px solid var(--ra-card-border);
-  border-radius: 16px;
+  border-radius: 10px;
   background: var(--ifm-background-surface-color);
   color: inherit;
   text-decoration: none;
   overflow: hidden;
-  transition: transform 0.18s ease, border-color 0.18s ease,
-    box-shadow 0.18s ease;
+  transition: transform 0.16s ease, border-color 0.16s ease,
+    box-shadow 0.16s ease;
 }
 
-.card:hover {
+.card:hover,
+.card:focus-visible {
   text-decoration: none;
   color: inherit;
-  transform: translateY(-4px);
-  border-color: hsl(var(--card-hue) 80% 60% / 0.6);
-  box-shadow: 0 18px 40px -18px hsl(var(--card-hue) 70% 45% / 0.5);
+  transform: translateY(-3px);
+  border-color: hsl(var(--card-hue) 55% 50% / 0.65);
+  box-shadow: 0 14px 32px -20px hsl(var(--card-hue) 50% 40% / 0.55);
 }
 
-/* Colored glow blob per card */
 .cardGlow {
   position: absolute;
-  top: -40px;
-  right: -40px;
-  width: 130px;
-  height: 130px;
+  top: -38px;
+  right: -38px;
+  width: 120px;
+  height: 120px;
   border-radius: 50%;
-  background: hsl(var(--card-hue) 85% 60% / 0.28);
-  filter: blur(28px);
+  background: hsl(var(--card-hue) 60% 55% / 0.22);
+  filter: blur(26px);
   opacity: 0;
-  transition: opacity 0.25s ease;
+  transition: opacity 0.22s ease;
   pointer-events: none;
 }
-.card:hover .cardGlow {
+
+.card:hover .cardGlow,
+.card:focus-visible .cardGlow {
   opacity: 1;
 }
 
@@ -188,39 +363,45 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 0.9rem;
+  margin-bottom: 0.85rem;
 }
 
 .cardIcon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 46px;
-  height: 46px;
-  font-size: 1.5rem;
-  border-radius: 12px;
-  background: hsl(var(--card-hue) 85% 60% / 0.14);
-  border: 1px solid hsl(var(--card-hue) 85% 60% / 0.28);
+  width: 42px;
+  height: 42px;
+  font-size: 1.35rem;
+  border-radius: 10px;
+  background: hsl(var(--card-hue) 60% 55% / 0.13);
+  border: 1px solid hsl(var(--card-hue) 60% 55% / 0.3);
 }
 
 .cardNumber {
-  font-family: var(--ifm-heading-font-family);
-  font-size: 1.5rem;
-  font-weight: 700;
-  color: hsl(var(--card-hue) 70% 55%);
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 1.25rem;
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
-  opacity: 0.9;
+  color: hsl(var(--card-hue) 45% 45%);
+  opacity: 0.85;
+}
+
+[data-theme='dark'] .cardNumber {
+  color: hsl(var(--card-hue) 55% 68%);
 }
 
 .cardTitle {
-  font-size: 1.2rem;
-  margin: 0 0 0.4rem;
+  font-size: 1.1rem;
+  margin: 0 0 0.35rem;
+  letter-spacing: -0.01em;
 }
 
 .cardGoal {
-  font-size: 0.9rem;
-  color: var(--ifm-color-emphasis-700);
-  margin: 0 0 1.1rem;
+  font-size: 0.86rem;
+  line-height: 1.55;
+  color: var(--ra-ink-soft);
+  margin: 0 0 1.05rem;
   flex-grow: 1;
 }
 
@@ -228,28 +409,163 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 0.5rem;
   border-top: 1px solid var(--ra-card-border);
-  padding-top: 0.8rem;
+  padding-top: 0.7rem;
 }
 
-.cardTime {
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: var(--ifm-color-emphasis-700);
+.cardMeta {
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 0.72rem;
+  letter-spacing: 0.02em;
+  color: var(--ra-ink-soft);
 }
 
 .cardArrow {
-  font-size: 1.1rem;
-  color: hsl(var(--card-hue) 70% 55%);
-  transform: translateX(0);
-  transition: transform 0.18s ease;
+  font-size: 1rem;
+  color: hsl(var(--card-hue) 45% 45%);
+  transition: transform 0.16s ease;
 }
-.card:hover .cardArrow {
+
+[data-theme='dark'] .cardArrow {
+  color: hsl(var(--card-hue) 55% 68%);
+}
+
+.card:hover .cardArrow,
+.card:focus-visible .cardArrow {
   transform: translateX(4px);
 }
 
-@media (max-width: 600px) {
-  .heroBanner {
-    padding: 4rem 0 3rem;
+/* =========================== Principles =========================== */
+.principles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
+  gap: 1.6rem 2.4rem;
+}
+
+.principle {
+  padding-left: 1.1rem;
+  border-left: 2px solid color-mix(in srgb, var(--ra-copper) 45%, transparent);
+}
+
+.principleTag {
+  display: inline-block;
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 0.7rem;
+  letter-spacing: 0.07em;
+  color: var(--ra-copper);
+  margin-bottom: 0.4rem;
+}
+
+.principleTitle {
+  font-size: 1.12rem;
+  margin: 0 0 0.4rem;
+  letter-spacing: -0.01em;
+}
+
+.principleBody {
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.65;
+  color: var(--ra-ink-soft);
+  text-wrap: pretty;
+}
+
+/* ========================== Entry points ========================== */
+.entryList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--ra-card-border);
+}
+
+.entryItem {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  padding: 0.85rem 0.2rem;
+  border-bottom: 1px solid var(--ra-card-border);
+}
+
+.entryWhen {
+  font-size: 0.95rem;
+  color: var(--ra-ink);
+  flex: 0 1 auto;
+}
+
+.entryTrace {
+  flex: 1 1 1.5rem;
+  min-width: 1rem;
+  height: 1px;
+  background: repeating-linear-gradient(
+    90deg,
+    var(--ra-card-border) 0 4px,
+    transparent 4px 8px
+  );
+}
+
+.entryLink {
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 0.84rem;
+  font-weight: 500;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+/* ============================== CTA ============================== */
+.ctaSection {
+  padding: 4.5rem 0 5.5rem;
+}
+
+.cta {
+  text-align: center;
+}
+
+.ctaTitle {
+  font-size: clamp(1.6rem, 1.3rem + 1.1vw, 2.1rem);
+  letter-spacing: -0.02em;
+  margin: 0 auto 0.7rem;
+  max-width: 26ch;
+  text-wrap: balance;
+}
+
+.ctaBody {
+  color: var(--ra-ink-soft);
+  max-width: 50ch;
+  margin: 0 auto 1.8rem;
+  text-wrap: pretty;
+}
+
+/* ============================ Responsive ============================ */
+@media (max-width: 768px) {
+  .hero {
+    padding: 3.6rem 0 2.8rem;
+  }
+
+  .stats {
+    gap: 1.2rem 2rem;
+  }
+
+  .statValue {
+    font-size: 1.4rem;
+  }
+
+  .section {
+    padding: 3rem 0 0.5rem;
+  }
+
+  .sectionAlt {
+    padding: 3rem 0 2.6rem;
+  }
+}
+
+@media (max-width: 560px) {
+  .entryItem {
+    flex-wrap: wrap;
+    gap: 0.3rem 0.9rem;
+  }
+
+  .entryTrace {
+    display: none;
   }
 }

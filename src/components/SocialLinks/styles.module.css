@@ -1,0 +1,35 @@
+.row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-left: 0.4rem;
+}
+
+.link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ifm-navbar-link-color);
+  border-radius: 6px;
+  padding: 4px;
+  line-height: 0;
+  transition: color 0.12s ease, opacity 0.12s ease;
+}
+
+.link:hover {
+  color: var(--ifm-color-primary);
+  opacity: 1;
+}
+
+/* Mobile sidebar: labelled rows instead of a cramped strip of icons. */
+.menu {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.menuLink {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}

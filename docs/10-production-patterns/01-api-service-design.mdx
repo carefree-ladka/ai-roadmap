@@ -1,0 +1,445 @@
+---
+title: API & Service Design
+description: Production service concerns — configuration and secrets, timeouts, retries, circuit breakers, caching, concurrency limits, connection pooling, health checks, observability, and graceful degradation.
+---
+
+import TOCInline from '@theme/TOCInline';
+
+# API & Service Design
+
+<TOCInline toc={toc} minHeadingLevel={2} maxHeadingLevel={2} />
+
+:::tip[In this guide]
+The resilience and efficiency patterns your RAG API needs: config/secrets,
+timeouts, retries, circuit breakers, caching, concurrency limits, connection
+reuse, health checks, observability, and graceful degradation.
+:::
+
+## What Is It?
+
+The design decisions that keep a service fast, cheap, and stable under real
+traffic and real failures.
+
+## Why Does It Matter?
+
+LLM and vector-DB calls are slow, occasionally fail, and cost money. Without
+timeouts, retries, and caching, a demo becomes an outage.
+
+A single RAG request fans out to several dependencies (embedding model, vector
+DB, optional reranker, LLM). Each one can be slow or down, so the service needs
+a plan for every failure mode, not just the happy path.
+
+## How the Pieces Fit Together
+
+Order matters. A request passes through these layers, outermost first:
+
+```text
+request
+  → auth + rate limit          (protect yourself from callers)
+  → answer cache               (skip all work on a hit)
+  → concurrency limit          (protect dependencies from you)
+  → circuit breaker            (stop calling a dead dependency)
+  → retry with backoff         (absorb transient blips)
+  → timeout                    (bound every single attempt)
+  → dependency (LLM / vector DB)
+  → fallback / graceful error  (when all of the above fail)
+```
+
+## Configuration & Secrets
+
+Centralize config (from [backend patterns](../01-python/01-core-python/04-professional-python.mdx#backend-patterns-and-clean-architecture)),
+and never commit secrets:
+
+```python
+from functools import lru_cache
+from pydantic import SecretStr
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", env_prefix="RAG_")
+
+    ollama_url: str = "http://localhost:11434"
+
+    # timeouts (seconds)
+    connect_timeout: float = 3.0
+    read_timeout: float = 30.0
+    request_deadline: float = 45.0      # total budget for one user request
+
+    # resilience
+    max_retries: int = 2
+    breaker_failures: int = 5
+    breaker_cooldown: float = 30.0
+    max_concurrent_llm_calls: int = 4
+
+    # caching
+    cache_ttl: int = 300
+    cache_max_size: int = 1000
+    redis_url: str | None = None
+
+    # secrets: required, no default, so startup fails fast if missing
+    api_key: SecretStr
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
+```
+
+- Load secrets from environment variables or a secret manager (Vault, AWS
+  Secrets Manager) — not from code.
+- Use `SecretStr` so keys don't leak into logs or `repr()` output.
+- Keep `.env` in `.gitignore` and commit a `.env.example` with fake values.
+- Fail fast: a missing required setting should crash at startup, not on the
+  first request.
+
+## Timeouts
+
+Every external call must have a timeout, or a slow dependency will pile up
+requests until the service falls over. Set connect, read, write, and pool
+timeouts separately. A fast connect timeout detects a dead host quickly, while a
+longer read timeout allows slow LLM generation:
+
+```python
+import httpx
+
+timeout = httpx.Timeout(
+    connect=settings.connect_timeout,
+    read=settings.read_timeout,
+    write=5.0,
+    pool=5.0,          # time to wait for a free connection from the pool
+)
+client = httpx.AsyncClient(timeout=timeout)
+```
+
+Per-call timeouts don't bound the **total** request time once retries and
+multiple steps are involved. Add an overall deadline:
+
+```python
+import asyncio
+
+async def answer(question: str):
+    try:
+        async with asyncio.timeout(settings.request_deadline):   # Python 3.11+
+            return await rag_pipeline(question)
+    except TimeoutError:
+        raise HTTPException(status_code=504, detail="Request timed out")
+```
+
+## Retries with Backoff
+
+Retry transient failures (network blips, `429`, `502`, `503`, `504`) with
+exponential backoff and jitter — but only **idempotent** operations, only
+**retryable** errors, and cap attempts:
+
+```python
+import asyncio, random, httpx
+
+RETRYABLE_STATUS = {429, 502, 503, 504}
+
+def is_retryable(exc: Exception) -> bool:
+    if isinstance(exc, httpx.TransportError):        # includes timeouts
+        return True
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code in RETRYABLE_STATUS
+    return False
+
+async def call_with_retry(client, url, payload, retries=2, base=0.5, cap=8.0):
+    for attempt in range(retries + 1):
+        try:
+            resp = await client.post(url, json=payload)
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as exc:
+            if attempt == retries or not is_retryable(exc):
+                raise
+            delay = min(cap, base * 2 ** attempt)
+            await asyncio.sleep(random.uniform(0, delay))   # full jitter
+```
+
+Key points:
+
+- **Don't retry `4xx`** (except `429`). A `400` or `401` will fail identically
+  every time.
+- **Add jitter** so many clients don't retry in lockstep and hammer a
+  recovering service (thundering herd).
+- **Respect `Retry-After`** headers on `429`/`503` when present.
+- **Retries multiply load.** Three attempts means up to 3x traffic on an
+  already struggling dependency, which is why you need the breaker below.
+- Libraries like `tenacity` implement this declaratively once you understand
+  the pattern.
+
+## Circuit Breaker
+
+After repeated failures, stop calling a dead dependency for a cooldown period
+and fail fast instead of waiting on timeouts:
+
+```python
+import time
+
+class CircuitBreaker:
+    def __init__(self, max_failures=5, cooldown=30.0):
+        self.max_failures = max_failures
+        self.cooldown = cooldown
+        self.failures = 0
+        self.opened_at: float | None = None
+
+    def allow(self) -> bool:
+        if self.opened_at is None:
+            return True                                   # CLOSED
+        if time.monotonic() - self.opened_at >= self.cooldown:
+            return True                                   # HALF-OPEN: let a probe through
+        return False                                      # OPEN: fail fast
+
+    def record_success(self):
+        self.failures = 0
+        self.opened_at = None
+
+    def record_failure(self):
+        self.failures += 1
+        if self.failures >= self.max_failures:
+            self.opened_at = time.monotonic()
+```
+
+States: **closed** (normal) → **open** (failing fast) → **half-open** (one
+probe request; success closes it, failure reopens it). Keep one breaker per
+dependency, not one global breaker.
+
+## Concurrency Limits & Backpressure
+
+Protect dependencies (and your own memory) from being overwhelmed. A local LLM
+may only handle a few requests at once:
+
+```python
+llm_semaphore = asyncio.Semaphore(settings.max_concurrent_llm_calls)
+
+async def generate(prompt: str):
+    async with llm_semaphore:
+        return await call_with_retry(client, LLM_URL, {"prompt": prompt})
+```
+
+When the queue grows too long, **shed load**: return `429` or `503` quickly
+instead of letting requests wait until they time out anyway. A fast "busy"
+response is better than a slow failure.
+
+## Rate Limiting & Request Limits
+
+Protect the service from callers (and protect your LLM bill):
+
+- Rate-limit per API key or client IP (`slowapi`, or at the gateway / reverse
+  proxy).
+- Cap request body size, question length, `top_k`, and requested output tokens.
+- Validate inputs with Pydantic constraints so bad requests are rejected before
+  any expensive work:
+
+```python
+from pydantic import BaseModel, Field
+
+class AskRequest(BaseModel):
+    question: str = Field(min_length=1, max_length=2000)
+    top_k: int = Field(default=5, ge=1, le=20)
+```
+
+## Caching
+
+LLM/embedding calls are expensive and often repeated. Cache by a stable key.
+Include everything that changes the result — model name, prompt version, and a
+corpus version:
+
+```python
+import hashlib, json
+
+def cache_key(question: str, top_k: int, corpus_version: str, model: str) -> str:
+    normalized = " ".join(question.lower().split())      # normalize whitespace/case
+    raw = json.dumps(
+        {"q": normalized, "k": top_k, "v": corpus_version, "m": model},
+        sort_keys=True,
+    )
+    return hashlib.sha256(raw.encode()).hexdigest()
+```
+
+- **Embedding cache**: identical text → reuse its vector. Rarely needs
+  invalidation unless you change the embedding model.
+- **Answer cache**: identical (question, top_k, corpus version) → reuse the
+  answer for a TTL.
+- Use an in-memory cache for a single instance, or Redis when you run several
+  (otherwise each instance has its own cold cache).
+
+A simple in-memory TTL cache with a size limit:
+
+```python
+from cachetools import TTLCache
+
+answer_cache = TTLCache(maxsize=settings.cache_max_size, ttl=settings.cache_ttl)
+```
+
+**Invalidation strategies:**
+
+- **TTL**: simplest; accepts bounded staleness.
+- **Version in the key**: bump `corpus_version` on every ingest and old entries
+  become unreachable (and expire naturally).
+- **Explicit clear**: flush the answer cache after a re-ingest or delete.
+
+**Cache stampede:** when a popular entry expires, many requests can miss at
+once and all call the LLM. Prevent it with "single-flight": the first request
+computes the value while the others await the same in-flight task:
+
+```python
+inflight: dict[str, asyncio.Task] = {}
+
+async def cached_answer(key: str, compute):
+    if key in answer_cache:
+        return answer_cache[key]
+    if key not in inflight:
+        inflight[key] = asyncio.create_task(compute())
+    try:
+        result = await inflight[key]
+        answer_cache[key] = result
+        return result
+    finally:
+        inflight.pop(key, None)
+```
+
+Don't cache errors or fallback answers as if they were real answers.
+
+## Connection Reuse
+
+Create clients (httpx, DB pools) **once** and reuse them — don't open a new
+connection per request. Manage their lifecycle with FastAPI's lifespan so they
+are created at startup and closed cleanly at shutdown (see
+[DI](../02-fastapi/01-core-path/03-dependency-injection.mdx)):
+
+```python
+from contextlib import asynccontextmanager
+from fastapi import FastAPI
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    app.state.http = httpx.AsyncClient(timeout=timeout)
+    yield
+    await app.state.http.aclose()          # drain and close on shutdown
+
+app = FastAPI(lifespan=lifespan)
+```
+
+Size pools deliberately (`httpx.Limits(max_connections=..., max_keepalive_connections=...)`)
+and keep them larger than your concurrency limit so requests don't queue for a
+connection.
+
+## Streaming Responses
+
+LLM answers can take seconds. Streaming tokens (Server-Sent Events or chunked
+responses) makes the app *feel* fast and avoids holding a request open with no
+output. Apply timeouts to the **gap between chunks**, not just the total, and
+handle client disconnects so you stop generating for a user who has left.
+
+## Health & Readiness
+
+Two different questions, two endpoints:
+
+- `/health` (liveness): "is the process alive?" — cheap, no dependency calls.
+  A failure means restart the container.
+- `/ready` (readiness): "can it serve traffic?" — checks the vector DB, and
+  optionally the LLM, with a short timeout. A failure means stop routing
+  traffic, but don't restart.
+
+Don't make liveness depend on external services, or a vector-DB outage will
+cause your orchestrator to restart-loop healthy pods.
+
+## Graceful Degradation
+
+When a dependency is down, fail usefully:
+
+- Vector DB unreachable → return a clear `503` from `/ready`, not a crash.
+- Reranker down → fall back to plain vector retrieval.
+- LLM slow → time out and return a helpful error, not a hang.
+- LLM down but retrieval works → return the top retrieved passages with a note
+  that generation is unavailable.
+- Cache backend (Redis) down → bypass the cache and continue; a cache is an
+  optimization, not a requirement.
+
+Map failures to accurate status codes and a consistent error shape:
+
+| Situation | Status | Meaning |
+| --- | --- | --- |
+| Bad input | `422` / `400` | Caller's fault; don't retry |
+| Rate limited | `429` | Retry later (send `Retry-After`) |
+| Upstream error | `502` | Dependency returned an error |
+| Overloaded / breaker open | `503` | Temporarily unavailable |
+| Upstream or deadline timeout | `504` | Took too long |
+
+## Observability
+
+You can't fix what you can't see. At minimum:
+
+- **Structured logs** (JSON) with a **request ID** that flows through every
+  step and dependency call. Never log secrets or full user documents.
+- **Metrics**: request rate, latency percentiles (p50/p95/p99), error rate,
+  cache hit rate, retry count, circuit-breaker state, and LLM token usage/cost.
+- **Per-stage timing** (embed, retrieve, rerank, generate) so you know where
+  latency actually comes from.
+- **Tracing** (OpenTelemetry) once you have more than one service.
+- **Alerts** on error rate, latency, and breaker-open events, not just CPU.
+
+## Graceful Shutdown
+
+On deploy or scale-down, stop accepting new requests, let in-flight requests
+finish (within a deadline), then close clients and pools. Use the lifespan hook
+above and set a sensible termination grace period in your orchestrator.
+
+## Common Mistakes
+
+- No timeouts (one slow call cascades into an outage).
+- Only per-call timeouts, with no overall request deadline.
+- Retrying non-idempotent writes (duplicates), or retrying `4xx` errors.
+- Retries without jitter or a circuit breaker (retry storms).
+- Caching without invalidation (stale answers after re-ingest).
+- Cache keys that omit the model, prompt version, or corpus version.
+- Cache stampede on a hot key expiry.
+- New client/connection per request (resource exhaustion).
+- Unbounded concurrency or queues (memory blow-ups and timeouts for everyone).
+- Liveness probes that depend on external services.
+- Logging secrets, API keys, or sensitive user content.
+
+## Interview Questions
+
+- Why are timeouts essential? What about retries and backoff?
+- Why add jitter to backoff?
+- Which errors should you retry, and which should you not?
+- What would you cache in a RAG system, and how do you invalidate it?
+- What is a cache stampede and how do you prevent it?
+- What is a circuit breaker? Describe its three states.
+- How do you apply backpressure or shed load?
+- What's the difference between liveness and readiness?
+- How do you degrade gracefully when a dependency fails?
+- Which metrics would you watch for an LLM-backed API?
+
+## Things to Remember
+
+- Timeout everything, plus an overall deadline; retry only idempotent,
+  retryable calls with backoff and jitter.
+- Layer defenses: rate limit → cache → concurrency limit → breaker → retry →
+  timeout → fallback.
+- Cache embeddings and answers; version keys and invalidate on data change.
+- Reuse clients/pools and close them on shutdown.
+- Separate liveness from readiness; degrade gracefully; measure everything.
+
+## Mini Exercise
+
+1. Add a timeout and a 2-attempt backoff retry (with jitter, retrying only
+   `429`/`5xx`/network errors) to your `LlmService`.
+2. Add an in-memory answer cache keyed by `(question, top_k, corpus_version)`
+   with a TTL.
+3. Wrap the LLM call in a circuit breaker and a semaphore.
+4. Add `/health` and `/ready`, and a fallback that returns retrieved passages
+   when the LLM is unavailable.
+5. Stretch: stop the LLM server and confirm the service returns a fast `503`
+   instead of hanging.
+
+## Done When
+
+- [ ] External calls have timeouts, an overall deadline, and bounded retries.
+- [ ] Only idempotent, retryable failures are retried, with backoff and jitter.
+- [ ] A circuit breaker and concurrency limit protect each dependency.
+- [ ] You cache expensive calls with a sane invalidation story.
+- [ ] Clients/connections are reused and closed cleanly on shutdown.
+- [ ] Liveness and readiness are separate, and failures degrade gracefully.
+- [ ] Logs, metrics, and request IDs show where time and errors come from.

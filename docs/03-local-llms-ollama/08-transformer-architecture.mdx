@@ -1,0 +1,384 @@
+---
+title: "Transformer Architecture"
+description: "A practical guide to the Transformer architecture, from self-attention to decoder-only LLMs, plus the questions that come up most often in interviews and study."
+tags: [transformers, deep-learning, nlp, llm, attention]
+---
+
+# Transformer Architecture
+
+## Table of Contents
+
+1. [Overview](#overview)
+2. [Why Transformers? The Problem with RNNs](#why-transformers-the-problem-with-rnns)
+3. [High-Level Architecture](#high-level-architecture)
+4. [Core Components](#core-components)
+   - [Tokenization and Embeddings](#tokenization-and-embeddings)
+   - [Positional Encoding](#positional-encoding)
+   - [Self-Attention](#self-attention)
+   - [Multi-Head Attention](#multi-head-attention)
+   - [Feed-Forward Network](#feed-forward-network)
+   - [Residual Connections and Layer Norm](#residual-connections-and-layer-norm)
+   - [Masked Attention and Cross-Attention](#masked-attention-and-cross-attention)
+   - [Output Layer](#output-layer)
+5. [Encoder vs Decoder vs Encoder-Decoder](#encoder-vs-decoder-vs-encoder-decoder)
+6. [Training and Inference](#training-and-inference)
+7. [Minimal Code Example](#minimal-code-example)
+8. [Complexity and Limitations](#complexity-and-limitations)
+9. [Modern Improvements](#modern-improvements)
+10. [Most Asked Questions](#most-asked-questions)
+11. [Quick Cheat Sheet](#quick-cheat-sheet)
+12. [Further Reading](#further-reading)
+
+---
+
+## Overview
+
+The **Transformer** was introduced in the 2017 paper *"Attention Is All You Need"* (Vaswani et al.). It replaced recurrence and convolution with **attention**, letting every token in a sequence look directly at every other token. This made models far more parallelizable and better at capturing long-range dependencies.
+
+Nearly all modern language models (GPT, BERT, T5, LLaMA, Claude and others), vision models (ViT), and many speech and multimodal models are built on it.
+
+---
+
+## Why Transformers? The Problem with RNNs
+
+| Issue | RNN / LSTM | Transformer |
+|---|---|---|
+| Parallelism | Sequential, step by step | Fully parallel across tokens in training |
+| Long-range dependencies | Information fades over many steps | Direct token-to-token connections |
+| Path length between tokens | O(n) | O(1) |
+| Training speed on GPUs | Slow | Fast |
+| Scalability | Hard to scale | Scales very well with data and compute |
+
+---
+
+## High-Level Architecture
+
+The original Transformer is an **encoder-decoder** model:
+
+```text
+Input tokens
+   |
+[Embedding + Positional Encoding]
+   |
+[ Encoder block ] x N     (self-attention -> FFN)
+   |
+   +----------------------------+
+                                |
+Target tokens (shifted right)   |
+   |                            |
+[Embedding + Positional Enc.]   |
+   |                            |
+[ Decoder block ] x N  <--------+   (masked self-attn -> cross-attn -> FFN)
+   |
+[Linear -> Softmax]
+   |
+Next-token probabilities
+```
+
+Each **encoder block** contains:
+1. Multi-head self-attention
+2. Feed-forward network
+3. Residual connections + layer normalization around each
+
+Each **decoder block** adds a **cross-attention** layer that reads the encoder output, and uses **masked** self-attention so a token cannot see future tokens.
+
+---
+
+## Core Components
+
+### Tokenization and Embeddings
+
+Text is split into tokens (often subwords via BPE, WordPiece, or SentencePiece). Each token ID is mapped to a learned vector of size `d_model` (512 in the original paper).
+
+```text
+"Transformers are great" -> [5012, 389, 1049] -> three vectors of size d_model
+```
+
+### Positional Encoding
+
+Attention is **permutation-invariant**: on its own it has no idea about word order. Position information is therefore added to the embeddings.
+
+The original paper used fixed sinusoids:
+
+```text
+PE(pos, 2i)   = sin(pos / 10000^(2i / d_model))
+PE(pos, 2i+1) = cos(pos / 10000^(2i / d_model))
+```
+
+Alternatives used today: learned positional embeddings, **RoPE** (rotary), **ALiBi**, and relative position biases.
+
+### Self-Attention
+
+Each token is projected into three vectors:
+
+- **Query (Q):** what am I looking for?
+- **Key (K):** what do I contain?
+- **Value (V):** what information do I pass on?
+
+```text
+Attention(Q, K, V) = softmax( Q K^T / sqrt(d_k) ) V
+```
+
+Steps:
+1. Compute similarity scores between every query and every key (`Q K^T`).
+2. Scale by `sqrt(d_k)` to keep softmax gradients stable.
+3. Apply softmax to get attention weights that sum to 1.
+4. Take the weighted sum of the values.
+
+The result: each token becomes a context-aware mix of information from the whole sequence.
+
+### Multi-Head Attention
+
+Instead of one attention operation, the model runs `h` of them in parallel (8 in the original), each on a smaller subspace (`d_k = d_model / h`).
+
+```text
+MultiHead(Q, K, V) = Concat(head_1, ..., head_h) W_O
+head_i = Attention(Q W_Qi, K W_Ki, V W_Vi)
+```
+
+Different heads can specialize, for example in syntax, coreference, or nearby-token patterns.
+
+### Feed-Forward Network
+
+A position-wise two-layer MLP applied independently to each token:
+
+```text
+FFN(x) = W2 * activation(W1 * x + b1) + b2
+```
+
+The hidden size is typically `4 * d_model`. Original: ReLU. Modern models: GELU, or gated variants such as SwiGLU. Much of a model's factual "knowledge" is believed to live in these layers.
+
+### Residual Connections and Layer Norm
+
+Each sub-layer is wrapped as:
+
+```text
+output = LayerNorm( x + SubLayer(x) )      # Post-LN (original)
+output = x + SubLayer( LayerNorm(x) )      # Pre-LN (common today, more stable)
+```
+
+Residuals help gradient flow in deep stacks; normalization stabilizes training.
+
+### Masked Attention and Cross-Attention
+
+- **Masked (causal) self-attention:** adds `-infinity` to scores for future positions before softmax, so token `t` only sees tokens `1..t`. Essential for autoregressive generation.
+- **Cross-attention:** queries come from the decoder, keys and values come from the encoder output. This is how the decoder "reads" the source sentence.
+
+### Output Layer
+
+The final hidden state goes through a linear layer to vocabulary size, then softmax, producing a probability distribution over the next token. Often the weights are **tied** with the input embedding matrix.
+
+---
+
+## Encoder vs Decoder vs Encoder-Decoder
+
+| Type | Attention | Typical use | Examples |
+|---|---|---|---|
+| Encoder-only | Bidirectional | Classification, embeddings, NER, retrieval | BERT, RoBERTa |
+| Decoder-only | Causal (left-to-right) | Text generation, chat, code | GPT family, LLaMA, Claude |
+| Encoder-decoder | Both + cross-attention | Translation, summarization | T5, BART, original Transformer |
+
+---
+
+## Training and Inference
+
+**Training objectives**
+- Decoder-only: next-token prediction (causal language modeling)
+- Encoder-only (BERT): masked language modeling
+- Encoder-decoder (T5): span corruption / text-to-text
+
+**Typical recipe:** AdamW optimizer, learning-rate warmup then decay, dropout, label smoothing, mixed precision (bf16/fp16), gradient clipping.
+
+**Inference (autoregressive decoding)**
+1. Feed the prompt, get next-token distribution.
+2. Pick a token (greedy, beam search, top-k, top-p, temperature sampling).
+3. Append it and repeat.
+
+To avoid recomputing everything each step, models use a **KV cache**, storing the keys and values of past tokens.
+
+---
+
+## Minimal Code Example
+
+A compact single-head causal self-attention in PyTorch:
+
+```python
+import math
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+class CausalSelfAttention(nn.Module):
+    def __init__(self, d_model, n_heads):
+        super().__init__()
+        assert d_model % n_heads == 0
+        self.n_heads = n_heads
+        self.d_k = d_model // n_heads
+        self.qkv = nn.Linear(d_model, 3 * d_model)
+        self.out = nn.Linear(d_model, d_model)
+
+    def forward(self, x):
+        B, T, C = x.shape
+        q, k, v = self.qkv(x).chunk(3, dim=-1)
+        # reshape to (B, heads, T, d_k)
+        q, k, v = [t.view(B, T, self.n_heads, self.d_k).transpose(1, 2) for t in (q, k, v)]
+
+        scores = (q @ k.transpose(-2, -1)) / math.sqrt(self.d_k)
+        mask = torch.triu(torch.ones(T, T, device=x.device), diagonal=1).bool()
+        scores = scores.masked_fill(mask, float("-inf"))
+
+        weights = F.softmax(scores, dim=-1)
+        y = (weights @ v).transpose(1, 2).contiguous().view(B, T, C)
+        return self.out(y)
+
+
+class TransformerBlock(nn.Module):
+    def __init__(self, d_model, n_heads):
+        super().__init__()
+        self.ln1 = nn.LayerNorm(d_model)
+        self.attn = CausalSelfAttention(d_model, n_heads)
+        self.ln2 = nn.LayerNorm(d_model)
+        self.ffn = nn.Sequential(
+            nn.Linear(d_model, 4 * d_model),
+            nn.GELU(),
+            nn.Linear(4 * d_model, d_model),
+        )
+
+    def forward(self, x):
+        x = x + self.attn(self.ln1(x))   # Pre-LN
+        x = x + self.ffn(self.ln2(x))
+        return x
+```
+
+---
+
+## Complexity and Limitations
+
+- **Time and memory:** self-attention is `O(n^2 * d)` in sequence length `n`. Long contexts get expensive.
+- **No built-in order:** needs positional information.
+- **Data hungry:** large models need large datasets.
+- **Hallucination:** generation is probabilistic and not inherently grounded.
+- **Inference cost:** KV cache memory grows with context length and batch size.
+
+---
+
+## Modern Improvements
+
+| Area | Technique |
+|---|---|
+| Efficient attention | FlashAttention, sparse / sliding-window attention, linear attention |
+| Inference memory | Multi-Query Attention (MQA), Grouped-Query Attention (GQA), KV cache quantization |
+| Positions | RoPE, ALiBi, context extension methods |
+| Scaling | Mixture of Experts (MoE) |
+| Normalization | Pre-LN, RMSNorm |
+| Activations | SwiGLU, GeGLU |
+| Serving | Speculative decoding, continuous batching, paged attention |
+
+---
+
+## Most Asked Questions
+
+### 1. What is the Transformer in one sentence?
+A neural network architecture that uses self-attention instead of recurrence to model relationships between all tokens in a sequence in parallel.
+
+### 2. What is self-attention and why is it useful?
+It lets each token compute a weighted combination of all other tokens' representations, where the weights are learned from query-key similarity. It captures long-range dependencies directly and parallelizes well.
+
+### 3. Why divide by sqrt(d_k) in attention?
+For large `d_k`, dot products have large variance, which pushes softmax into saturated regions with tiny gradients. Dividing by `sqrt(d_k)` keeps the variance near 1 and training stable.
+
+### 4. Why use multiple heads?
+Different heads can attend to different types of relationships at the same time (syntax, position, semantics) in separate subspaces, at roughly the same compute as one large head.
+
+### 5. Why do we need positional encoding?
+Self-attention treats the input as a set. Without positional information, "dog bites man" and "man bites dog" would look identical to the model.
+
+### 6. What is the difference between self-attention and cross-attention?
+In self-attention, Q, K, and V come from the same sequence. In cross-attention, Q comes from one sequence (decoder) and K, V from another (encoder output).
+
+### 7. What is masking and why is it needed?
+A causal mask blocks attention to future tokens so training matches generation, where future tokens do not exist yet. A padding mask ignores pad tokens.
+
+### 8. How is a Transformer different from an RNN or LSTM?
+Transformers process all tokens in parallel and connect any two tokens directly. RNNs process sequentially and compress history into a hidden state, which makes long-range learning and parallel training harder.
+
+### 9. What is the time complexity of self-attention?
+`O(n^2 * d)` time and `O(n^2)` memory for attention scores, where `n` is sequence length. This is the main bottleneck for long contexts.
+
+### 10. What is the role of the feed-forward network?
+It adds non-linear, per-token transformation capacity after attention mixes information. It usually holds about two-thirds of a block's parameters.
+
+### 11. Why residual connections and layer normalization?
+Residuals let gradients flow through deep stacks and make it easy to learn small refinements. LayerNorm keeps activations well-scaled. Together they make training dozens of layers possible.
+
+### 12. Pre-LN vs Post-LN?
+Post-LN (original) normalizes after the residual add and can be unstable without careful warmup. Pre-LN normalizes before the sub-layer and trains more stably, so most modern LLMs use it.
+
+### 13. BERT vs GPT: what's the difference?
+BERT is encoder-only with bidirectional attention, trained with masked language modeling, best for understanding tasks. GPT is decoder-only with causal attention, trained for next-token prediction, best for generation.
+
+### 14. What is the KV cache?
+During generation, keys and values of previous tokens never change, so they are stored and reused. Each new step only computes Q, K, V for the newest token, turning per-step cost from quadratic to linear in context length.
+
+### 15. What are Q, K, V intuitively?
+Think of a library search: the query is your question, keys are book labels you match against, and values are the book contents you retrieve, weighted by how well the key matched.
+
+### 16. How do Transformers handle variable-length inputs?
+By padding to the batch's max length and using a padding mask, or by packing sequences with attention masks that prevent cross-sequence attention.
+
+### 17. What is the difference between softmax temperature, top-k, and top-p?
+Temperature rescales logits (lower is more deterministic). Top-k samples from the k most likely tokens. Top-p (nucleus) samples from the smallest set of tokens whose cumulative probability exceeds p.
+
+### 18. How many parameters are in a Transformer block?
+Roughly `12 * d_model^2` per block: about `4 * d_model^2` for attention projections (Q, K, V, output) and `8 * d_model^2` for an FFN with 4x expansion.
+
+### 19. What is FlashAttention?
+An exact attention algorithm that is IO-aware: it tiles computation to stay in fast GPU SRAM and avoids materializing the full `n x n` matrix in slow memory. It is faster and uses far less memory with identical outputs.
+
+### 20. What are MQA and GQA?
+Multi-Query Attention shares one K/V head across all query heads. Grouped-Query Attention shares K/V across groups of query heads. Both shrink the KV cache and speed up inference with little quality loss.
+
+### 21. Why are Transformers good at scaling?
+They are highly parallel, have uniform building blocks, and show predictable improvements with more data, parameters, and compute (scaling laws).
+
+### 22. Can Transformers be used beyond text?
+Yes. Vision Transformers (ViT) split images into patches treated as tokens. Transformers are also used in audio, video, protein folding, reinforcement learning, and multimodal models.
+
+### 23. What is the difference between embedding dimension and head dimension?
+`d_model` is the width of token representations. Head dimension `d_k = d_model / n_heads` is the size each attention head operates on.
+
+### 24. What is weight tying?
+Sharing the input embedding matrix with the output projection matrix, which reduces parameters and often helps performance.
+
+### 25. What are common reasons a Transformer fails to train?
+Too high a learning rate or no warmup, missing gradient clipping, wrong masks, bad initialization, unstable Post-LN at depth, fp16 overflow, or data issues such as leakage through the mask.
+
+---
+
+## Quick Cheat Sheet
+
+| Concept | Remember |
+|---|---|
+| Attention formula | `softmax(QK^T / sqrt(d_k)) V` |
+| Attention cost | O(n^2) |
+| Heads | Parallel attention in subspaces |
+| FFN | 2 layers, 4x hidden, applied per token |
+| Positional info | Sinusoidal, learned, RoPE, ALiBi |
+| Causal mask | Blocks future tokens |
+| Encoder-only | BERT, understanding |
+| Decoder-only | GPT, generation |
+| Enc-Dec | T5, seq2seq |
+| Inference speedup | KV cache, GQA, FlashAttention |
+
+---
+
+## Further Reading
+
+- Vaswani et al., *Attention Is All You Need* (2017)
+- Devlin et al., *BERT* (2018)
+- Radford et al., *Language Models are Unsupervised Multitask Learners* (GPT-2)
+- Dao et al., *FlashAttention* (2022)
+- Su et al., *RoFormer: Rotary Position Embedding* (2021)
+- Kaplan et al., *Scaling Laws for Neural Language Models* (2020)
+- Jay Alammar, *The Illustrated Transformer*
+- Andrej Karpathy, *Let's build GPT* (video)

@@ -1,0 +1,940 @@
+---
+title: "Python asyncio in 7 Days"
+description: "A phased, hands-on curriculum from coroutines to production patterns: FastAPI and GenAI workloads."
+python: "3.11+"
+---
+
+# Python `asyncio` in 7 Days
+
+A phased curriculum that takes you from "what is a coroutine?" to running concurrent workloads in production. Each day has **theory**, **runnable snippets**, **pitfalls**, and **exercises**.
+
+> **Target version:** Python 3.11+ (`TaskGroup`, `asyncio.timeout`, `except*`). Notes flag where 3.12/3.13 differ.
+
+## Table of contents
+
+| Phase | Day | Topic | Priority |
+| --- | --- | --- | --- |
+| [1. Foundations](#phase-1--foundations) | [Day 1](#day-1--coroutines-event-loop-async--await) | Coroutines, event loop, `async` / `await` | P0 |
+| [2. Concurrent execution](#phase-2--concurrent-execution) | [Day 2](#day-2--tasks-gather-taskgroup-wait) | Tasks, `gather`, `TaskGroup`, `wait` | P0 |
+| [3. Reliability](#phase-3--reliability) | [Day 3](#day-3--timeouts-exceptions-cancellation) | Timeouts, exceptions, cancellation | P0 |
+| [4. Synchronization](#phase-4--synchronization) | [Day 4](#day-4--locks-semaphores-queues-conditions) | Locks, semaphores, queues, conditions | P1 |
+| [5. Real-world integration](#phase-5--real-world-integration) | [Day 5](#day-5--http-clients-database-threads-cpu-work) | HTTP clients, database, threads, CPU work | P0 |
+| [6. Production patterns](#phase-6--production-patterns) | [Days 6–7](#days-67--backpressure-worker-pools-fastapi-genai) | Backpressure, worker pools, FastAPI, GenAI | P1 |
+
+Appendices: [Cheat sheet](#appendix-a--cheat-sheet) · [Common pitfalls](#appendix-b--common-pitfalls) · [Debugging](#appendix-c--debugging)
+
+**Priority legend:** **P0** = must master, everything else depends on it. **P1** = important; you can ship without it, but not at scale.
+
+---
+
+## Phase 1 — Foundations
+
+### Day 1 — Coroutines, event loop, `async` / `await`
+
+**Goal:** Build a correct mental model. Everything later is an application of it.
+
+#### Theory
+
+**Concurrency vs parallelism.** `asyncio` gives you *concurrency*: many tasks make progress by interleaving on **one thread**. It does not make CPU-bound code faster. It shines when tasks spend most of their time **waiting** (network, disk, timers).
+
+**Coroutine function vs coroutine object.** Calling an `async def` function does *not* run it. It returns a coroutine object, which is a paused computation waiting to be driven.
+
+**The event loop** is a scheduler. It keeps a set of ready tasks, runs one until it hits an `await` on something that is not ready, then switches to another. This is **cooperative multitasking**: a task yields control only at `await`.
+
+**`await`** means: "run this awaitable; if it must wait, suspend me and let others run." Awaitables are coroutines, `Task`s, and `Future`s.
+
+**The golden rule:** never block the event loop. One `time.sleep(5)` or a slow synchronous call freezes *every* task.
+
+```text
+ task A ──run──await(IO)────────────────resume──run──
+ task B ────────run──await(IO)──resume──run──────────
+ task C ───────────────run──await(IO)──────resume──
+          └──────── single thread, event loop ───────┘
+```
+
+#### Code
+
+**1. Your first coroutine**
+
+```python
+import asyncio
+
+async def greet(name: str) -> str:
+    await asyncio.sleep(1)          # non-blocking sleep
+    return f"hello {name}"
+
+async def main() -> None:
+    coro = greet("world")           # a coroutine object, nothing ran yet
+    print(type(coro))               # <class 'coroutine'>
+    print(await coro)               # now it runs
+
+asyncio.run(main())                 # creates a loop, runs main, closes the loop
+```
+
+**2. Sequential vs concurrent**
+
+```python
+import asyncio, time
+
+async def fetch(i: int) -> int:
+    await asyncio.sleep(1)
+    return i
+
+async def main() -> None:
+    t = time.perf_counter()
+    for i in range(3):
+        await fetch(i)                                  # one after another
+    print(f"sequential: {time.perf_counter() - t:.1f}s")   # ~3.0s
+
+    t = time.perf_counter()
+    await asyncio.gather(*(fetch(i) for i in range(3)))    # all at once
+    print(f"concurrent: {time.perf_counter() - t:.1f}s")   # ~1.0s
+
+asyncio.run(main())
+```
+
+`await` alone does not create concurrency. Concurrency comes from having **multiple tasks scheduled at the same time** (Day 2 covers this properly).
+
+**3. Seeing the loop get blocked**
+
+```python
+import asyncio, time
+
+async def heartbeat() -> None:
+    for _ in range(5):
+        print("tick")
+        await asyncio.sleep(0.5)
+
+async def bad() -> None:
+    time.sleep(2)                   # BLOCKS the loop: no ticks during this
+
+async def good() -> None:
+    await asyncio.sleep(2)          # yields: ticks keep flowing
+
+async def main() -> None:
+    hb = asyncio.create_task(heartbeat())
+    await bad()                     # swap with good() and compare
+    await hb
+
+asyncio.run(main())
+```
+
+#### Pitfalls
+
+- Forgetting `await`: you get a coroutine object and a `RuntimeWarning: coroutine ... was never awaited`.
+- Calling `asyncio.run()` inside an already running loop (notebooks, some frameworks). Use `await` directly there.
+- Using `requests`, `time.sleep`, or sync DB drivers inside `async def`.
+
+#### Exercises
+
+1. Write three coroutines that each sleep a different duration and print when they finish. Run them sequentially, then concurrently. Predict total time first.
+2. Run the heartbeat demo with `bad()`. Explain the output using the "yield only at await" rule.
+3. Enable debug mode (`asyncio.run(main(), debug=True)`) and observe the slow-callback warning when you block.
+
+**Done when:** you can explain why `await f()` followed by `await g()` is sequential, and what *exactly* the event loop is doing during an `await`.
+
+---
+
+## Phase 2 — Concurrent execution
+
+### Day 2 — Tasks, `gather`, `TaskGroup`, `wait`
+
+**Goal:** Run many things at once, collect results, and handle partial failure.
+
+#### Theory
+
+A **`Task`** wraps a coroutine and schedules it on the loop immediately. A `Task` is also a `Future`, so you can `await` it, check `.done()`, call `.result()`, or `.cancel()` it.
+
+| Tool | Use when | On first failure |
+| --- | --- | --- |
+| `create_task` | Fire off one unit of work | You handle it |
+| `gather` | Run N things, want results in order | Propagates first exception; others keep running (unless `return_exceptions=True`) |
+| `TaskGroup` (3.11+) | Run N things as one scope | Cancels siblings, raises `ExceptionGroup` |
+| `wait` | Need `FIRST_COMPLETED` / `FIRST_EXCEPTION` control | Returns `(done, pending)` sets, never raises task errors |
+| `as_completed` | Process results as they finish | You handle it per item |
+
+**Structured concurrency:** `TaskGroup` guarantees no child outlives the `async with` block. Prefer it over `gather` for new code.
+
+#### Code
+
+**1. `create_task` and keeping references**
+
+```python
+import asyncio
+
+async def work(n: int) -> int:
+    await asyncio.sleep(n)
+    return n * 10
+
+async def main() -> None:
+    t1 = asyncio.create_task(work(1))
+    t2 = asyncio.create_task(work(2))
+    # both are already running concurrently
+    print(await t1, await t2)
+
+asyncio.run(main())
+```
+
+> **Keep a reference** to every task you create. The loop only holds a weak reference, so an unreferenced task can be garbage-collected mid-flight.
+
+```python
+background: set[asyncio.Task] = set()
+
+def spawn(coro) -> asyncio.Task:
+    task = asyncio.create_task(coro)
+    background.add(task)
+    task.add_done_callback(background.discard)
+    return task
+```
+
+**2. `gather`**
+
+```python
+results = await asyncio.gather(work(1), work(2), work(3))   # ordered like the inputs
+
+# Tolerate failures: exceptions are returned as values
+results = await asyncio.gather(*coros, return_exceptions=True)
+for r in results:
+    if isinstance(r, Exception):
+        print("failed:", r)
+```
+
+**3. `TaskGroup`**
+
+```python
+import asyncio
+
+async def main() -> None:
+    async with asyncio.TaskGroup() as tg:
+        t1 = tg.create_task(work(1))
+        t2 = tg.create_task(work(2))
+    # the block exits only when all tasks are done
+    print(t1.result(), t2.result())
+
+asyncio.run(main())
+```
+
+If any child raises, the rest are cancelled and the group raises an `ExceptionGroup` (see Day 3).
+
+**4. `wait` with `FIRST_COMPLETED` (race pattern)**
+
+```python
+async def race(*coros):
+    tasks = [asyncio.create_task(c) for c in coros]
+    done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+    for p in pending:
+        p.cancel()
+    await asyncio.gather(*pending, return_exceptions=True)   # let cancellations finish
+    return next(iter(done)).result()
+```
+
+**5. `as_completed`**
+
+```python
+for fut in asyncio.as_completed([work(3), work(1), work(2)]):
+    print(await fut)        # 10, 20, 30 in finish order
+```
+
+#### Pitfalls
+
+- `gather` without `return_exceptions=True` leaves the other tasks running after the first failure.
+- Passing bare coroutines to `asyncio.wait` is not allowed on modern Python; wrap them in tasks.
+- Dropping the return value of `create_task` (see the reference-keeping note above).
+
+#### Exercises
+
+1. Fetch 10 simulated URLs (`asyncio.sleep(random)`) with `gather`, then with `TaskGroup`. Make one fail and compare behavior.
+2. Implement `first_success(*coros)` that returns the first non-exception result.
+3. Use `as_completed` to print a live progress bar as jobs finish.
+
+**Done when:** you can choose between the five tools above and justify the choice in one sentence each.
+
+---
+
+## Phase 3 — Reliability
+
+### Day 3 — Timeouts, exceptions, cancellation
+
+**Goal:** Make concurrent code fail *predictably* and clean up after itself.
+
+#### Theory
+
+**Timeouts.** Every network call needs one. `asyncio.timeout()` (3.11+) is a context manager that cancels the body when time runs out and raises `TimeoutError`. `asyncio.wait_for()` does the same for a single awaitable.
+
+**Cancellation is an exception.** `task.cancel()` schedules `asyncio.CancelledError` to be raised at the task's current `await`. It derives from `BaseException`, so a bare `except Exception` will not swallow it. That is intentional.
+
+**Rules for cancellation:**
+
+1. Clean up in `finally` (or `async with`).
+2. If you catch `CancelledError`, **re-raise it** unless you truly intend to suppress cancellation.
+3. Use `asyncio.shield()` to protect a critical operation from the *caller's* cancellation.
+
+**Exception groups.** `TaskGroup` can collect several failures at once and raises `ExceptionGroup`. Handle them with `except*`.
+
+#### Code
+
+**1. Timeouts**
+
+```python
+import asyncio
+
+async def slow() -> str:
+    await asyncio.sleep(10)
+    return "done"
+
+async def main() -> None:
+    try:
+        async with asyncio.timeout(2):
+            await slow()
+    except TimeoutError:
+        print("timed out")
+
+    # single awaitable
+    try:
+        await asyncio.wait_for(slow(), timeout=1)
+    except TimeoutError:
+        print("timed out again")
+
+asyncio.run(main())
+```
+
+**2. Cancellation with cleanup**
+
+```python
+async def worker() -> None:
+    try:
+        while True:
+            await asyncio.sleep(1)
+            print("working")
+    except asyncio.CancelledError:
+        print("cancelled, cleaning up")
+        raise                              # always re-raise
+    finally:
+        await release_resources()          # runs on success, error, or cancel
+
+async def main() -> None:
+    t = asyncio.create_task(worker())
+    await asyncio.sleep(3.5)
+    t.cancel()
+    try:
+        await t
+    except asyncio.CancelledError:
+        print("worker stopped")
+```
+
+**3. `shield`**
+
+```python
+async def save_critical(data) -> None: ...
+
+async def handler(data) -> None:
+    # if handler is cancelled, save_critical keeps running to completion
+    await asyncio.shield(save_critical(data))
+```
+
+`shield` protects the inner task from the outer cancellation, but the outer `await` still raises `CancelledError`. Keep a reference to the inner task if you need its result.
+
+**4. `ExceptionGroup` and `except*`**
+
+```python
+async def boom(msg: str, exc: type[Exception]) -> None:
+    await asyncio.sleep(0.1)
+    raise exc(msg)
+
+async def main() -> None:
+    try:
+        async with asyncio.TaskGroup() as tg:
+            tg.create_task(boom("bad value", ValueError))
+            tg.create_task(boom("no file", FileNotFoundError))
+    except* ValueError as eg:
+        print("value errors:", eg.exceptions)
+    except* FileNotFoundError as eg:
+        print("missing files:", eg.exceptions)
+```
+
+**5. Retry with timeout per attempt**
+
+```python
+import random
+
+async def with_retries(fn, *, attempts: int = 3, per_try: float = 5.0, base: float = 0.5):
+    for i in range(attempts):
+        try:
+            async with asyncio.timeout(per_try):
+                return await fn()
+        except (TimeoutError, ConnectionError):
+            if i == attempts - 1:
+                raise
+            await asyncio.sleep(base * 2**i + random.random() * 0.1)   # backoff + jitter
+```
+
+#### Pitfalls
+
+- Swallowing `CancelledError` makes shutdown hang.
+- Putting `await` inside `finally` is fine, but if the task is cancelled *again* during cleanup the cleanup can be interrupted. Keep cleanup short, or `shield` it.
+- `wait_for` on a task that ignores cancellation will block until that task finishes.
+
+#### Exercises
+
+1. Write `fetch_with_deadline(url, deadline)` that returns `None` on timeout instead of raising.
+2. Build a worker that flushes a buffer in `finally` when cancelled. Prove it works by cancelling mid-loop.
+3. Run three failing tasks in a `TaskGroup` and print each exception type using `except*`.
+
+**Done when:** you can describe what happens, step by step, when you call `task.cancel()` on a task awaiting a socket read.
+
+---
+
+## Phase 4 — Synchronization
+
+### Day 4 — Locks, semaphores, queues, conditions
+
+**Goal:** Coordinate tasks safely. Know *when you don't need locks*.
+
+#### Theory
+
+Because tasks switch only at `await`, code **between** awaits is atomic with respect to other tasks. You need synchronization only when a critical section **contains an `await`** and shared state must stay consistent across it.
+
+| Primitive | Purpose |
+| --- | --- |
+| `Lock` | Mutual exclusion around a multi-await critical section |
+| `Semaphore` | Limit concurrency to N (rate limiting, connection caps) |
+| `Event` | One-shot "signal" that many tasks can wait on |
+| `Condition` | Wait until shared state satisfies a predicate |
+| `Queue` | Producer/consumer hand-off with built-in backpressure |
+
+These primitives are **not thread-safe**. They are for tasks on one loop.
+
+#### Code
+
+**1. `Lock`**
+
+```python
+lock = asyncio.Lock()
+balance = 100
+
+async def withdraw(n: int) -> None:
+    global balance
+    async with lock:
+        current = balance
+        await asyncio.sleep(0.01)       # simulates IO, a context-switch point
+        balance = current - n           # without the lock this loses updates
+```
+
+**2. `Semaphore` for concurrency limits**
+
+```python
+sem = asyncio.Semaphore(5)
+
+async def limited(url: str) -> str:
+    async with sem:                     # at most 5 inside at once
+        return await fetch(url)
+
+results = await asyncio.gather(*(limited(u) for u in urls))
+```
+
+**3. `Event`**
+
+```python
+ready = asyncio.Event()
+
+async def waiter(name: str) -> None:
+    await ready.wait()
+    print(name, "released")
+
+async def main() -> None:
+    async with asyncio.TaskGroup() as tg:
+        for n in "abc":
+            tg.create_task(waiter(n))
+        await asyncio.sleep(1)
+        ready.set()                     # wakes every waiter
+```
+
+**4. `Condition`**
+
+```python
+cond = asyncio.Condition()
+items: list[int] = []
+
+async def consumer() -> None:
+    async with cond:
+        await cond.wait_for(lambda: len(items) >= 3)
+        print("got", items[:3])
+
+async def producer() -> None:
+    for i in range(3):
+        await asyncio.sleep(0.2)
+        async with cond:
+            items.append(i)
+            cond.notify_all()
+```
+
+**5. `Queue` producer/consumer**
+
+```python
+async def producer(q: asyncio.Queue) -> None:
+    for i in range(10):
+        await q.put(i)                  # blocks if the queue is full
+
+async def consumer(q: asyncio.Queue, name: str) -> None:
+    while True:
+        item = await q.get()
+        try:
+            await asyncio.sleep(0.1)
+            print(name, "processed", item)
+        finally:
+            q.task_done()
+
+async def main() -> None:
+    q: asyncio.Queue[int] = asyncio.Queue(maxsize=5)
+    workers = [asyncio.create_task(consumer(q, f"w{i}")) for i in range(3)]
+    await producer(q)
+    await q.join()                      # wait until every item is task_done()
+    for w in workers:
+        w.cancel()
+    await asyncio.gather(*workers, return_exceptions=True)
+```
+
+Python 3.13 adds `Queue.shutdown()` for a cleaner end-of-stream signal.
+
+#### Pitfalls
+
+- Using a `Lock` where none is needed (no `await` inside the critical section).
+- Forgetting `task_done()`, so `join()` hangs forever.
+- Unbounded queues: the producer never slows down and memory grows. Always set `maxsize` unless you have a reason not to.
+- Deadlock from acquiring two locks in inconsistent order.
+
+#### Exercises
+
+1. Reproduce a lost-update race without the lock, then fix it.
+2. Build a rate limiter: at most 10 requests per second using `Semaphore` plus a refill task.
+3. Implement a pipeline: `fetch -> parse -> store`, one queue between each stage.
+
+**Done when:** you can say, for any shared variable, whether a lock is required and why.
+
+---
+
+## Phase 5 — Real-world integration
+
+### Day 5 — HTTP clients, database, threads, CPU work
+
+**Goal:** Connect `asyncio` to the outside world without blocking the loop.
+
+#### Theory
+
+Async only helps if the **library underneath is async**. Rule of thumb:
+
+| Work type | Right tool |
+| --- | --- |
+| Async-native IO (httpx, aiohttp, asyncpg) | `await` directly |
+| Blocking IO (sync SDK, file ops, legacy DB driver) | `asyncio.to_thread()` |
+| CPU-bound (parsing, ML inference, hashing) | `ProcessPoolExecutor` via `run_in_executor` |
+
+Threads help blocking IO because the GIL is released during IO. They do **not** speed up pure-Python CPU work; processes do.
+
+**Reuse clients and pools.** Create one `AsyncClient` / pool per app, not per request.
+
+#### Code
+
+**1. HTTP with `httpx` (bounded concurrency + timeouts)**
+
+```python
+import asyncio, httpx
+
+async def fetch_all(urls: list[str], limit: int = 10) -> list[int | Exception]:
+    sem = asyncio.Semaphore(limit)
+    timeout = httpx.Timeout(10.0, connect=3.0)
+
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        async def one(url: str) -> int:
+            async with sem:
+                r = await client.get(url)
+                r.raise_for_status()
+                return len(r.content)
+
+        return await asyncio.gather(*(one(u) for u in urls), return_exceptions=True)
+```
+
+**2. Database with a pool (`asyncpg`)**
+
+```python
+import asyncpg
+
+async def main() -> None:
+    pool = await asyncpg.create_pool(dsn="postgresql://user:pass@localhost/db",
+                                     min_size=2, max_size=10)
+    try:
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                await conn.execute("UPDATE accounts SET balance = balance - $1 WHERE id = $2", 50, 1)
+                rows = await conn.fetch("SELECT id, balance FROM accounts")
+    finally:
+        await pool.close()
+```
+
+Keep transactions short. Never hold a connection across slow, unrelated awaits (for example, an external API call).
+
+**3. Blocking code in a thread**
+
+```python
+import asyncio, time
+
+def blocking_read(path: str) -> str:
+    time.sleep(1)                       # stand-in for a sync SDK call
+    with open(path) as f:
+        return f.read()
+
+async def main() -> None:
+    text = await asyncio.to_thread(blocking_read, "data.txt")
+```
+
+**4. CPU-bound work in a process pool**
+
+```python
+import asyncio
+from concurrent.futures import ProcessPoolExecutor
+
+def crunch(n: int) -> int:               # must be a top-level, picklable function
+    return sum(i * i for i in range(n))
+
+async def main() -> None:
+    loop = asyncio.get_running_loop()
+    with ProcessPoolExecutor() as pool:
+        results = await asyncio.gather(
+            *(loop.run_in_executor(pool, crunch, 10_000_000) for _ in range(4))
+        )
+    print(results)
+
+if __name__ == "__main__":               # required for multiprocessing on Windows/macOS
+    asyncio.run(main())
+```
+
+**5. Calling async code from a sync thread**
+
+```python
+def from_worker_thread(loop: asyncio.AbstractEventLoop, coro):
+    fut = asyncio.run_coroutine_threadsafe(coro, loop)
+    return fut.result(timeout=5)
+```
+
+Never call loop methods like `create_task` from another thread. Use `call_soon_threadsafe` or `run_coroutine_threadsafe`.
+
+#### Pitfalls
+
+- Sync SDK called directly in `async def` (silent loop stall).
+- Creating a new HTTP client per request (no connection reuse, slow).
+- Unlimited `gather` over 10,000 URLs: file descriptor exhaustion and remote rate limits. Bound it.
+- Default thread pool is limited in size, so a flood of `to_thread` calls queues up.
+
+#### Exercises
+
+1. Download 50 URLs with a limit of 10 and per-request timeouts. Report successes and failures separately.
+2. Wrap a sync library in `to_thread` and prove with a heartbeat task that the loop stays responsive.
+3. Benchmark `crunch` with `to_thread` vs `ProcessPoolExecutor`; explain the difference.
+
+**Done when:** for any library call you can classify it as async-native, blocking-IO, or CPU-bound and pick the right pattern.
+
+---
+
+## Phase 6 — Production patterns
+
+### Days 6–7 — Backpressure, worker pools, FastAPI, GenAI
+
+**Goal:** Assemble everything into services that stay healthy under load.
+
+#### Day 6 — Backpressure and worker pools
+
+##### Theory
+
+**Backpressure** means the system slows producers when consumers can't keep up, instead of buffering without limit. In `asyncio` the primary tools are:
+
+- bounded `Queue` (`put` blocks when full)
+- `Semaphore` (caps in-flight work)
+- load shedding (reject with 429/503 when saturated)
+
+**Worker pool** = N long-lived consumer tasks pulling from a bounded queue. It gives a hard concurrency ceiling, predictable resource use, and a single place to handle retries and shutdown.
+
+##### Code
+
+**1. Reusable worker pool with graceful shutdown**
+
+```python
+import asyncio
+from collections.abc import Awaitable, Callable
+from typing import Generic, TypeVar
+
+T = TypeVar("T")
+
+class WorkerPool(Generic[T]):
+    def __init__(self, handler: Callable[[T], Awaitable[None]],
+                 workers: int = 8, queue_size: int = 100) -> None:
+        self._handler = handler
+        self._queue: asyncio.Queue[T] = asyncio.Queue(maxsize=queue_size)
+        self._n = workers
+        self._tasks: list[asyncio.Task] = []
+
+    async def start(self) -> None:
+        self._tasks = [asyncio.create_task(self._run(i)) for i in range(self._n)]
+
+    async def submit(self, item: T) -> None:
+        await self._queue.put(item)                 # backpressure: waits when full
+
+    def try_submit(self, item: T) -> bool:
+        try:
+            self._queue.put_nowait(item)            # load shedding: fail fast
+            return True
+        except asyncio.QueueFull:
+            return False
+
+    async def _run(self, idx: int) -> None:
+        while True:
+            item = await self._queue.get()
+            try:
+                await self._handler(item)
+            except Exception:
+                # log and continue: one bad item must not kill the worker
+                import logging
+                logging.exception("worker %d failed on %r", idx, item)
+            finally:
+                self._queue.task_done()
+
+    async def drain_and_stop(self, timeout: float = 30) -> None:
+        try:
+            async with asyncio.timeout(timeout):
+                await self._queue.join()            # finish accepted work
+        finally:
+            for t in self._tasks:
+                t.cancel()
+            await asyncio.gather(*self._tasks, return_exceptions=True)
+```
+
+**2. Using it**
+
+```python
+async def process(job: int) -> None:
+    await asyncio.sleep(0.1)
+
+async def main() -> None:
+    pool = WorkerPool(process, workers=5, queue_size=20)
+    await pool.start()
+    for job in range(200):
+        await pool.submit(job)           # naturally paced by the bounded queue
+    await pool.drain_and_stop()
+
+asyncio.run(main())
+```
+
+##### Exercises (Day 6)
+
+1. Add per-item retry with exponential backoff and a dead-letter queue.
+2. Add metrics: queue depth, in-flight count, processing latency (p50/p95).
+3. Make `try_submit` drive an HTTP 429 response in the next section's API.
+
+---
+
+#### Day 7 — FastAPI and GenAI workloads
+
+##### Theory: FastAPI
+
+- `async def` endpoints run **on the event loop**: never block in them. Plain `def` endpoints run in a threadpool automatically.
+- Create shared resources (HTTP client, DB pool, worker pool) in the **lifespan** handler, and store them on `app.state`.
+- `BackgroundTasks` are fine for small post-response work. For durable or heavy jobs, use a worker pool or an external queue (Celery, Arq, SQS).
+- Handle **client disconnects** and **timeouts** explicitly; long requests should be cancellable.
+
+##### Code: FastAPI with lifespan, worker pool, and load shedding
+
+```python
+from contextlib import asynccontextmanager
+import httpx
+from fastapi import FastAPI, HTTPException, Request
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    app.state.http = httpx.AsyncClient(timeout=10)
+    app.state.pool = WorkerPool(process_job, workers=8, queue_size=100)
+    await app.state.pool.start()
+    try:
+        yield                                           # app serves requests here
+    finally:
+        await app.state.pool.drain_and_stop(timeout=20)
+        await app.state.http.aclose()
+
+app = FastAPI(lifespan=lifespan)
+
+async def process_job(job: dict) -> None:
+    ...
+
+@app.post("/jobs", status_code=202)
+async def create_job(job: dict, request: Request):
+    if not request.app.state.pool.try_submit(job):
+        raise HTTPException(status_code=429, detail="busy, retry later")
+    return {"status": "accepted"}
+
+@app.get("/proxy")
+async def proxy(url: str, request: Request):
+    r = await request.app.state.http.get(url)           # shared client, no per-request setup
+    return {"status": r.status_code}
+```
+
+##### Theory: GenAI workloads
+
+LLM calls are **high-latency, rate-limited, and streaming**. That maps perfectly onto `asyncio`, with a few specifics:
+
+- **Bound concurrency** with a `Semaphore` sized to your provider rate limit, not to your CPU count.
+- **Retry on 429/5xx** with exponential backoff and jitter. The official SDKs retry some errors by default; know what yours does.
+- **Stream tokens** to the client as they arrive (SSE) to cut perceived latency.
+- **Cancel on disconnect** so abandoned requests stop spending tokens.
+- **Fan-out/fan-in** is common: run many independent prompts in parallel, then aggregate.
+
+##### Code: concurrent LLM calls with a concurrency cap
+
+```python
+import asyncio
+from anthropic import AsyncAnthropic
+
+client = AsyncAnthropic()                       # reads ANTHROPIC_API_KEY
+sem = asyncio.Semaphore(8)
+
+async def ask(prompt: str) -> str:
+    async with sem:
+        async with asyncio.timeout(60):
+            msg = await client.messages.create(
+                model="claude-sonnet-5-5",
+                max_tokens=500,
+                messages=[{"role": "user", "content": prompt}],
+            )
+    return msg.content[0].text
+
+async def summarize_all(docs: list[str]) -> list[str | BaseException]:
+    return await asyncio.gather(
+        *(ask(f"Summarize in two sentences:\n\n{d}") for d in docs),
+        return_exceptions=True,
+    )
+```
+
+##### Code: streaming endpoint (SSE) that stops on disconnect
+
+```python
+from fastapi.responses import StreamingResponse
+
+@app.get("/chat")
+async def chat(q: str, request: Request):
+    async def events():
+        async with client.messages.stream(
+            model="claude-sonnet-5-5",
+            max_tokens=800,
+            messages=[{"role": "user", "content": q}],
+        ) as stream:
+            async for text in stream.text_stream:
+                if await request.is_disconnected():
+                    break                       # leaving the block closes the stream
+                yield f"data: {text}\n\n"
+        yield "event: done\ndata: [DONE]\n\n"
+
+    return StreamingResponse(events(), media_type="text/event-stream")
+```
+
+##### Code: fan-out with early cancellation
+
+```python
+async def first_good_answer(prompts: list[str], is_good) -> str | None:
+    tasks = [asyncio.create_task(ask(p)) for p in prompts]
+    try:
+        for fut in asyncio.as_completed(tasks):
+            try:
+                ans = await fut
+            except Exception:
+                continue
+            if is_good(ans):
+                return ans
+        return None
+    finally:
+        for t in tasks:
+            t.cancel()                          # stop paying for unused work
+        await asyncio.gather(*tasks, return_exceptions=True)
+```
+
+##### Exercises (Day 7)
+
+1. Build `POST /summarize` that accepts up to 50 documents, summarizes them with a concurrency cap of 8, and returns partial results with per-item errors.
+2. Add an SSE `/chat` endpoint and verify (with logs) that closing the browser tab cancels the upstream stream.
+3. Load-test with 500 concurrent requests. Confirm: bounded memory, 429s under overload, clean shutdown with in-flight work drained.
+
+**Done when:** your service degrades gracefully (429s, not crashes), shuts down cleanly on SIGTERM, and never blocks the loop.
+
+---
+
+## Capstone
+
+Build a **bulk document enrichment service**:
+
+1. `POST /batches` accepts a list of URLs and returns a batch id immediately (202).
+2. A worker pool fetches each URL (`httpx`, timeout, retry), extracts text in a thread/process, and calls an LLM with a semaphore.
+3. Results are stored in a DB via a connection pool.
+4. `GET /batches/{id}` reports progress; `GET /batches/{id}/events` streams updates via SSE.
+5. Overload returns 429; SIGTERM drains in-flight work within a deadline.
+
+---
+
+## Appendix A — Cheat sheet
+
+| I want to... | Use |
+| --- | --- |
+| Run the program | `asyncio.run(main())` |
+| Start a task now | `asyncio.create_task(coro)` (keep a reference) |
+| Run N things, ordered results | `asyncio.gather(*coros)` |
+| Run N things, structured scope | `async with asyncio.TaskGroup() as tg` |
+| Process as they finish | `asyncio.as_completed(...)` |
+| First to finish wins | `asyncio.wait(..., return_when=FIRST_COMPLETED)` |
+| Timeout a block | `async with asyncio.timeout(s)` |
+| Timeout one awaitable | `asyncio.wait_for(aw, s)` |
+| Protect from cancellation | `asyncio.shield(aw)` |
+| Limit concurrency | `asyncio.Semaphore(n)` |
+| Hand work between tasks | `asyncio.Queue(maxsize=n)` |
+| Run blocking code | `await asyncio.to_thread(fn, *args)` |
+| Run CPU-bound code | `loop.run_in_executor(ProcessPoolExecutor(), fn, *args)` |
+| Call into loop from a thread | `asyncio.run_coroutine_threadsafe(coro, loop)` |
+
+## Appendix B — Common pitfalls
+
+1. **Blocking the loop** (sync IO, `time.sleep`, heavy CPU).
+2. **Un-awaited coroutines** and **unreferenced tasks**.
+3. **Swallowing `CancelledError`**, which breaks shutdown and timeouts.
+4. **Unbounded concurrency or queues**, which cause memory growth and rate-limit storms.
+5. **Per-request clients/pools** instead of shared ones.
+6. **Holding locks or DB connections across slow external calls.**
+7. **Mixing threads and loop objects** without the `*_threadsafe` APIs.
+8. **`gather` without `return_exceptions`** when you needed every result.
+
+## Appendix C — Debugging
+
+```python
+import asyncio, logging
+
+logging.basicConfig(level=logging.DEBUG)
+asyncio.run(main(), debug=True)         # logs slow callbacks (>100 ms), un-awaited coroutines
+```
+
+```python
+# Inspect what is running right now
+for t in asyncio.all_tasks():
+    print(t.get_name(), t.get_coro())
+    t.print_stack()
+```
+
+- Name your tasks: `asyncio.create_task(coro, name="fetch-batch-42")`.
+- Set a slow-callback threshold: `loop.slow_callback_duration = 0.05`.
+- Prefer `TaskGroup` so failures surface with context instead of vanishing.
+
+---
+
+## Suggested 7-day schedule
+
+| Day | Morning (theory + snippets) | Afternoon (exercises) |
+| --- | --- | --- |
+| 1 | Event loop model, `async` / `await` | Blocking demo, timing experiments |
+| 2 | Tasks and the five coordination tools | Race, progress bar, partial failure |
+| 3 | Timeouts, cancellation, `ExceptionGroup` | Cleanup-on-cancel worker, retry helper |
+| 4 | Locks, semaphores, queues, conditions | Rate limiter, 3-stage pipeline |
+| 5 | HTTP, DB pool, threads, processes | Bounded downloader, thread/process benchmark |
+| 6 | Backpressure, worker pool | Retries, DLQ, metrics |
+| 7 | FastAPI lifespan, GenAI patterns | Summarize + SSE endpoints, load test |

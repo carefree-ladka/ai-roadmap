@@ -1,6 +1,6 @@
 ---
 title: RAG Evaluation
-description: Why data-driven evaluation matters, the two layers of retrieval and generation quality, retrieval metrics like recall@k and MRR, generation metrics, building eval sets, LLM-as-judge, tools, and running evals in CI.
+description: Why data-driven evaluation matters, the two layers of retrieval and generation quality, retrieval metrics from recall@k and MRR through NDCG and MAP, generation metrics, building eval sets, LLM-as-judge, tools, and running evals in CI.
 ---
 
 import TOCInline from '@theme/TOCInline';
@@ -88,6 +88,10 @@ In prose (no symbols): recall@k is "relevant retrieved divided by total relevant
 precision@k is "relevant retrieved divided by k"; MRR for one query is "one over
 the rank of the first relevant result," averaged over all queries.
 
+Those four treat the top-k as a set, or look only at the first hit.
+[NDCG and MAP](#ranking-quality-ndcg-and-map) below score the *ordering* of the
+whole list, which is what changes when you add a reranker.
+
 ```python
 def recall_at_k(retrieved_ids: list[str], relevant_ids: set[str], k: int) -> float:
     if not relevant_ids:
@@ -127,6 +131,238 @@ print(reciprocal_rank(retrieved, relevant))    # first relevant (c2) at rank 2 -
 At `k=3` only one of two relevant chunks is present (recall 0.5); widening to
 `k=5` captures both (recall 1.0) — a concrete illustration of the
 [top-k](./08-top-k-retrieval.mdx) trade-off.
+
+---
+
+## Ranking Quality: NDCG and MAP
+
+Recall@k, precision@k and hit rate are **set** metrics: they ask what landed in
+the top-k and ignore the order within it. Swapping rank 1 and rank 5 leaves all
+three unchanged. MRR does look at position, but only at the *first* relevant
+result — everything after it is invisible.
+
+That gap matters for RAG, because the LLM does not read your top-k as an
+unordered set. Context position affects what the model actually uses, which is
+the whole premise of [reranking](./11-reranking.mdx). Two metrics close the gap.
+
+### Binary vs Graded Relevance
+
+Every metric so far took `relevant_ids: set[str]` — a chunk is relevant or it
+isn't. **Graded relevance** replaces that with a score per chunk:
+
+```python
+# Binary: relevant or not.
+relevant_ids = {"c2", "c5"}
+
+# Graded: how useful is each chunk for this question?
+relevance = {"c2": 3, "c5": 2, "c7": 1}   # 3 = answers it outright,
+                                          # 2 = useful supporting detail,
+                                          # 1 = related but thin,
+                                          # absent = 0, irrelevant
+```
+
+This distinction is a prerequisite, not a detail: NDCG is *defined* over grades,
+so you cannot compute it from a `set`. Binary relevance is simply the special
+case where every relevant chunk has grade 1.
+
+:::note[Highlight: grade only when the difference is real]
+A 0–3 scale costs more labeling effort and introduces rater disagreement. It
+earns that cost when your corpus has chunks that are *partly* useful — an FAQ
+entry that answers the question outright versus a release note that merely
+mentions the feature. If your chunks are genuinely all-or-nothing, stay binary
+and use recall@k and MRR.
+:::
+
+### DCG, IDCG, and NDCG@k
+
+**NDCG** (Normalized Discounted Cumulative Gain) builds up in three steps:
+
+```text
+DCG@k   = sum over ranks i = 1..k of  grade_i / log2(i + 1)
+IDCG@k  = the same sum for the IDEAL ranking (grades sorted high to low)
+NDCG@k  = DCG@k / IDCG@k
+```
+
+In prose: **gain** is the chunk's relevance grade. The **discount**
+`log2(i + 1)` shrinks that gain the further down the list it appears, so rank 1
+counts fully, rank 2 counts about 63% as much, rank 5 about 39%.
+**Normalizing** by the best achievable ordering puts the result on a 0-to-1
+scale, which makes scores comparable across questions that have different
+numbers of relevant chunks.
+
+```python
+from math import log2
+
+
+def dcg_at_k(retrieved_ids: list[str], relevance: dict[str, float], k: int) -> float:
+    return sum(
+        relevance.get(doc_id, 0.0) / log2(rank + 1)
+        for rank, doc_id in enumerate(retrieved_ids[:k], start=1)
+    )
+
+
+def ndcg_at_k(retrieved_ids: list[str], relevance: dict[str, float], k: int) -> float:
+    ideal = sorted(relevance.values(), reverse=True)[:k]
+    idcg = sum(grade / log2(rank + 1) for rank, grade in enumerate(ideal, start=1))
+    if idcg == 0.0:
+        return 0.0          # no relevant chunks labeled: undefined, report 0
+    return dcg_at_k(retrieved_ids, relevance, k) / idcg
+```
+
+#### Worked NDCG@k Example
+
+Same retrieval as the recall example above, now with grades:
+
+```python
+relevance = {"c2": 3, "c5": 2, "c7": 1}
+retrieved = ["c9", "c2", "c7", "c1", "c5"]   # ranked, best first
+
+print(dcg_at_k(retrieved, relevance, k=5))    # 3.166495
+print(ndcg_at_k(retrieved, relevance, k=5))   # 0.664970
+```
+
+Where those numbers come from:
+
+| Rank | Chunk | Grade | Contribution |
+| --- | --- | --- | --- |
+| 1 | `c9` | 0 | `0 / log2(2)` = 0.000000 |
+| 2 | `c2` | 3 | `3 / log2(3)` = 1.892789 |
+| 3 | `c7` | 1 | `1 / log2(4)` = 0.500000 |
+| 4 | `c1` | 0 | `0 / log2(5)` = 0.000000 |
+| 5 | `c5` | 2 | `2 / log2(6)` = 0.773706 |
+| | | | **DCG@5 = 3.166495** |
+
+The ideal ordering puts the grades in descending order — `c2` (3), `c5` (2),
+`c7` (1) — giving `3/log2(2) + 2/log2(3) + 1/log2(4)` = **IDCG@5 = 4.761860**.
+So NDCG@5 = 3.166495 / 4.761860 = **0.665**.
+
+Read that as: this ranking delivered about two-thirds of the gain available from
+the ground truth. All three graded chunks *were* in the top-5 here, so recall@5
+is 1.0 — a perfect score — yet a third of the value is still being lost purely
+to ordering, with the grade-3 chunk sitting at rank 2 behind an irrelevant one
+and the grade-2 chunk stranded at rank 5. That is the failure recall@k cannot
+see and NDCG can.
+
+:::caution[One NDCG score, two different failures]
+IDCG is computed from **every grade you labeled**, including chunks the
+retriever never returned — so a miss drags NDCG down just like a bad ordering
+does. That makes a mid-range NDCG ambiguous on its own:
+
+| Retrieved top-5 | recall@5 | NDCG@5 | What actually went wrong |
+| --- | --- | --- | --- |
+| `c9, c2, c7, c1, c5` | 1.00 | 0.665 | Found all three; ranked them badly |
+| `c5, c7` | 0.67 | 0.553 | Missed `c2`, the best chunk, entirely |
+
+Two similar scores, two unrelated fixes — reranking for the first, better
+chunking or embeddings for the second. Always read NDCG next to recall@k:
+recall tells you what was missed, and NDCG then tells you how well what
+remained was ordered.
+:::
+
+:::warning[Compute IDCG from the labels, not from the results]
+A common implementation slip is to build the ideal ranking out of the grades of
+the *retrieved* chunks. Do that and the missing-`c2` row above scores a perfect
+1.0, because the metric grades the retriever against only what it managed to
+find. `ndcg_at_k` above takes `ideal` from `relevance.values()` — the full
+ground truth — which is what keeps the score honest.
+:::
+
+### MAP (Mean Average Precision)
+
+MRR stops at the first relevant result. **Average Precision** keeps going: it
+computes precision@i at every rank where a relevant chunk appears, then averages
+those values over the total number of relevant chunks.
+
+```text
+AP  = (1 / R) * sum of P@i, for each rank i holding a relevant chunk
+      where R = total number of relevant chunks for the question
+MAP = the mean of AP across all questions in the eval set
+```
+
+```python
+def average_precision(retrieved_ids: list[str], relevant_ids: set[str]) -> float:
+    if not relevant_ids:
+        return 0.0
+    found, precisions = 0, []
+    for rank, doc_id in enumerate(retrieved_ids, start=1):
+        if doc_id in relevant_ids:
+            found += 1
+            precisions.append(found / rank)
+    return sum(precisions) / len(relevant_ids)
+```
+
+#### Worked MAP Example
+
+```python
+relevant = {"c2", "c5"}
+retrieved = ["c9", "c2", "c7", "c1", "c5"]
+
+print(average_precision(retrieved, relevant))   # 0.45
+```
+
+`c2` is relevant at rank 2, so P@2 = 1/2 = 0.50. `c5` is relevant at rank 5, so
+P@5 = 2/5 = 0.40. AP = (0.50 + 0.40) / 2 = **0.45**.
+
+Compare that with MRR on the same ranking: the first relevant chunk sits at rank
+2, so the reciprocal rank is **0.50** — and it would stay 0.50 no matter where
+`c5` landed, or whether it was retrieved at all. AP drops when the second
+relevant chunk ranks poorly. That is the whole difference between them.
+
+:::note[Highlight: MRR for lookups, MAP when several chunks matter]
+If one chunk fully answers the question — a policy, a config value, a specific
+error code — MRR is the honest metric, because the second relevant result
+genuinely doesn't matter. If a good answer has to synthesize several chunks, MRR
+flatters your retriever and MAP tells the truth.
+:::
+
+### Which Metric Answers Which Question
+
+| Metric | Position-aware? | Needs grades? | The question it answers |
+| --- | --- | --- | --- |
+| Hit rate@k | No | No | Did we find *anything* useful? |
+| Recall@k | No | No | Did we find *everything* relevant? |
+| Precision@k | No | No | How much noise did we hand the LLM? |
+| MRR | First hit only | No | How fast does the user reach one good result? |
+| MAP | Yes, all hits | No | Are *all* the relevant chunks ranked well? |
+| NDCG@k | Yes, all hits | Yes | Are the *most* relevant chunks ranked highest? |
+
+Reach for them in that order. Recall@k and hit rate tell you whether retrieval
+is viable at all; there is no point tuning the ordering of a candidate set that
+doesn't contain the answer. Once recall is healthy, MRR, MAP and NDCG are what
+justify a [reranker](./11-reranking.mdx) — they are the metrics that move when
+you add one, while recall@k stays flat by definition.
+
+### Adding Them to the Scorer
+
+Extending `evaluate_retrieval` means each eval case needs a `relevance` map
+alongside `relevant_ids`:
+
+```python
+def evaluate_ranking(eval_set: list[dict], retriever, k: int = 5) -> dict:
+    ndcgs, aps, rrs = [], [], []
+    for case in eval_set:
+        retrieved = retriever.retrieve_ids(case["question"], top_k=k)
+        ndcgs.append(ndcg_at_k(retrieved, case["relevance"], k))
+        aps.append(average_precision(retrieved, case["relevant_ids"]))
+        rrs.append(reciprocal_rank(retrieved, case["relevant_ids"]))
+    n = len(eval_set)
+    return {
+        "mean_ndcg_at_k": sum(ndcgs) / n,
+        "map": sum(aps) / n,
+        "mrr": sum(rrs) / n,
+    }
+```
+
+Deriving `relevant_ids` from the grades keeps the two in sync instead of
+labeling the same thing twice:
+
+```python
+case = {
+    "question": "How long is a password reset link valid?",
+    "relevance": {"c2": 3, "c5": 2, "c7": 1},
+}
+case["relevant_ids"] = {doc_id for doc_id, g in case["relevance"].items() if g > 0}
+```
 
 ---
 
@@ -317,11 +553,19 @@ build on what works.
 - Define recall@k, precision@k, and MRR.
 - What is faithfulness, and how does it differ from correctness?
 - How would you run RAG evals in CI, and why?
+- What is NDCG, and what do the "discounted", "cumulative" and "normalized" parts each do?
+- Why can't you compute NDCG from a set of relevant ids?
+- Your recall@5 is 1.0 but NDCG@5 is 0.66. What is wrong, and what would you change?
+- MRR vs MAP: when does MRR flatter a retriever, and why?
+- Which retrieval metrics should move when you add a reranker, and which should stay flat?
 
 ## Things to Remember
 
 - Evaluate two layers: retrieval (did we find it?) and generation (was the answer good?).
-- Retrieval metrics: recall@k, precision@k, hit rate, MRR.
+- Retrieval metrics: recall@k, precision@k, hit rate, MRR — plus NDCG and MAP for ordering.
+- Set metrics ignore order; MRR sees only the first hit; MAP and NDCG score the whole ranking.
+- NDCG needs graded relevance, so a `set` of relevant ids is not enough ground truth.
+- Fix recall first, then tune ordering — reranking moves MRR/MAP/NDCG, not recall@k.
 - Generation metrics: faithfulness, answer relevance, correctness.
 - Build a fixed eval set; grow it from real failures; run it in CI.
 - Change one variable at a time and measure.
@@ -336,6 +580,8 @@ chunk size and re-run — report which `k` and chunk size gave the best recall.
 
 - [ ] You can explain the two evaluation layers and their metrics.
 - [ ] You can compute recall@k and MRR over an eval set in code.
+- [ ] You can derive NDCG@k by hand from a ranked list and a set of grades.
+- [ ] You can say which metric to reach for when retrieval finds the right chunks but ranks them badly.
 - [ ] You can run evals in CI and iterate by changing one variable at a time.
 
 Next: [06 · Advanced RAG](../06-advanced-rag/index.mdx).

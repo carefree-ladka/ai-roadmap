@@ -1,0 +1,422 @@
+---
+title: "PEFT: LoRA & QLoRA"
+description: The memory arithmetic that rules out full fine-tuning, what every LoRA knob does, QLoRA's 4-bit base, VRAM tables, and the honest quality tradeoff.
+---
+
+import TOCInline from '@theme/TOCInline';
+
+# PEFT: LoRA & QLoRA
+
+<TOCInline toc={toc} minHeadingLevel={2} maxHeadingLevel={2} />
+
+:::tip[In this guide]
+Why you almost certainly cannot full fine-tune, worked memory arithmetic for a
+7B model, what `r`, `lora_alpha`, `lora_dropout` and `target_modules` actually
+control, how QLoRA cuts memory again, a VRAM table you can plan against, and
+what LoRA honestly costs you in quality.
+:::
+
+## What Is It?
+
+Parameter-efficient fine-tuning (PEFT) is a family of methods that adapt a
+model by training a small number of new or selected parameters while the
+original weights stay frozen. LoRA is the member you will use. QLoRA is LoRA
+with the frozen base held in 4-bit precision.
+
+The practical consequence: a job that needs eight 80GB GPUs becomes a job that
+needs one 24GB GPU, and the artefact you ship is tens of megabytes instead of
+tens of gigabytes.
+
+## Why Does It Matter?
+
+Because of the arithmetic. Full fine-tuning memory is not one copy of the
+model; it is four things at once.
+
+For a model with `P` parameters trained in `bf16` with AdamW:
+
+| Component | Bytes per parameter | Why |
+| --- | --- | --- |
+| Weights | 2 | `bf16` |
+| Gradients | 2 | One per trainable weight, same dtype |
+| AdamW state: first moment | 4 | Kept in `fp32` for stability |
+| AdamW state: second moment | 4 | Same |
+| `fp32` master copy of weights | 4 | Mixed-precision training keeps one |
+| **Total** | **~16** | |
+
+### Worked example: full fine-tuning a 7B model
+
+```text
+Weights            7.0e9 x 2  = 14.0 GB
+Gradients          7.0e9 x 2  = 14.0 GB
+Adam m             7.0e9 x 4  = 28.0 GB
+Adam v             7.0e9 x 4  = 28.0 GB
+fp32 master copy   7.0e9 x 4  = 28.0 GB
+                              ---------
+                   subtotal    112.0 GB
++ activations, KV, fragmentation, CUDA context
+  (seq 2048, modest batch)     ~10-25 GB
+                              ---------
+                   realistic   ~125-140 GB
+```
+
+That does not fit on an 80GB H100. You need multiple GPUs, sharding
+(FSDP or DeepSpeed ZeRO-3), and the engineering time to make that work. For
+most teams, for most tasks, that is the end of the conversation.
+
+### The same model with LoRA
+
+```text
+Base weights (frozen)   7.0e9 x 2       = 14.0 GB
+LoRA params (r=16, attn+MLP) ~40e6 x 2  =  0.08 GB
+Gradients (adapters only)    ~40e6 x 2  =  0.08 GB
+Adam state (adapters only)   ~40e6 x 8  =  0.32 GB
+Activations (grad checkpointing on)     =  ~4-8 GB
+                                          ---------
+                                 total    ~19-23 GB
+```
+
+The optimiser state — the part that dominated — collapses by three orders of
+magnitude, because it scales with *trainable* parameters, not total parameters.
+That is the whole trick.
+
+## LoRA: The Idea
+
+Take any linear layer with weight matrix `W` of shape `(d_out, d_in)`. Full
+fine-tuning learns an update `ΔW` of that same shape. LoRA instead factors the
+update through a bottleneck:
+
+```text
+ΔW = (alpha / r) * B @ A
+
+A: (r, d_in)   initialised to small random values
+B: (d_out, r)  initialised to zeros
+W' = W + ΔW    with W frozen
+
+forward:  y = W @ x + (alpha / r) * B @ (A @ x)
+```
+
+Two properties make this work in practice:
+
+- **`B` starts at zero**, so `ΔW` is exactly zero at step 0. The adapted model
+  begins identical to the base model — training cannot make it worse than its
+  starting point by accident.
+- **Task adaptation is empirically low-rank.** The useful update for one narrow
+  task lives in a small subspace, so a rank-16 approximation captures most of
+  it. This is an observation about fine-tuning, not a theorem, and it is why
+  LoRA sometimes is not enough.
+
+Parameter count for one layer: `r * (d_in + d_out)` instead of `d_in * d_out`.
+For a 4096x4096 projection at `r=16`: 131,072 instead of 16,777,216 — a 99.2%
+reduction.
+
+## The LoRA Knobs
+
+| Parameter | What it controls | Sane start |
+| --- | --- | --- |
+| `r` | Adapter capacity — the rank of the update | 16 |
+| `lora_alpha` | Update magnitude, scaled as `alpha / r` | 32 (i.e. `2 * r`) |
+| `lora_dropout` | Dropout on the adapter input, as regularisation | 0.05 |
+| `target_modules` | Which linear layers get adapters | All attention + MLP projections |
+| `bias` | Whether bias terms train | `"none"` |
+| `task_type` | Which head wrapper PEFT uses | `"CAUSAL_LM"` |
+| `use_rslora` | Rank-stabilised scaling (`alpha / sqrt(r)`) | Off at `r <= 32`, consider on above |
+| `modules_to_save` | Full-rank modules trained alongside | Only if you changed the vocab |
+
+### Which direction to move each knob
+
+| Symptom | Change | Reasoning |
+| --- | --- | --- |
+| Train loss plateaus high; outputs barely differ from base | `r` 16 → 32 → 64 | Not enough capacity for the task |
+| Underfitting and `r` is already 64 | Widen `target_modules` to include MLP, or raise learning rate | Rank is rarely the binding constraint; coverage often is |
+| Train loss falls, eval loss rises | `r` down, `lora_dropout` 0.05 → 0.1, fewer epochs | Classic overfit |
+| Model reproduces training examples verbatim | `r` down and more data | Memorising, not generalising |
+| Training unstable, loss spikes | Lower learning rate first; then lower `alpha` | `alpha / r` is an effective step-size multiplier |
+| General capability regressed badly | Narrow `target_modules` to attention only, lower learning rate | Less of the network is perturbed |
+
+Two things worth knowing about `alpha`. First, only the ratio `alpha / r`
+matters for magnitude, so if you double `r` and keep `alpha` fixed you have
+halved the effective scaling — which is why `alpha = 2 * r` is a common
+convention that keeps behaviour comparable as you sweep `r`. Second, `alpha` and
+learning rate do similar work; when things are unstable, move the learning rate
+first because it is the better-understood knob.
+
+## QLoRA
+
+QLoRA keeps the frozen base weights in 4-bit and trains `bf16` LoRA adapters on
+top. Three pieces:
+
+| Piece | What it does | Why it matters |
+| --- | --- | --- |
+| NF4 quantization | 4-bit format whose levels are information-theoretically spaced for normally-distributed weights | Pretrained weights really are roughly normal, so NF4 loses less than naive int4 |
+| Double quantization | Quantizes the per-block quantization constants too | Saves roughly another 0.4 bits per parameter |
+| Paged optimizers | Pages optimiser state to CPU on memory spikes | Turns an OOM crash into a slowdown |
+
+The base weights are dequantized to `bf16` block by block during the forward
+pass, used, and discarded. You never hold the full `bf16` model. The cost is
+compute: expect roughly 20–40% slower steps than plain LoRA.
+
+### The memory table that makes it click
+
+7B model, `r=16`, sequence length 2048, gradient checkpointing on:
+
+| Component | Full FT | LoRA (bf16 base) | QLoRA (NF4 base) |
+| --- | --- | --- | --- |
+| Base weights | 14 GB | 14 GB | ~3.8 GB |
+| Gradients | 14 GB | 0.08 GB | 0.08 GB |
+| Optimiser state | 56 GB | 0.32 GB | 0.32 GB |
+| `fp32` master weights | 28 GB | — | — |
+| Activations | ~10 GB | ~6 GB | ~6 GB |
+| **Total** | **~122 GB** | **~20 GB** | **~10 GB** |
+
+Full fine-tuning needs a cluster. LoRA needs a 24GB card. QLoRA needs a 12GB
+card. That is the difference between a procurement conversation and an
+afternoon.
+
+## VRAM Requirements
+
+Approximate peak VRAM at sequence length 2048, batch size 1 with gradient
+accumulation, gradient checkpointing on. Treat these as planning numbers, not
+guarantees — your tokenizer, sequence length and framework version all move
+them.
+
+| Model | Full FT | LoRA (bf16) | QLoRA (NF4) |
+| --- | --- | --- | --- |
+| 7B / 8B | ~120 GB (2x80GB, sharded) | ~20 GB (1x24GB) | ~10 GB (1x12GB) |
+| 13B | ~220 GB (4x80GB) | ~34 GB (1x40GB) | ~16 GB (1x24GB) |
+| 70B | ~1.2 TB (16x80GB) | ~170 GB (3x80GB) | ~48 GB (1x80GB) |
+
+Three things change these numbers fast:
+
+- **Sequence length.** Attention activation memory grows with it. Doubling
+  sequence length to 4096 can add several GB even with checkpointing.
+- **Gradient checkpointing.** Off, activation memory can multiply by 3–5x. On,
+  you pay roughly 20–30% in speed. Leave it on.
+- **Packing.** Concatenating short examples to fill the context window raises
+  tokens per step and therefore memory per step, while improving throughput.
+
+## Other PEFT Methods
+
+| Method | Idea | When it matters |
+| --- | --- | --- |
+| DoRA | Splits weights into magnitude and direction; LoRA on direction only | Closest to full FT quality at a given budget; worth trying at low `r`. Slower per step. |
+| rsLoRA | Scales by `alpha / sqrt(r)` instead of `alpha / r` | When you want `r` above 64 and training destabilises |
+| AdaLoRA | Allocates rank budget across layers by importance | Tight parameter budgets; extra complexity rarely pays off |
+| Prefix / prompt tuning | Learns virtual tokens prepended to the input, weights untouched | Very many tasks on one base model; weakest quality of the family |
+| IA3 | Learns per-channel rescaling vectors | Extremely few parameters, few-shot regimes |
+| Layer freezing | Train the top N transformer blocks, freeze the rest | Dead simple, no new libraries; a reasonable sanity baseline |
+| LongLoRA | LoRA variant for extending context length | Only when the goal is context extension |
+
+Default to LoRA or QLoRA. Reach for DoRA if LoRA underfits at a rank you cannot
+afford to raise. Everything else is situational.
+
+## The Honest Quality Tradeoff
+
+| Comparison | Reality |
+| --- | --- |
+| LoRA vs full FT, narrow task | Typically within a point or two; often indistinguishable on your metric |
+| LoRA vs full FT, broad behaviour change across many capabilities | Full FT wins measurably; low rank cannot express a large update |
+| LoRA vs full FT, teaching genuinely new knowledge or a new language | Full FT or continued pretraining wins clearly. LoRA is the wrong tool. |
+| QLoRA vs LoRA | Usually a small loss, sometimes none. NF4 is good. |
+| QLoRA vs LoRA, training speed | QLoRA 20–40% slower per step from dequantization |
+| Catastrophic forgetting | LoRA forgets less — most weights are untouched. A real advantage, not just a cost saving. |
+| Artefact size | Adapter tens of MB vs full checkpoint tens of GB. Changes what serving looks like entirely. |
+
+A fair summary: LoRA's quality gap is small and often zero on narrow tasks, and
+the resource gap is enormous. QLoRA adds a small further quality risk for a
+large further memory win. Start at QLoRA; move to LoRA if you have the memory
+and want to remove one variable; consider full fine-tuning only when you have
+evidence that LoRA at `r=64` across all projections is genuinely underfitting.
+
+## Working Configuration
+
+```python
+from __future__ import annotations
+
+import torch
+from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+from transformers import AutoModelForCausalLM, BitsAndBytesConfig
+
+MODEL = "Qwen/Qwen2.5-7B-Instruct"
+
+quant_config = BitsAndBytesConfig(
+    load_in_4bit=True,
+    # NF4 beats plain int4 because pretrained weights are roughly normal.
+    bnb_4bit_quant_type="nf4",
+    # Compute happens in bf16; only storage is 4-bit.
+    bnb_4bit_compute_dtype=torch.bfloat16,
+    # Quantize the quantization constants too: ~0.4 bits/param saved.
+    bnb_4bit_use_double_quant=True,
+)
+
+model = AutoModelForCausalLM.from_pretrained(
+    MODEL,
+    quantization_config=quant_config,
+    dtype=torch.bfloat16,
+    device_map="auto",
+)
+
+# Casts layer norms to fp32, enables input grads, and makes gradient
+# checkpointing work with a quantized base. Skip it and training may silently
+# produce no gradients.
+model = prepare_model_for_kbit_training(
+    model, use_gradient_checkpointing=True
+)
+
+lora_config = LoraConfig(
+    # Rank: adapter capacity. 16 is the right first guess for a narrow task.
+    r=16,
+    # Scaling is alpha/r = 2.0 here. Keeping alpha = 2*r makes r sweeps
+    # comparable without also changing effective step size.
+    lora_alpha=32,
+    # Regularisation on the adapter input. Raise to 0.1 if eval loss turns up.
+    lora_dropout=0.05,
+    # Attention projections carry most of the task signal; the MLP projections
+    # add real capacity for format and style work. Including both is the modern
+    # default and costs little.
+    target_modules=[
+        "q_proj", "k_proj", "v_proj", "o_proj",
+        "gate_proj", "up_proj", "down_proj",
+    ],
+    # Biases are a tiny number of params and training them rarely helps.
+    bias="none",
+    # Tells PEFT which head wrapper to use. Wrong value = silent weirdness.
+    task_type="CAUSAL_LM",
+    # alpha/sqrt(r) scaling. Leave off at r<=32; turn on if r>64 destabilises.
+    use_rslora=False,
+)
+
+model = get_peft_model(model, lora_config)
+model.print_trainable_parameters()
+# trainable params: 40,370,176 || all params: 7,655,992,320 || trainable%: 0.5273
+```
+
+Read that last line every run. If `trainable%` is 0.0000 your `target_modules`
+did not match anything and you are about to train nothing for three hours. If
+it is above roughly 2%, you have either set `r` very high or accidentally
+included embeddings, and your memory estimate is wrong.
+
+:::note
+`peft`, `transformers` and `bitsandbytes` APIs move quickly — `dtype` versus
+`torch_dtype`, the `prepare_model_for_kbit_training` signature, and
+quantization config fields have all changed across recent releases. Pin exact
+versions in your project and check the installed version's signature before
+debugging a `TypeError`.
+:::
+
+## Picking `target_modules` for an Unfamiliar Architecture
+
+Module names are architecture-specific. Llama, Qwen and Mistral share
+`q_proj`/`k_proj`/`v_proj`/`o_proj` and `gate_proj`/`up_proj`/`down_proj`.
+GPT-2-style models use fused `c_attn`/`c_proj`. Phi, Falcon and MPT each differ.
+Guessing wastes a training run.
+
+```python
+import re
+
+import torch.nn as nn
+
+
+def linear_module_names(model: nn.Module) -> list[str]:
+    """Leaf names of every Linear-ish layer, deduplicated."""
+    names: set[str] = set()
+    for full_name, module in model.named_modules():
+        kind = type(module).__name__
+        if kind in {"Linear", "Linear4bit", "Linear8bitLt", "Conv1D"}:
+            names.add(full_name.split(".")[-1])
+    return sorted(names)
+
+
+print(linear_module_names(model))
+# ['down_proj', 'gate_proj', 'k_proj', 'lm_head', 'o_proj', 'q_proj',
+#  'up_proj', 'v_proj']
+```
+
+Then apply three rules:
+
+1. **Exclude `lm_head` and the embeddings** unless you changed the vocabulary.
+   Adapting them is large, risky, and usually unnecessary.
+2. **Include all attention projections.** This is the minimum useful set.
+3. **Add the MLP projections** for format, style and anything substantial.
+   Roughly triples adapter parameters and is nearly always worth it.
+
+`peft` also accepts `target_modules="all-linear"`, which is a convenient way to
+hit everything except the head. Verify the resulting `trainable%` rather than
+trusting it blindly.
+
+## The Common Failure: Rank Wrong in Either Direction
+
+Both ends look like "the fine-tune didn't work," and they need opposite fixes.
+
+| | Rank too low | Rank too high |
+| --- | --- | --- |
+| Train loss | Plateaus early and high | Drops steeply, approaches zero |
+| Eval loss | Tracks train loss, both high | Bottoms out then climbs |
+| Generations | Close to the base model; the behaviour you wanted appears inconsistently | Fluent on training-like inputs, brittle or verbatim-repeating on new ones |
+| Out-of-distribution inputs | Same as base | Noticeably worse than base |
+| Fix | Raise `r`, widen `target_modules`, or raise learning rate | Lower `r`, raise dropout, fewer epochs, more data |
+
+The diagnostic that separates them in one minute: **compare train loss and eval
+loss trajectories.** Both high and flat means underfitting — more capacity.
+Train falling while eval rises means overfitting — less capacity or more data.
+
+The sequencing mistake people make is reaching for `r=128` on the first run
+"to be safe." High rank on a small dataset memorises, and memorisation looks
+like success on a contaminated eval set. Start at `r=16`, prove the pipeline
+works, and raise rank only with evidence of underfitting.
+
+## Common Mistakes
+
+- Not reading `print_trainable_parameters()`, and training zero parameters for hours.
+- Guessing `target_modules` from a blog post written for a different architecture.
+- Skipping `prepare_model_for_kbit_training` with a 4-bit base, then getting no gradient flow.
+- Raising `r` to fix a problem that was actually learning rate, data quality, or a broken chat template.
+- Doubling `r` without touching `alpha` and not realising effective scaling halved.
+- Expecting QLoRA to teach new knowledge. It is a memory technique, not a capability upgrade.
+- Including `lm_head` or embeddings by default, which inflates the adapter and raises forgetting risk.
+- Comparing a LoRA run to a full fine-tune at the same learning rate. LoRA wants roughly 10x higher.
+- Assuming the VRAM table above without testing. Run one step at your real sequence length before booking a long job.
+
+## Interview Questions
+
+- Why does full fine-tuning need roughly 16 bytes per parameter, and where does each byte go?
+- Walk through the memory arithmetic for full fine-tuning a 7B model in `bf16` with AdamW.
+- Which memory component does LoRA eliminate, and why does that dominate the saving?
+- What do `r` and `lora_alpha` control, and why is `alpha / r` the number that matters?
+- Why is the `B` matrix initialised to zeros?
+- What are the three components of QLoRA and what does each contribute?
+- Why is NF4 better than naive 4-bit integer quantization for model weights?
+- How would you choose `target_modules` for a model architecture you have never seen?
+- How do you tell underfitting from overfitting in a LoRA run, and what do you change in each case?
+- When would you choose full fine-tuning over LoRA despite the cost?
+
+## Things to Remember
+
+- Full FT memory is roughly 16 bytes per parameter; optimiser state is most of it.
+- LoRA's saving comes from optimiser state scaling with trainable, not total, parameters.
+- `B` is zero-initialised, so training starts exactly at the base model.
+- Only `alpha / r` matters; keep `alpha = 2 * r` so `r` sweeps stay comparable.
+- QLoRA = NF4 base + double quantization + paged optimizers. Memory technique, not a quality technique.
+- Start at `r=16` with attention plus MLP projections. Raise rank only with evidence.
+- Always read `print_trainable_parameters()`. `0.0000%` means you are training nothing.
+- LoRA forgets less than full fine-tuning. That is a feature, not a consolation.
+
+## Mini Exercise
+
+Compute the full fine-tuning memory for a 3B and a 13B model in `bf16` with
+AdamW, then compute the same two under LoRA at `r=16` on attention projections
+only. Write down the ratio.
+
+Then load any small instruct model (a 0.5B or 1B works on CPU), run the
+`linear_module_names` helper, and attach LoRA configs at `r=4`, `r=16` and
+`r=64` across attention-only and attention-plus-MLP. Record
+`print_trainable_parameters()` for all six combinations. The goal is to be able
+to predict that number before you print it.
+
+## Done When
+
+- [ ] You can derive the ~16 bytes per parameter figure from first principles.
+- [ ] You can explain which memory component LoRA removes and why it was the biggest one.
+- [ ] You can explain `r`, `alpha`, `lora_dropout` and `target_modules`, and name the symptom that makes you change each.
+- [ ] You can describe NF4, double quantization and paged optimizers in one sentence each.
+- [ ] You can discover `target_modules` for an unfamiliar architecture without guessing.
+- [ ] You can distinguish rank-too-low from rank-too-high from loss curves alone.

@@ -1,0 +1,552 @@
+---
+title: Data Preparation
+description: How much data you need by goal, the three dataset formats, chat templates and completion-only masking, cleaning, decontamination, and a worked datasets pipeline.
+---
+
+import TOCInline from '@theme/TOCInline';
+
+# Data Preparation
+
+<TOCInline toc={toc} minHeadingLevel={2} maxHeadingLevel={2} />
+
+:::tip[In this guide]
+Your dataset is the model. This page covers how much data you actually need,
+the formats and chat templates you must match exactly, why you mask the prompt
+tokens, how to clean and decontaminate, and a worked pipeline that ends with a
+tokenised, masked dataset ready to train.
+:::
+
+## What Is It?
+
+Data preparation is the process of turning whatever you have — logs, tickets,
+expert knowledge, another model's outputs — into a set of examples that
+demonstrate exactly the behaviour you want, formatted exactly the way the base
+model expects.
+
+It is 70–80% of the real work of a fine-tune, and it is where the quality of
+the result is determined. Everything downstream — rank, learning rate, epochs
+— is a small correction on top of what the data already decided.
+
+## Why Does It Matter?
+
+Fine-tuning does not "learn your intent." It increases the likelihood of the
+token sequences you showed it. That means every property of your dataset
+transfers, including the ones you did not intend:
+
+- Inconsistent output format across examples teaches inconsistent output format.
+- Three examples where the assistant guessed rather than refused teaches guessing.
+- A dataset where 90% of answers are long teaches verbosity.
+- One mislabelled example in fifty is a 2% error rate you have deliberately installed.
+
+Five hundred carefully reviewed examples routinely beat fifty thousand scraped
+ones. Volume helps only once consistency is already there.
+
+## How Much Data You Actually Need
+
+Honest ranges, assuming LoRA or QLoRA on a 7B-class instruct model. These are
+starting points to validate, not guarantees.
+
+| Goal | Examples | Notes |
+| --- | --- | --- |
+| Format and structure adherence | 100–1,000 | The cheapest win. Perfect consistency matters far more than count here. |
+| Tone and style transfer | 500–2,000 | Needs variety in topic while tone stays fixed, or the model learns the topics instead. |
+| Domain vocabulary and conventions | 1,000–5,000 | Must cover the long tail of terms, not just the common ones. |
+| A narrow new task (classification, extraction) | 500–5,000 | Scale with the number of classes or fields; aim for 50+ per class minimum. |
+| Distilling a big model into a small one | 5,000–50,000 | Cheap to generate, so the usual constraint is review capacity, not volume. |
+| Multi-turn conversational behaviour | 2,000–10,000 | Hardest to get right; each example is longer and more expensive to review. |
+| Teaching new factual knowledge | — | Do not. Use retrieval. |
+
+Two practical rules. **Start at the bottom of the range** — train on 300
+examples before you commission 3,000, because the small run tells you whether
+your format and pipeline are right. And **a learning curve beats a guess**:
+train on 25%, 50% and 100% of your data and look at where eval score stops
+improving. Flat from 50% to 100% means more data is not your constraint.
+
+## The Three Formats
+
+### Instruction / response
+
+The Alpaca-style shape. Simple, good for single-turn tasks.
+
+```json
+{"instruction": "Classify the support request into one label.", "input": "My card was charged twice for order 8812.", "output": "billing_duplicate_charge"}
+{"instruction": "Classify the support request into one label.", "input": "How do I change my delivery address?", "output": "account_update"}
+```
+
+### Chat message list
+
+The default for anything targeting an instruct or chat model. Use this unless
+you have a reason not to.
+
+```json
+{"messages": [{"role": "system", "content": "You are a support triage assistant. Reply with one label."}, {"role": "user", "content": "My card was charged twice for order 8812."}, {"role": "assistant", "content": "billing_duplicate_charge"}]}
+```
+
+Multi-turn examples are the same shape with more alternating turns. Each
+assistant turn is a training target.
+
+### Completion style
+
+Raw text continuation, no roles. Used for continued pretraining on domain text,
+or for base (non-instruct) models.
+
+```json
+{"text": "Policy 4.2 — Refund window. Customers may request a refund within 30 days of delivery, except for..."}
+```
+
+| Format | Use when | Avoid when |
+| --- | --- | --- |
+| Instruction/response | Single-turn task, simple tooling | You need multi-turn or a system prompt |
+| Chat messages | Almost always, for instruct models | The base model has no chat template |
+| Completion | Continued pretraining on domain text | You want task behaviour — this teaches style, not instruction following |
+
+One file per split, one JSON object per line, saved as `.jsonl`. Every tool in
+the Hugging Face stack reads that shape, and line-oriented files stream and diff
+far better than one giant JSON array.
+
+## Chat Templates and Special Tokens
+
+Every instruct model was trained with a specific template that wraps turns in
+special tokens. Your training data must be rendered with **that model's exact
+template**. This is the single most common silent failure in fine-tuning.
+
+ChatML, used by Qwen and others:
+
+```text
+<|im_start|>system
+You are a support triage assistant.<|im_end|>
+<|im_start|>user
+My card was charged twice for order 8812.<|im_end|>
+<|im_start|>assistant
+billing_duplicate_charge<|im_end|>
+```
+
+Llama 3 uses a different set of markers, Mistral uses bracket-style
+instruction delimiters, Gemma uses its own turn markers. They are not
+interchangeable.
+
+What breaks when you get it wrong:
+
+| Mistake | Symptom |
+| --- | --- |
+| Hand-written template with a wrong token or stray newline | Trains, loss looks fine, generations are subtly broken or never stop |
+| Using a different model's template | Model learns a format the serving stack does not emit, so the fine-tune does nothing at inference |
+| Adding special tokens as plain text | Tokenised as several ordinary tokens, so the model never sees the real control token |
+| Double-applying the template | Nested turn markers; the model learns to emit them |
+| Missing the end-of-turn token on assistant replies | The model never learns to stop. Classic runaway generation. |
+
+Never hand-write the template. Ask the tokenizer:
+
+```python
+from transformers import AutoTokenizer
+
+MODEL = "Qwen/Qwen2.5-7B-Instruct"
+tok = AutoTokenizer.from_pretrained(MODEL)
+
+messages = [
+    {"role": "system", "content": "You are a support triage assistant."},
+    {"role": "user", "content": "My card was charged twice for order 8812."},
+    {"role": "assistant", "content": "billing_duplicate_charge"},
+]
+
+# For training: render the full conversation including the assistant turn.
+text: str = tok.apply_chat_template(messages, tokenize=False)
+
+# For inference: drop the assistant turn and ask for the generation prompt.
+prompt: str = tok.apply_chat_template(
+    messages[:-1], tokenize=False, add_generation_prompt=True
+)
+
+print(repr(text))     # inspect this by eye, once, before you train anything
+print(tok.eos_token, tok.eos_token_id)
+```
+
+Print and read that string before every new project. Thirty seconds of looking
+at `repr()` output has saved more fine-tunes than any hyperparameter choice.
+
+:::warning
+If the base model has no chat template (`tok.chat_template is None`), you are
+on a base rather than instruct checkpoint. Either pick the instruct variant or
+choose a template deliberately and use the identical one at serving time. Do
+not improvise one per environment.
+:::
+
+## Prompt Masking: Train on Completions Only
+
+By default, a language model trains on every token in the sequence — including
+the system prompt and the user turn. Usually you do not want that.
+
+| Approach | What the loss covers | When it is right |
+| --- | --- | --- |
+| Train on everything | System + user + assistant tokens | Continued pretraining on domain text |
+| Completions only (masked) | Assistant tokens only | Almost all instruction and task fine-tuning |
+
+Why masking the prompt is usually correct:
+
+- **You are not trying to model user input.** You will never be asked to
+  generate the user's question. Capacity spent predicting it is wasted.
+- **Repeated system prompts dominate the loss.** If the same 200-token system
+  message appears in all 2,000 examples, the model gets very good at
+  reproducing it — and may start emitting it in its answers.
+- **It distorts the signal you watch.** Prompt tokens are easy to predict, so
+  total loss drops fast and looks healthy while the actual answers barely
+  improve.
+
+In `trl`, use the completion-only collator (exact names and arguments have
+changed across releases — check the version you installed):
+
+```python
+from trl import DataCollatorForCompletionOnlyLM
+
+# The literal string that marks the start of the assistant turn for this
+# model's template. Everything before it is masked out of the loss.
+RESPONSE_TEMPLATE = "<|im_start|>assistant\n"
+
+collator = DataCollatorForCompletionOnlyLM(
+    response_template=RESPONSE_TEMPLATE,
+    tokenizer=tok,
+)
+```
+
+Sanity check it rather than trusting it: decode one batch and confirm that the
+positions where `labels == -100` are exactly the prompt tokens. Getting this
+wrong in the other direction — masking everything — produces a dead-flat loss
+curve, covered on the training page.
+
+## Building the Dataset
+
+| Source | Strengths | Risks |
+| --- | --- | --- |
+| Production logs | Real distribution, real phrasing, free | Contains PII; outputs are your *old* model's, so quality is capped unless reviewed and corrected |
+| Human experts | Highest quality, captures judgement | Slow and expensive; 50–200 examples per expert-day is realistic for non-trivial tasks |
+| Stronger model (distillation) | Fast, cheap, scalable | Terms-of-service and licence constraints; inherits the teacher's errors and style |
+| Templated synthesis | Guarantees coverage of rare classes | Low diversity; the model learns the template, not the task |
+
+The highest-return pattern is a hybrid: mine real inputs from production logs,
+generate candidate outputs with a strong model, and have a human review and
+correct a sample. You get the real input distribution with better-than-current
+outputs, at a fraction of the fully-manual cost.
+
+:::warning
+Check the licence before you distil. Many commercial model providers' terms
+restrict using their outputs to train competing models, and open-weight models
+carry their own licence terms that can propagate to derivatives. This is a
+legal question with real consequences for a shipped product — read the actual
+terms for the actual model and version you are calling, and ask someone whose
+job it is if there is any doubt. Treat "everyone does it" as not an answer.
+:::
+
+## Cleaning
+
+In rough order of how much they pay off:
+
+| Step | What it does | Why it matters |
+| --- | --- | --- |
+| Exact dedup | Hash and drop identical examples | Duplicates are silent over-weighting; log-derived data is full of them |
+| Near-dup detection | MinHash / LSH on shingles | Boilerplate-heavy records are 95% identical and bias the model hard |
+| Length filtering | Drop truncated, empty, or absurdly long records | Truncated targets teach the model to stop mid-sentence |
+| Decontamination | Remove training rows matching eval cases | Without it, your eval score is meaningless |
+| PII scrubbing | Names, emails, cards, account numbers, tokens | Models memorise and regurgitate; this is a breach waiting to happen |
+| Label-noise review | Human-check a random sample | Your error rate is the floor on model accuracy |
+| Format validation | Parse every target as the schema you expect | One malformed JSON target teaches malformed JSON |
+
+```python
+import hashlib
+import re
+from collections.abc import Iterable
+
+from datasketch import MinHash, MinHashLSH
+
+
+def exact_key(example: dict[str, str]) -> str:
+    """Content hash of the input/output pair for exact dedup."""
+    blob = f"{example['prompt']}\x00{example['completion']}"
+    return hashlib.sha256(blob.encode()).hexdigest()
+
+
+def shingles(text: str, k: int = 5) -> Iterable[str]:
+    words = re.findall(r"\w+", text.lower())
+    for i in range(max(len(words) - k + 1, 1)):
+        yield " ".join(words[i : i + k])
+
+
+def near_duplicate_ids(
+    texts: list[str], threshold: float = 0.8, num_perm: int = 128
+) -> set[int]:
+    """Return indices that are near-duplicates of an earlier item."""
+    lsh = MinHashLSH(threshold=threshold, num_perm=num_perm)
+    drop: set[int] = set()
+    for idx, text in enumerate(texts):
+        mh = MinHash(num_perm=num_perm)
+        for sh in shingles(text):
+            mh.update(sh.encode())
+        if lsh.query(mh):
+            drop.add(idx)
+        else:
+            lsh.insert(str(idx), mh)
+    return drop
+```
+
+Decontamination uses the same machinery, pointed at a different question: for
+every eval case, find and remove any training row that is a near-duplicate of
+it. Run it as a build step that fails loudly, not as a one-off notebook cell.
+
+```python
+def decontaminate(
+    train: list[dict[str, str]], eval_prompts: list[str], threshold: float = 0.7
+) -> list[dict[str, str]]:
+    num_perm = 128
+    lsh = MinHashLSH(threshold=threshold, num_perm=num_perm)
+    for i, prompt in enumerate(eval_prompts):
+        mh = MinHash(num_perm=num_perm)
+        for sh in shingles(prompt):
+            mh.update(sh.encode())
+        lsh.insert(f"eval-{i}", mh)
+
+    kept: list[dict[str, str]] = []
+    for row in train:
+        mh = MinHash(num_perm=num_perm)
+        for sh in shingles(row["prompt"]):
+            mh.update(sh.encode())
+        if not lsh.query(mh):
+            kept.append(row)
+    removed = len(train) - len(kept)
+    print(f"decontamination removed {removed} of {len(train)} rows")
+    return kept
+```
+
+## Balance, Coverage, and Negative Examples
+
+Look at the distribution of your dataset along every axis you care about:
+class, input length, topic, difficulty, and source. Two specific traps:
+
+- **Class imbalance.** If one label is 70% of the data, the model learns to
+  guess it. Either resample toward balance or accept that rare classes need
+  explicit over-representation relative to production frequency.
+- **Difficulty imbalance.** Datasets built from logs skew easy, because easy
+  cases are common. The hard cases are the reason you are fine-tuning.
+
+Then add the examples nobody remembers to add:
+
+| Example type | What it teaches | Omitting it causes |
+| --- | --- | --- |
+| Refusals with insufficient context | "I don't have enough information to answer" | Confident hallucination under thin retrieval |
+| Out-of-scope requests | Decline and redirect | The model attempts everything |
+| Ambiguous inputs | Ask one clarifying question | Confident answers to the wrong interpretation |
+| Adversarial / injection attempts | Ignore instructions embedded in context | A fine-tune that is *more* injectable than the base model |
+| Corrections | Accept a user correction without collapsing | Sycophancy — folding whenever the user pushes back |
+
+Refusal and uncertainty examples are the ones with the biggest effect per
+example. A dataset where the assistant always has a confident answer teaches a
+model that always has a confident answer, which is exactly the failure mode
+grounded RAG is supposed to prevent.
+
+## Splits, and Not Leaking
+
+Three splits, created once, before any training:
+
+| Split | Share | Purpose |
+| --- | --- | --- |
+| Train | 80–90% | Weight updates |
+| Validation | 5–10% | Eval loss, early stopping, checkpoint selection |
+| Test | 5–10% | Looked at once, at the end, by nobody tuning against it |
+
+Rules that are easy to break by accident:
+
+- **Split by group, not by row.** If one support ticket produced six examples,
+  all six go in the same split. Row-level splitting leaks.
+- **Split by time for log-derived data.** Train on earlier, evaluate on later.
+  That is how production actually works.
+- **Your frozen eval set from the baseline is separate from all of this.** It
+  existed before the dataset and must never appear in it. Decontaminate against
+  it explicitly.
+- **Checkpoint selection counts as tuning.** If you pick the best of eight
+  checkpoints by validation score, validation is no longer unbiased. That is
+  what the test split is for.
+
+## Tokenisation Sanity Checks
+
+Before you train, answer three questions with numbers:
+
+1. **What is the token length distribution?** You need the median and the 95th
+   and 99th percentiles to pick `max_seq_length` sensibly.
+2. **How much gets truncated?** Truncation that cuts the assistant's answer
+   teaches the model to produce incomplete answers. Any non-trivial truncation
+   rate on the target side is a bug, not a tradeoff.
+3. **Is the masking right?** Decode one example and check which tokens carry a
+   label.
+
+Here is the full pipeline, from raw JSON lines to a formatted, masked,
+tokenised dataset.
+
+```python
+from __future__ import annotations
+
+import numpy as np
+from datasets import Dataset, load_dataset
+from transformers import AutoTokenizer, PreTrainedTokenizerBase
+
+MODEL = "Qwen/Qwen2.5-7B-Instruct"
+MAX_SEQ_LEN = 2048
+RESPONSE_PREFIX = "<|im_start|>assistant\n"
+
+tok: PreTrainedTokenizerBase = AutoTokenizer.from_pretrained(MODEL)
+
+raw = load_dataset(
+    "json",
+    data_files={"train": "data/train.jsonl", "validation": "data/val.jsonl"},
+)
+
+
+def render(example: dict) -> dict[str, str]:
+    """Apply the model's own chat template. Never hand-write this."""
+    return {"text": tok.apply_chat_template(example["messages"], tokenize=False)}
+
+
+rendered = raw.map(render, remove_columns=raw["train"].column_names)
+
+# --- Check 1: length distribution, before you choose MAX_SEQ_LEN -------------
+lengths = np.array([len(tok(t).input_ids) for t in rendered["train"]["text"]])
+print(
+    f"tokens  median={np.median(lengths):.0f}  "
+    f"p95={np.percentile(lengths, 95):.0f}  "
+    f"p99={np.percentile(lengths, 99):.0f}  max={lengths.max()}"
+)
+print(f"would truncate at {MAX_SEQ_LEN}: {(lengths > MAX_SEQ_LEN).mean():.2%}")
+
+
+def tokenize_and_mask(example: dict) -> dict:
+    """Tokenise, then mask every token before the assistant turn."""
+    enc = tok(
+        example["text"],
+        truncation=True,
+        max_length=MAX_SEQ_LEN,
+        add_special_tokens=False,
+    )
+    labels = list(enc["input_ids"])
+
+    # Find where the assistant response begins and mask everything before it.
+    prefix_ids = tok(RESPONSE_PREFIX, add_special_tokens=False).input_ids
+    start = _find_subsequence(enc["input_ids"], prefix_ids)
+    if start is None:
+        # No assistant turn found: drop by masking the whole row.
+        labels = [-100] * len(labels)
+    else:
+        cut = start + len(prefix_ids)
+        labels[:cut] = [-100] * cut
+
+    enc["labels"] = labels
+    return enc
+
+
+def _find_subsequence(haystack: list[int], needle: list[int]) -> int | None:
+    n = len(needle)
+    for i in range(len(haystack) - n + 1):
+        if haystack[i : i + n] == needle:
+            return i
+    return None
+
+
+tokenised = rendered.map(
+    tokenize_and_mask, remove_columns=["text"], desc="tokenise+mask"
+)
+
+# --- Check 2: masking is correct. Read this output with your own eyes. -------
+row = tokenised["train"][0]
+supervised = [t for t, l in zip(row["input_ids"], row["labels"]) if l != -100]
+print("SUPERVISED TOKENS:", tok.decode(supervised))
+
+# --- Check 3: something is actually supervised in every row ------------------
+dead = sum(
+    1 for r in tokenised["train"] if all(l == -100 for l in r["labels"])
+)
+assert dead == 0, f"{dead} rows have no supervised tokens"
+
+train_ds: Dataset = tokenised["train"]
+val_ds: Dataset = tokenised["validation"]
+```
+
+In practice `trl`'s `SFTTrainer` with a completion-only collator will do the
+masking for you, and you should let it. Write this out by hand once anyway —
+it is the only way to build an intuition for what the labels look like, and it
+is how you debug a flat loss curve later.
+
+:::note
+Hugging Face APIs in this area churn fast. Argument names on `SFTTrainer`,
+`SFTConfig` and the collators have all moved within the last few releases.
+Treat this code as correct in *shape*, pin your versions, and check the
+docstring of the version you installed before debugging a `TypeError`.
+:::
+
+## Data Quality Checklist
+
+- [ ] Every target parses as the schema or format you expect, validated in code.
+- [ ] Output format is byte-identical in style across all examples.
+- [ ] Exact duplicates removed; near-duplicates reviewed at a 0.8 Jaccard threshold.
+- [ ] Decontaminated against the validation, test, and frozen baseline eval sets.
+- [ ] Token length p99 is below `max_seq_length`, and target-side truncation is zero.
+- [ ] Chat template applied by the tokenizer, and the rendered string read by a human.
+- [ ] Assistant turns end with the model's real end-of-turn token.
+- [ ] Prompt tokens masked; one decoded batch inspected to confirm.
+- [ ] A random sample of 50 examples read end to end by a person, with the error rate written down.
+- [ ] Class and difficulty distribution plotted and deliberately chosen, not inherited.
+- [ ] Refusal, out-of-scope, ambiguous and correction examples present.
+- [ ] PII scrubbed, with a spot check on the scrubber's recall.
+- [ ] Splits grouped and time-ordered where applicable.
+- [ ] Dataset versioned with a hash, and the hash recorded alongside the training config.
+
+## Common Mistakes
+
+- Hand-writing the chat template. Use `apply_chat_template` and read its output.
+- Forgetting the end-of-turn token on assistant replies, then wondering why generations never stop.
+- Training on prompt tokens, which flatters the loss curve and teaches the model to parrot the system prompt.
+- Double-applying the template because the trainer also applies it. Check once; the symptom is nested turn markers in generations.
+- Scaling to 20,000 examples before validating the pipeline on 300.
+- Letting the dataset inherit production's easy-case skew, then being surprised the hard cases did not improve.
+- Omitting refusals, producing a model that answers everything confidently.
+- Deduplicating exactly but not near-duplicates, so boilerplate-heavy records dominate.
+- No decontamination, so the eval number is memorisation and the fine-tune looks like a triumph.
+- Not versioning the dataset, leaving you unable to explain why last month's checkpoint was better.
+
+## Interview Questions
+
+- How many examples do you need to teach a model a strict output format, and what matters more than the count?
+- Why must you use the base model's exact chat template, and what breaks if you do not?
+- What is completion-only training and why is training on prompt tokens usually wrong?
+- How would you build a fine-tuning dataset from production logs? What are the two biggest risks?
+- What is decontamination and what happens without it?
+- Why include refusal examples in a dataset about answering questions?
+- Your eval score is excellent and production quality is unchanged. Name three data-related causes.
+- How would you split a dataset where one source ticket generated several examples?
+- What legal question do you have to answer before distilling from a commercial model?
+
+## Things to Remember
+
+- Consistency beats volume. Validate on 300 examples before commissioning 3,000.
+- `apply_chat_template`, always. Read the rendered string once per project.
+- Mask the prompt, supervise the completion. Decode one batch to prove it.
+- Include refusals, ambiguity, and out-of-scope examples, or the model learns to always have an answer.
+- Decontaminate against every eval set you will report a number from.
+- Version the dataset with a hash and store it next to the training config.
+- Your human label error rate is the ceiling on model accuracy.
+
+## Mini Exercise
+
+Take 20 examples of a task you care about and write them as chat-format JSON
+lines. Render all 20 with `apply_chat_template(tokenize=False)` and read them.
+Then tokenise with completion-only masking and decode the supervised tokens of
+three rows.
+
+Now deliberately break it: drop the end-of-turn token from the assistant turns
+and re-check what the supervised span looks like. Then add five refusal examples
+and five out-of-scope examples, and write one sentence on what each group is
+teaching. The point is to see the labels, not to train anything.
+
+## Done When
+
+- [ ] You can state a defensible example count for your goal and explain the range.
+- [ ] You can render your data with the model's own chat template and explain every token in the output.
+- [ ] You can show, by decoding a batch, which tokens are supervised and which are masked.
+- [ ] You have deduplicated, decontaminated, and length-audited a real dataset.
+- [ ] Your dataset contains refusal and out-of-scope examples, and you can say why.
+- [ ] Your splits are grouped correctly and your dataset version is recorded.

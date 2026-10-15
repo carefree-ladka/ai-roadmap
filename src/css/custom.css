@@ -7,30 +7,57 @@
  * look most AI-product sites default to right now.
  *
  * Fonts:
- *   Newsreader     — headings (serif, editorial/engineering-journal feel)
- *   Inter          — body copy (neutral, excellent long-form readability)
+ *   SF Pro Display — headings + body copy (Apple's system face)
+ *   Inter          — the cross-platform stand-in for SF; near-identical
+ *                    metrics and skeleton, so non-Apple devices keep the
+ *                    same rhythm instead of jumping to Arial
  *   JetBrains Mono — code + small technical labels (dotted zero, real
  *                    ligatures, one of the strongest general-purpose
  *                    coding faces available)
  *
- * IMPORTANT: this file only sets font-family — the fonts themselves still
- * need to be loaded. Add to docusaurus.config.js `head` (or index.html):
+ * On SF Pro Display specifically: it is NOT a web font and cannot be
+ * loaded from a CDN. Apple ships it as a system-only face (SFNS.ttf),
+ * and its license does not cover self-hosted web embedding. So it is
+ * resolved locally, in this order:
  *
- *   <link rel="preconnect" href="https://fonts.googleapis.com">
- *   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
- *   <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,500&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+ *   'SF Pro Display'    — machines where Apple's SF Pro package is
+ *                         installed, which exposes the literal name
+ *   'SF Pro Text'       — same package, text-optical-size variant
+ *   -apple-system /     — every stock macOS + iOS device; these aliases
+ *   BlinkMacSystemFont    are the only way to reach the built-in SF
+ *   system-ui
+ *
+ * Everything after that is the non-Apple fallback chain, where Inter
+ * (loaded from Google Fonts in docusaurus.config.ts) does the work.
  */
 
 /* ---------- Fonts ---------- */
 :root {
-  --ifm-font-family-base: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto,
-    sans-serif;
-  --ifm-heading-font-family: 'Newsreader', Georgia, 'Times New Roman', serif;
+  /* Single source of truth for the SF stack — headings and body both
+     point at this, so there's one place to change it. */
+  --ra-font-sf: 'SF Pro Display', 'SF Pro Text', -apple-system,
+    BlinkMacSystemFont, system-ui, 'Segoe UI Variable Display', 'Segoe UI',
+    'Inter', Roboto, 'Helvetica Neue', Arial, sans-serif;
+
+  --ifm-font-family-base: var(--ra-font-sf);
+  --ifm-heading-font-family: var(--ra-font-sf);
   --ifm-font-family-monospace: 'JetBrains Mono', ui-monospace, SFMono-Regular,
     Menlo, monospace;
   --ifm-font-size-base: 16px;
   --ifm-line-height-base: 1.7;
   --ifm-heading-font-weight: 600;
+}
+
+/* SF is designed to be rendered with subpixel AA off — without this it
+   looks noticeably heavier on macOS than it does in native UI. */
+html,
+body {
+  font-family: var(--ra-font-sf);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  /* SF Pro and Inter are both optically sized / variable; let the browser
+     pick the right optical size per font-size instead of scaling one cut. */
+  font-optical-sizing: auto;
 }
 
 code,
@@ -238,20 +265,6 @@ h3 {
 
 .navbar__link:hover {
   color: var(--ifm-color-primary);
-}
-
-.header-github-link:hover {
-  opacity: 0.7;
-}
-.header-github-link::before {
-  content: '';
-  width: 21px;
-  height: 21px;
-  display: flex;
-  background-color: var(--ifm-navbar-link-color);
-  mask-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12'/%3E%3C/svg%3E");
-  mask-repeat: no-repeat;
-  mask-position: center;
 }
 
 /* ---------- Links ---------- */

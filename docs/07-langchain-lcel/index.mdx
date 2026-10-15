@@ -38,22 +38,37 @@ choose frameworks deliberately.
 
 ### LangChain building blocks
 
-1. [LangChain Basics](./01-langchain-basics.mdx) — components, LCEL, a RAG chain with Ollama.
-2. [Prompt Templates](./02-prompt-templates.mdx) — chat templates, roles, partials, `MessagesPlaceholder`, few-shot.
-3. [Models & Output Parsers](./03-models-output-parsers.mdx) — `ChatOllama`, structured output, Pydantic parsing.
-4. [Runnables & LCEL (Deep Dive)](./04-runnables-lcel.mdx) — passthrough, parallel, branch, fallbacks, retries.
-5. [Document Loaders & Text Splitters](./05-document-loaders-splitters.mdx) — loaders, recursive/token/structure-aware splitting.
-6. [Retrievers](./06-retrievers.mdx) — MMR, MultiQuery, compression, parent-document, ensemble (hybrid), self-query.
-7. [RAG Chains](./07-rag-chains.mdx) — built-in `create_retrieval_chain`, history-aware retrieval, citations.
-8. [Streaming, Async & Batch](./08-streaming-async.mdx) — `stream`/`astream`, `astream_events`, FastAPI streaming.
-9. [Memory & Agents](./09-memory-agents.mdx) — conversational memory, tools, agents, and their tradeoffs.
-10. [Callbacks, Tracing & LangSmith](./10-callbacks-tracing-langsmith.mdx) — observability, debugging, token/cost tracking.
+1. [LangChain Basics](./01-langchain-core/01-langchain-basics.mdx) — components, LCEL, a RAG chain with Ollama.
+2. [Prompt Templates](./01-langchain-core/02-prompt-templates.mdx) — chat templates, roles, partials, `MessagesPlaceholder`, few-shot.
+3. [Models & Output Parsers](./01-langchain-core/03-models-output-parsers.mdx) — `ChatOllama`, structured output, Pydantic parsing.
+4. [Runnables & LCEL (Deep Dive)](./01-langchain-core/04-runnables-lcel.mdx) — passthrough, parallel, branch, fallbacks, retries.
+5. [Document Loaders & Text Splitters](./01-langchain-core/05-document-loaders-splitters.mdx) — loaders, recursive/token/structure-aware splitting.
+6. [Retrievers](./01-langchain-core/06-retrievers.mdx) — MMR, MultiQuery, compression, parent-document, ensemble (hybrid), self-query.
+7. [RAG Chains](./01-langchain-core/07-rag-chains.mdx) — built-in `create_retrieval_chain`, history-aware retrieval, citations.
+8. [Streaming, Async & Batch](./01-langchain-core/08-streaming-async.mdx) — `stream`/`astream`, `astream_events`, FastAPI streaming.
+9. [Memory & Agents](./01-langchain-core/09-memory-agents.mdx) — conversational memory, tools, agents, and their tradeoffs.
+10. [Callbacks, Tracing & LangSmith](./01-langchain-core/10-callbacks-tracing-langsmith.mdx) — observability, debugging, token/cost tracking.
 
 ### The LlamaIndex track
 
-11. [LlamaIndex Basics](./11-llamaindex-basics.mdx) — Documents/Nodes, indices, query engines, the 5-line RAG.
-12. [LlamaIndex RAG](./12-llamaindex-rag.mdx) — ingestion pipelines, Chroma persistence, response modes, reranking, chat engines.
-13. [LangChain vs LlamaIndex](./13-langchain-vs-llamaindex.mdx) — focus, tradeoffs, combining them, and how to choose.
+11. [LlamaIndex Basics](./02-llamaindex/01-llamaindex-basics.mdx) — Documents/Nodes, indices, query engines, the 5-line RAG.
+12. [LlamaIndex RAG](./02-llamaindex/02-llamaindex-rag.mdx) — ingestion pipelines, Chroma persistence, response modes, reranking, chat engines.
+13. [LangChain vs LlamaIndex](./02-llamaindex/03-langchain-vs-llamaindex.mdx) — focus, tradeoffs, combining them, and how to choose.
+
+### Complete Guides
+
+Standalone, theory-plus-FastAPI references for each library. Use them as the
+deep version of the lessons above, or as a refresher before an interview.
+
+| Guide | What it covers |
+| --- | --- |
+| [LLMs](./03-complete-guides/01-llms-complete-guide.mdx) | Model calls, parameters, tokens and cost, structured output |
+| [LangChain](./03-complete-guides/02-langchain-complete-guide.mdx) | The full framework behind a FastAPI service |
+| [LCEL](./03-complete-guides/03-lcel-complete-guide.mdx) | `Runnable`, the pipe operator, parallel/branching chains, SSE |
+| [LangGraph](./03-complete-guides/04-langgraph-complete-guide.mdx) | Graphs, state, routing, checkpointing, human-in-the-loop |
+| [LangSmith](./03-complete-guides/05-langsmith-complete-guide.mdx) | Tracing, datasets, evaluators, feedback |
+| [LlamaIndex](./03-complete-guides/06-llamaindex-complete-guide.mdx) | Indices, query engines, and FastAPI integration |
+| [LLM Guardrails](./03-complete-guides/07-llm-guardrails-complete-guide.mdx) | Output validation, input filtering, failing safely |
 
 ## Where This Fits
 

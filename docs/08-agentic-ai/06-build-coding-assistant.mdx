@@ -126,7 +126,7 @@ assistant = b.compile()
 
 ## Step 3 — Serve It with FastAPI
 
-Reuse the [FastAPI patterns](../02-fastapi/22-ai-backend.mdx):
+Reuse the [FastAPI patterns](../02-fastapi/01-core-path/22-ai-backend.mdx):
 
 ```python
 from fastapi import FastAPI
@@ -172,7 +172,7 @@ Grow it the way real assistants did:
 - **Memory**: persist conversation + learned preferences.
 - **Edit/run tools**: with confirmation and diffs.
 - **Streaming**: stream tokens/tool status to a UI.
-- **Guardrails & observability**: from [section 09](../09-production-patterns/index.mdx).
+- **Guardrails & observability**: from [section 09](../10-production-patterns/index.mdx).
 
 ## Common Mistakes
 
@@ -208,4 +208,4 @@ reads files before answering (within the 8-step limit).
 - [ ] It answers questions about a codebase with citations.
 - [ ] You can explain how to safely add edit/run tools and retrieval.
 
-Next: [09 · Production Patterns](../09-production-patterns/index.mdx).
+Next: [09 · Production Patterns](../10-production-patterns/index.mdx).

@@ -1,0 +1,460 @@
+---
+title: Building an MCP Client
+description: Connect to servers over stdio and HTTP, discover capabilities, convert MCP tools into LangGraph tools, and handle sampling, roots and multiple servers.
+sidebar_label: Building a Client
+---
+
+import TOCInline from '@theme/TOCInline';
+
+# Building an MCP Client
+
+<TOCInline toc={toc} minHeadingLevel={2} maxHeadingLevel={2} />
+
+:::tip[In this guide]
+The other half: connecting your own agent to MCP servers. Session lifecycle,
+discovery, the adapter that turns a server's tools into LangGraph tools, the
+server-to-client primitives like sampling, and what breaks when you attach five
+servers at once.
+:::
+
+## What Is It?
+
+A client is the protocol connection inside your host application. One client
+per server. It does four things: complete the handshake, discover what the
+server offers, forward calls, and handle requests the server sends back.
+
+Your agent service is the **host**. It owns the model and the permission policy.
+The clients are plumbing underneath it.
+
+## Why Does It Matter?
+
+Because this is how your agent gets capabilities it did not ship with. Someone
+else's Jira server, your platform team's analytics server, a filesystem server
+for local work — all usable without writing adapters for each.
+
+The work is almost entirely in two places: converting MCP tool schemas into
+whatever your framework expects, and deciding what you let servers do to you.
+
+## Connecting
+
+The SDK gives you a session as an async context manager. Over stdio, it spawns
+the server process:
+
+```python
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
+
+params = StdioServerParameters(
+    command="/Users/you/project/.venv/bin/python",
+    args=["/Users/you/project/docs_server.py"],
+    env={"VECTOR_DB_URL": "postgresql://localhost:5432/rag"},
+)
+
+async def demo() -> None:
+    async with stdio_client(params) as (read, write):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+
+            tools = await session.list_tools()
+            print([t.name for t in tools.tools])
+
+            result = await session.call_tool(
+                "search_docs", {"query": "refund policy", "top_k": 3}
+            )
+            for block in result.content:
+                if block.type == "text":
+                    print(block.text)
+```
+
+Over HTTP, only the connection setup changes:
+
+```python
+from mcp.client.streamable_http import streamablehttp_client
+
+
+async def demo_remote(token: str) -> None:
+    async with streamablehttp_client(
+        "https://mcp.internal.example.com/mcp",
+        headers={"Authorization": f"Bearer {token}"},
+    ) as (read, write, _):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            ...
+```
+
+:::note[Check your SDK version]
+Transport helper names and their return tuples have changed between SDK
+releases, and the HTTP client previously had an SSE-based equivalent that is
+now deprecated. The two-context-manager shape — transport, then session — has
+been stable. Confirm the import path in the
+[Python SDK docs](https://py.sdk.modelcontextprotocol.io/).
+:::
+
+The nesting matters: the transport owns the process or the HTTP connection, the
+session owns the protocol state. Exiting the inner block ends the session;
+exiting the outer one tears down the subprocess. Letting a stdio server leak
+because you never closed the transport means orphaned Python processes
+accumulating on your box.
+
+## A Connection Manager
+
+In a real service you connect once at startup, not per request. Process spawn
+plus handshake is far too slow to do on a user's request path.
+
+```python
+from __future__ import annotations
+
+import logging
+from contextlib import AsyncExitStack
+from dataclasses import dataclass, field
+
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class McpPool:
+    """Holds one live session per configured server."""
+
+    sessions: dict[str, ClientSession] = field(default_factory=dict)
+    _stack: AsyncExitStack = field(default_factory=AsyncExitStack)
+
+    async def connect(self, name: str, params: StdioServerParameters) -> None:
+        read, write = await self._stack.enter_async_context(stdio_client(params))
+        session = await self._stack.enter_async_context(ClientSession(read, write))
+        await session.initialize()
+        self.sessions[name] = session
+        logger.info("mcp.connected server=%s", name)
+
+    async def aclose(self) -> None:
+        await self._stack.aclose()
+        self.sessions.clear()
+```
+
+Wire it into FastAPI's lifespan so sessions live for the process:
+
+```python
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, Request
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    pool = McpPool()
+    for name, params in SERVER_CONFIG.items():
+        try:
+            await pool.connect(name, params)
+        except Exception:
+            # One bad server must not stop the app from booting.
+            logger.exception("mcp.connect_failed server=%s", name)
+    app.state.mcp = pool
+    try:
+        yield
+    finally:
+        await pool.aclose()
+
+
+app = FastAPI(lifespan=lifespan)
+
+
+def get_mcp(request: Request) -> McpPool:
+    return request.app.state.mcp
+```
+
+The `try/except` around each connect is not defensive padding. A third-party
+server with a bad config will otherwise take your whole service down at
+startup, and you will be debugging your API when the problem is someone else's
+subprocess.
+
+## Discovery and Caching
+
+Call the list methods once after `initialize`, cache the result, and refresh
+when the server says so.
+
+```python
+@dataclass
+class ServerCatalog:
+    tools: list[Tool]
+    resources: list[Resource]
+    prompts: list[Prompt]
+
+
+async def load_catalog(session: ClientSession, caps) -> ServerCatalog:
+    tools = (await session.list_tools()).tools if caps.tools else []
+    resources = (await session.list_resources()).resources if caps.resources else []
+    prompts = (await session.list_prompts()).prompts if caps.prompts else []
+    return ServerCatalog(tools=tools, resources=resources, prompts=prompts)
+```
+
+Guard every call on the advertised capability, as in
+[Protocol & Transports](./02-protocol-and-transports.mdx) — calling
+`prompts/list` on a server without prompts is an error, not an empty list.
+
+If the server advertised `listChanged`, handle the notification and reload.
+Ignoring it means a stale tool list, and the symptom is a model calling a tool
+that no longer exists.
+
+## Converting MCP Tools Into Your Framework's Tools
+
+This is the part you actually write. An MCP tool definition has a name, a
+description and a JSON Schema. Your framework wants its own tool object. The
+adapter is mechanical:
+
+```python
+from typing import Any
+
+from langchain_core.tools import StructuredTool
+from mcp import ClientSession
+
+
+def mcp_tool_to_langchain(
+    session: ClientSession,
+    tool: Any,
+    *,
+    prefix: str = "",
+    max_chars: int = 8000,
+) -> StructuredTool:
+    """Wrap one MCP tool as a LangChain/LangGraph StructuredTool."""
+
+    async def _call(**kwargs: Any) -> str:
+        result = await session.call_tool(tool.name, kwargs)
+        text = "\n".join(
+            block.text for block in result.content if block.type == "text"
+        )
+        if getattr(result, "isError", False):
+            # Surface it to the model as an observation, not an exception.
+            return f"Tool error: {text[:max_chars]}"
+        return text[:max_chars] or "(empty result)"
+
+    return StructuredTool(
+        name=f"{prefix}{tool.name}",
+        description=tool.description or "",
+        args_schema=tool.inputSchema,   # already JSON Schema
+        coroutine=_call,
+    )
+
+
+async def tools_from_server(
+    session: ClientSession, prefix: str = ""
+) -> list[StructuredTool]:
+    listed = await session.list_tools()
+    return [mcp_tool_to_langchain(session, t, prefix=prefix) for t in listed.tools]
+```
+
+Three decisions in there worth being deliberate about:
+
+- **`isError` becomes text, not an exception.** The whole point of the MCP
+  error model is that the model can read the failure and recover. Raising here
+  throws that away.
+- **Output is capped.** A server you do not control can return a megabyte. Your
+  context window is your problem, not theirs.
+- **A `prefix` is available for namespacing.** See multiple servers, below.
+
+```python
+from langgraph.prebuilt import create_react_agent
+
+tools = await tools_from_server(pool.sessions["docs"], prefix="docs_")
+agent = create_react_agent(llm, tools)
+```
+
+:::note
+There is an official LangChain adapter package for MCP that does this and
+handles multi-server setups. Use it in production rather than maintaining the
+above. Write the adapter once by hand anyway — when routing misbehaves, knowing
+exactly what the model is seeing is worth the thirty lines.
+:::
+
+## Server-to-Client Requests
+
+MCP is bidirectional. Servers can ask the client for three things, and each
+one is a capability you choose to advertise.
+
+| Primitive | Server asks for | Why it is useful | Why it is risky |
+| --- | --- | --- | --- |
+| **Sampling** | A completion from the host's model | Server-side summarisation or classification without its own API key or bill | You are running inference on a prompt the server composed |
+| **Roots** | Which directories the host has exposed | A filesystem server learns its allowed scope | Tells the server about your filesystem layout |
+| **Elicitation** | Structured input from the user | A server can ask a clarifying question mid-operation | A server can put arbitrary text in front of your user |
+
+Sampling is the interesting one. A document server can summarise long results
+before returning them, using *your* model, without ever holding a key:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 42,
+  "method": "sampling/createMessage",
+  "params": {
+    "messages": [
+      { "role": "user", "content": { "type": "text", "text": "Summarise: ..." } }
+    ],
+    "maxTokens": 500
+  }
+}
+```
+
+If you advertise `sampling`, implement it with limits:
+
+```python
+MAX_SAMPLING_TOKENS = 500
+MAX_SAMPLING_CALLS_PER_TURN = 3
+
+
+async def handle_sampling(request, state) -> str:
+    if state.sampling_calls >= MAX_SAMPLING_CALLS_PER_TURN:
+        raise RuntimeError("sampling budget exhausted for this turn")
+    state.sampling_calls += 1
+
+    # Cap tokens and use a cheap model — the server does not choose either.
+    return await cheap_llm.complete(
+        request.messages, max_tokens=min(request.maxTokens, MAX_SAMPLING_TOKENS)
+    )
+```
+
+Without a budget, a server can spend your money in a loop. The spec expects
+human-in-the-loop review of sampling requests for exactly this reason, and most
+hosts simply do not advertise the capability. **Not advertising it is a
+perfectly good default.**
+
+## Several Servers at Once
+
+The realistic case, and where three new problems appear.
+
+**Name collisions.** Two servers both exposing `search` means the second
+overwrites the first in your tool dict. Namespace on the way in:
+
+```python
+async def all_tools(pool: McpPool) -> list[StructuredTool]:
+    collected: list[StructuredTool] = []
+    for name, session in pool.sessions.items():
+        collected.extend(await tools_from_server(session, prefix=f"{name}__"))
+    return collected
+```
+
+**Tool-count blowup.** Five servers at eight tools each is forty tools in every
+prompt. Routing accuracy degrades well before that, and you are paying for the
+schemas on every call.
+
+| Tools in prompt | What happens |
+| --- | --- |
+| Up to ~10 | Routing is reliable |
+| 10–25 | Degrades, especially with overlapping descriptions |
+| 25+ | Frequent wrong-tool selection; schemas dominate your prompt |
+
+Mitigations, in order of effectiveness: expose only the tools this agent
+actually needs; group servers by task and attach per task; or add a routing
+step that picks a server first, then exposes only its tools.
+
+```python
+ALLOWED: dict[str, set[str]] = {
+    "docs": {"search_docs", "get_document"},
+    "jira": {"create_ticket", "search_tickets"},
+}
+
+
+async def tools_for_agent(pool: McpPool) -> list[StructuredTool]:
+    out: list[StructuredTool] = []
+    for name, session in pool.sessions.items():
+        allowed = ALLOWED.get(name, set())
+        listed = await session.list_tools()
+        out.extend(
+            mcp_tool_to_langchain(session, t, prefix=f"{name}__")
+            for t in listed.tools
+            if t.name in allowed
+        )
+    return out
+```
+
+An allow-list has a second benefit: a server that adds a tool in an update
+cannot silently gain capability in your agent. Given discovery is dynamic, that
+matters.
+
+**Partial failure.** One server going down must degrade, not fail. Attach what
+connected, log what did not, and let the agent work with fewer tools.
+
+## Timeouts and Failures
+
+Every `call_tool` crosses a process or network boundary into code you may not
+own.
+
+```python
+import asyncio
+
+
+async def call_with_timeout(
+    session: ClientSession, name: str, args: dict, timeout: float = 15.0
+) -> str:
+    try:
+        result = await asyncio.wait_for(
+            session.call_tool(name, args), timeout=timeout
+        )
+    except asyncio.TimeoutError:
+        return f"Tool {name} timed out after {timeout}s. Try a narrower request."
+    except Exception as exc:
+        logger.warning("mcp.call_failed tool=%s err=%s", name, type(exc).__name__)
+        return f"Tool {name} failed: {type(exc).__name__}."
+
+    text = "\n".join(b.text for b in result.content if b.type == "text")
+    return f"Tool error: {text}" if getattr(result, "isError", False) else text
+```
+
+Every path returns a string the model can read. That is the rule: inside an
+agent loop, a tool call should never raise, because a raised exception ends the
+turn while a returned message lets the agent try something else.
+
+## Common Mistakes
+
+- Connecting per request instead of once at startup.
+- Letting one failed server connection block application boot.
+- Leaking stdio subprocesses by not closing the transport.
+- Calling `prompts/list` or `resources/list` without checking capabilities.
+- Raising on `isError` instead of returning the text to the model.
+- No output cap, so a third-party server can blow your context window.
+- No namespacing, so two servers' tools collide silently.
+- Attaching every tool from every server and wondering why routing got worse.
+- Advertising `sampling` with no token or call budget.
+- Ignoring `listChanged`, then calling a tool that no longer exists.
+
+## Interview Questions
+
+- What does an MCP client do, and how does it relate to the host?
+- Why connect at startup rather than per request?
+- Walk through converting an MCP tool definition into your framework's tool object. What do you add beyond a pass-through?
+- A server returns `isError: true`. What should your client do, and why?
+- What is sampling, and what is the risk of supporting it?
+- You attach five servers with eight tools each. What goes wrong and what do you do?
+- Discovery is dynamic. What does that mean for a tool allow-list?
+
+## Things to Remember
+
+- One client per server; the host owns policy.
+- Connect in lifespan, close on shutdown, tolerate individual failures.
+- Branch on advertised capabilities before every list call.
+- The adapter is where you add namespacing, output caps and error handling.
+- Tool errors become observations, never exceptions, inside an agent loop.
+- Allow-list the tools you expose — it fixes routing and bounds dynamic discovery.
+- Not advertising sampling is a reasonable default.
+
+## Mini Exercise
+
+Connect your agent to the `docs-server` you built and the official filesystem
+server at the same time. Namespace both. Ask a question that only one can
+answer and confirm the model routes correctly.
+
+Then attach three more servers so you are over twenty tools, and ask the same
+question. Measure how often it picks the right tool across ten runs, before and
+after. Then add an allow-list cutting the surface back to six tools and measure
+again. The three numbers are the argument for curating tool surfaces.
+
+## Done When
+
+- [ ] You can connect to a server over stdio and over HTTP.
+- [ ] Your sessions are created at startup and closed on shutdown.
+- [ ] You have an adapter producing your framework's tools from a server's schemas.
+- [ ] Tool failures and timeouts return text rather than raising.
+- [ ] You namespace and allow-list tools across multiple servers.
+
+Next: [MCP Security & Auth](./05-security-and-auth.mdx).

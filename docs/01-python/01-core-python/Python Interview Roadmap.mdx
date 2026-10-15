@@ -1,0 +1,1872 @@
+---
+title: Python Interview Roadmap
+description: Expanded syllabus for senior Python backend, AI Engineer, and GenAI Engineer interviews — fundamentals, DSA, advanced Python, concurrency, backend engineering, and production AI systems, with checklists, interview Q&A, and code snippets.
+sidebar_label: Interview Roadmap
+---
+
+import TOCInline from '@theme/TOCInline';
+
+# Python Interview Roadmap — Expanded Syllabus
+
+<TOCInline toc={toc} minHeadingLevel={2} maxHeadingLevel={2} />
+
+:::tip[In this guide]
+A complete syllabus for senior software engineers preparing for Python backend,
+AI Engineer, and GenAI Engineer interviews. Each phase has a **checklist** to
+track progress, followed by **interview Q&A and code snippets** for the topics
+that come up most.
+:::
+
+## How to Use This Roadmap
+
+This roadmap covers Python language fundamentals, coding rounds, concurrency,
+backend development, and production AI systems.
+
+**Priority labels**
+
+| Label | Meaning |
+| --- | --- |
+| **P0** | Essential for interviews and practical engineering |
+| **P1** | Important for senior-level depth and role-specific interviews |
+| **P2** | Advanced or specialized; study when the core is solid |
+
+**Phases at a glance**
+
+| Phase | Topic | Priority | Focus |
+| --- | --- | --- | --- |
+| 1 | Python Fundamentals | P0 · Must know | Idiomatic Python, objects, OOP, errors |
+| 2 | Coding & DSA | P0 · Must know | Coding rounds, complexity |
+| 3 | Advanced Python | P1 · Important | Internals, typing, design |
+| 4 | Concurrency & Parallelism | P0 · Backend/AI | Threads, processes, asyncio |
+| 5 | Backend Engineering | P0 · Backend/AI | FastAPI, SQL, testing, queues, security |
+| 6 | Production & AI Python | P1 · Role-specific | LLMs, RAG, agents, evals, DevOps, design |
+
+**Tip for every checklist below:** tick an item only when you can *explain it
+out loud in under two minutes and write a short example from memory*.
+
+## Recommended Learning Order
+
+1. **Core Python + Advanced Python basics.** Master objects, functions, OOP,
+   exceptions, iterators, and decorators before moving on.
+2. **DSA in parallel.** Solve a few problems every day. Revisit difficult
+   patterns rather than just counting problems.
+3. **Concurrency.** Learn threading, multiprocessing, and asyncio, then compare
+   them through runnable examples (see
+   [Python concurrency](../02-language-deep-dives/07-concurrency.mdx)).
+4. **Backend engineering.** Build a tested FastAPI service with PostgreSQL,
+   migrations, Redis, and a background worker.
+5. **AI production patterns.** Add an LLM API, streaming, RAG, evaluations,
+   tracing, and failure recovery.
+
+## How to Answer in an Interview
+
+**Concept questions** — use *definition → how it works → example → trade-off*:
+
+> "A generator is a function that yields values lazily (definition). Calling it
+> returns an iterator that runs until `yield`, then pauses and keeps its local
+> state (how). That lets me stream a 10 GB file line by line (example), at the
+> cost of single-pass iteration and no random access (trade-off)."
+
+**Coding questions** — a repeatable routine:
+
+1. **Clarify**: inputs, outputs, constraints, edge cases (empty, duplicates,
+   negatives, huge input).
+2. **Examples**: walk a small case by hand.
+3. **Brute force first**: state it and its complexity.
+4. **Optimize**: name the pattern (hash map, two pointers, heap, DP) and why.
+5. **Code** cleanly, with meaningful names.
+6. **Test** with your examples and edge cases, out loud.
+7. **State** time and space complexity.
+
+**Design questions** — requirements → API → data model → components →
+concurrency → failure modes → security → scaling → observability → cost.
+
+---
+
+## Phase 1 — Python Fundamentals
+
+**P0 · Must know**
+
+*Goal: Write idiomatic Python, understand how objects behave, and explain the
+language clearly in interviews.*
+
+### 1.1 Python basics and execution
+
+- [ ] Python interpreter and execution model
+- [ ] Python 3 syntax, indentation and code blocks
+- [ ] Variables, names and object references
+- [ ] Dynamic typing and strong typing
+- [ ] Built-in functions: `print`, `len`, `range`, `type`, `isinstance`
+- [ ] Comments, docstrings and naming conventions
+- [ ] Modules, packages and import statements
+- [ ] Running scripts, interactive shell and `python -m`
+- [ ] Virtual environments: `venv`, `pip`
+- [ ] Dependency management and `requirements.txt` / `pyproject.toml`
+
+### 1.2 Data types and collections
+
+- [ ] Numeric types: `int`, `float`, `complex`, `bool`
+- [ ] Strings: indexing, slicing, formatting, f-strings
+- [ ] Lists: indexing, slicing, insertion, deletion
+- [ ] Tuples: immutability and unpacking
+- [ ] Sets and `frozenset`
+- [ ] Dictionaries: keys, values, lookup, insertion and deletion
+- [ ] `None` and the `NoneType`
+- [ ] Type conversion and type checking
+- [ ] Truthy and falsy values
+- [ ] Membership and identity operators: `in`, `is`
+- [ ] Equality versus identity: `==` vs `is`
+- [ ] Hashability and dictionary/set key requirements
+- [ ] Collection operations and their time complexity
+
+### 1.3 Mutability and object references
+
+- [ ] Mutable vs immutable objects
+- [ ] Names versus objects
+- [ ] Aliasing and shared references
+- [ ] Shallow copy vs deep copy
+- [ ] `copy.copy()` and `copy.deepcopy()`
+- [ ] Nested lists and dictionaries
+- [ ] Mutation versus reassignment
+- [ ] Mutable default function arguments
+- [ ] Object identity and `id()`
+- [ ] Why tuples can contain mutable objects
+- [ ] How mutation can cause unexpected side effects
+
+### 1.4 Operators and control flow
+
+- [ ] Arithmetic, comparison and logical operators
+- [ ] Assignment and augmented assignment
+- [ ] Bitwise operators and their use cases
+- [ ] Operator precedence
+- [ ] `if`, `elif`, `else`
+- [ ] `for` and `while` loops
+- [ ] `break`, `continue` and `pass`
+- [ ] `for...else` and `while...else`
+- [ ] Pattern matching with `match` / `case`
+- [ ] Conditional expressions
+- [ ] Looping over dictionaries and nested collections
+
+### 1.5 Functions
+
+- [ ] Defining and calling functions
+- [ ] Positional-only and keyword-only arguments
+- [ ] Default arguments
+- [ ] `*args` and `**kwargs`
+- [ ] Positional and keyword argument unpacking
+- [ ] Return values and multiple return values
+- [ ] Functions as first-class objects
+- [ ] Higher-order functions
+- [ ] Lambda functions
+- [ ] Scope and the LEGB rule
+- [ ] `global` and `nonlocal`
+- [ ] Recursive functions
+- [ ] Function annotations
+- [ ] Docstrings and function contracts
+
+### 1.6 Object-oriented programming
+
+- [ ] Classes, instances and constructors
+- [ ] `__init__` and `self`
+- [ ] Instance attributes vs class attributes
+- [ ] Instance methods, class methods and static methods
+- [ ] Inheritance and method overriding
+- [ ] Multiple inheritance
+- [ ] Method Resolution Order (MRO)
+- [ ] `super()`
+- [ ] Encapsulation and properties
+- [ ] `@property` and setters
+- [ ] Composition vs inheritance
+- [ ] Polymorphism and duck typing
+- [ ] Abstract base classes
+- [ ] Dunder methods such as `__str__`, `__repr__`, `__eq__`
+- [ ] Operator overloading
+- [ ] SOLID principles applied in Python
+
+### 1.7 Exceptions and error handling
+
+- [ ] Exception hierarchy and built-in exceptions
+- [ ] `try`, `except`, `else` and `finally`
+- [ ] Catching specific exceptions
+- [ ] Raising exceptions with `raise`
+- [ ] Exception chaining: `raise ... from ...`
+- [ ] Custom exception classes
+- [ ] Cleanup and resource safety
+- [ ] Error propagation across function calls
+- [ ] Distinguishing validation errors from unexpected failures
+- [ ] Avoiding overly broad `except Exception` handlers
+
+### 1.8 Iterators, generators and decorators
+
+- [ ] Iterable vs iterator
+- [ ] `iter()` and `next()`
+- [ ] `StopIteration`
+- [ ] Generator functions and `yield`
+- [ ] Generator expressions
+- [ ] Lazy evaluation and memory efficiency
+- [ ] `yield from`
+- [ ] Function decorators
+- [ ] Decorators with arguments
+- [ ] `functools.wraps`
+- [ ] Stacking decorators
+- [ ] Class-based decorators
+- [ ] Common applications: logging, timing, caching and authorization
+
+### Phase 1 — Interview Q&A and Snippets
+
+**`==` vs `is`?** `==` compares *values* (calls `__eq__`); `is` compares
+*identity* (same object in memory). Use `is` only for singletons such as
+`None`: `if x is None`. Small-int and string caching makes `is` appear to work
+on values, but that is an implementation detail; never rely on it.
+
+**Mutable vs immutable?** Immutable objects (`int`, `str`, `tuple`,
+`frozenset`, `bytes`) can't change after creation; mutable ones (`list`,
+`dict`, `set`) can. A tuple can hold a list, and that list can still be
+mutated, because the tuple only holds *references*.
+
+**What's the mutable default argument bug?** Defaults are evaluated **once**, at
+function definition, so a mutable default is shared across calls:
+
+```python
+def add(item, bucket=[]):          # ❌ one shared list
+    bucket.append(item)
+    return bucket
+
+add(1); add(2)                      # second call returns [1, 2]
+
+def add(item, bucket=None):        # ✅
+    if bucket is None:
+        bucket = []
+    bucket.append(item)
+    return bucket
+```
+
+**Shallow vs deep copy?** A shallow copy duplicates the outer container but
+shares the inner objects; a deep copy recursively duplicates everything.
+
+```python
+import copy
+a = [[1, 2], [3]]
+b = copy.copy(a)
+b[0].append(99)
+print(a)                  # [[1, 2, 99], [3]]  — inner list is shared
+c = copy.deepcopy(a)      # fully independent
+```
+
+**What is LEGB and what's the late-binding closure gotcha?** Name lookup goes
+Local → Enclosing → Global → Built-in. Closures capture *variables*, not
+values, so they see the variable's value at call time:
+
+```python
+funcs = [lambda: i for i in range(3)]
+print([f() for f in funcs])               # [2, 2, 2]
+
+funcs = [lambda i=i: i for i in range(3)] # bind the current value
+print([f() for f in funcs])               # [0, 1, 2]
+```
+
+**What is the MRO and what does `super()` do?** The MRO is the order Python
+searches base classes, computed by **C3 linearization** (`Class.__mro__`).
+`super()` doesn't mean "the parent": it means "the *next* class in the MRO",
+which is what makes cooperative multiple inheritance work.
+
+**Iterable vs iterator vs generator?** An *iterable* has `__iter__` and can
+produce an iterator; an *iterator* has `__next__` and `__iter__`, remembers its
+position, and raises `StopIteration` when done; a *generator* is an iterator
+created by a function with `yield` (or a generator expression), which pauses and
+resumes while keeping local state.
+
+```python
+def read_lines(path):
+    with open(path) as f:
+        for line in f:            # lazy: one line at a time, constant memory
+            yield line.rstrip("\n")
+
+total = sum(len(line) for line in read_lines("big.log"))
+```
+
+**How do you write a decorator, and why `functools.wraps`?** A decorator is a
+function that takes a function and returns a wrapper. `wraps` preserves the
+original's name, docstring, and signature metadata:
+
+```python
+import functools, time
+
+def timed(fn):
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        start = time.perf_counter()
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            print(f"{fn.__name__} took {time.perf_counter() - start:.3f}s")
+    return wrapper
+
+def retry(times: int):                      # decorator WITH arguments: one extra level
+    def decorator(fn):
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            for attempt in range(times):
+                try:
+                    return fn(*args, **kwargs)
+                except ConnectionError:
+                    if attempt == times - 1:
+                        raise
+        return wrapper
+    return decorator
+
+@retry(3)
+@timed
+def fetch(): ...
+```
+
+**Exceptions: `else`, `finally`, chaining?** `else` runs only if the `try`
+raised nothing; `finally` always runs (cleanup). Use `raise NewError(...) from
+exc` to keep the original cause visible in the traceback.
+
+```python
+class ConfigError(Exception): ...
+
+def load(path):
+    try:
+        with open(path) as f:
+            return parse(f.read())
+    except FileNotFoundError as exc:
+        raise ConfigError(f"missing config: {path}") from exc
+```
+
+**Why avoid `except Exception: pass`?** It hides real bugs, swallows errors you
+didn't anticipate, and makes failures silent. Catch specific exceptions, log
+unexpected ones, and let them propagate if you can't handle them.
+
+**What makes an object hashable?** It has a stable `__hash__` consistent with
+`__eq__`; practically, it must be immutable. That's why lists can't be dict keys
+but tuples of immutables can.
+
+---
+
+## Phase 2 — Coding & Data Structures and Algorithms
+
+**P0 · Must know**
+
+*Goal: Solve coding-round problems efficiently and explain time and space
+complexity.*
+
+### 2.1 Complexity analysis
+
+- [ ] Big O, Big Omega and Big Theta
+- [ ] Time complexity vs space complexity
+- [ ] Best, average and worst cases
+- [ ] Constant, logarithmic, linear, linearithmic, quadratic and exponential complexity
+- [ ] Amortized complexity
+- [ ] Complexity of Python built-in operations
+- [ ] Recursion stack space
+- [ ] Analyzing nested loops and recursive algorithms
+
+### 2.2 Arrays, lists and strings
+
+- [ ] Array/list traversal
+- [ ] In-place modifications
+- [ ] Reversing and rotating arrays
+- [ ] Removing duplicates
+- [ ] Finding missing and repeated numbers
+- [ ] String reversal and palindrome checks
+- [ ] Anagrams and character frequencies
+- [ ] String parsing and normalization
+- [ ] Prefix sums and suffix sums
+- [ ] Maximum subarray sum: Kadane's algorithm
+- [ ] Matrix traversal and transformations
+
+### 2.3 Hash maps, dictionaries and sets
+
+- [ ] Frequency counting
+- [ ] Membership and duplicate detection
+- [ ] Two Sum and pair-sum problems
+- [ ] Grouping anagrams
+- [ ] First unique character
+- [ ] Set-based intersections and differences
+- [ ] Hash collisions and hashability
+- [ ] When a dictionary is better than a list
+- [ ] Time complexity and worst-case considerations
+
+### 2.4 Core problem-solving patterns
+
+- [ ] Two pointers
+- [ ] Sliding window: fixed and variable size
+- [ ] Prefix sum and difference arrays
+- [ ] Fast and slow pointers
+- [ ] Binary search and binary search on the answer
+- [ ] Sorting-based solutions
+- [ ] Monotonic stack and queue
+- [ ] Interval merging
+- [ ] Sweep-line techniques
+- [ ] Greedy algorithms
+- [ ] Divide and conquer
+- [ ] Backtracking and pruning
+
+### 2.5 Stacks, queues and linked lists
+
+- [ ] Stack using a Python list
+- [ ] Queue using `collections.deque`
+- [ ] `Queue` vs `queue.Queue`
+- [ ] Circular queue concepts
+- [ ] Monotonic stack problems
+- [ ] Singly and doubly linked lists
+- [ ] Reversal and cycle detection
+- [ ] Finding the middle node
+- [ ] Merging sorted linked lists
+- [ ] LRU cache design
+
+### 2.6 Trees and heaps
+
+- [ ] Binary trees and binary search trees
+- [ ] Tree terminology and properties
+- [ ] DFS: preorder, inorder and postorder
+- [ ] BFS and level-order traversal
+- [ ] Recursive vs iterative traversal
+- [ ] Tree height and depth
+- [ ] Lowest common ancestor
+- [ ] Balanced trees and BST validation
+- [ ] Heaps and priority queues
+- [ ] `heapq` operations
+- [ ] Top K frequent elements
+- [ ] Kth largest element
+- [ ] Trie / prefix tree
+
+### 2.7 Graphs
+
+- [ ] Graph representations: adjacency list and matrix
+- [ ] Directed vs undirected graphs
+- [ ] Weighted vs unweighted graphs
+- [ ] BFS and DFS
+- [ ] Visited sets and cycle detection
+- [ ] Connected components
+- [ ] Topological sorting
+- [ ] Shortest paths: BFS and Dijkstra
+- [ ] Union-find / disjoint set union
+- [ ] Minimum spanning tree concepts
+- [ ] Dependency graphs and scheduling problems
+
+### 2.8 Recursion and dynamic programming
+
+- [ ] Base cases and recursive transitions
+- [ ] Call stack and recursion depth
+- [ ] Memoization and tabulation
+- [ ] One-dimensional DP
+- [ ] Two-dimensional DP
+- [ ] Knapsack patterns
+- [ ] Coin change
+- [ ] Longest common subsequence
+- [ ] Longest increasing subsequence
+- [ ] Grid path problems
+- [ ] State definition and transition derivation
+
+### 2.9 Python-specific coding skills
+
+- [ ] `collections.Counter`
+- [ ] `collections.defaultdict`
+- [ ] `collections.deque`
+- [ ] `heapq`
+- [ ] `bisect`
+- [ ] `itertools`
+- [ ] Sorting with `key` and lambda functions
+- [ ] Custom sorting and tuple comparisons
+- [ ] `enumerate`, `zip` and unpacking
+- [ ] Implementing algorithms without excessive library use
+
+**Interview target:** Learn the underlying patterns, practise explaining
+brute-force and optimized approaches, and test edge cases such as empty inputs,
+duplicates, negative numbers, and very large inputs.
+
+### Phase 2 — Cheat Sheet and Pattern Snippets
+
+**Complexity of common Python operations**
+
+| Operation | Complexity |
+| --- | --- |
+| `list.append`, `list.pop()` (end) | O(1) amortized |
+| `list.insert(0, x)`, `list.pop(0)` | O(n) — use `deque` instead |
+| `x in list` | O(n) |
+| `x in set`, `x in dict`, dict get/set | O(1) average, O(n) worst |
+| `list.sort()`, `sorted()` | O(n log n) |
+| `deque.append`, `appendleft`, `popleft` | O(1) |
+| `heapq.heappush`, `heappop` | O(log n) |
+| `heapq.heapify` | O(n) |
+| Slicing `a[i:j]` | O(j - i) (copies) |
+| String `+=` in a loop | O(n²) overall — use `"".join(parts)` |
+
+**Pick the pattern from the problem statement**
+
+| If you see... | Think... |
+| --- | --- |
+| Pair/triple with a sum, sorted array, palindrome | Two pointers |
+| Longest/shortest substring or subarray with a condition | Sliding window |
+| "Have I seen this before?", counting, grouping | Hash map / set |
+| Sorted input, or "minimum X such that feasible" | Binary search (on the answer) |
+| Top K, Kth largest, merge K sorted | Heap |
+| Next greater/smaller element | Monotonic stack |
+| Shortest path in unweighted graph, level order | BFS |
+| All combinations/permutations, constraint search | Backtracking |
+| Count ways, min/max cost, overlapping subproblems | Dynamic programming |
+| Dependencies / ordering | Topological sort |
+| Connected groups, merging sets | Union-find |
+
+**Hash map — Two Sum (O(n))**
+
+```python
+def two_sum(nums: list[int], target: int) -> list[int]:
+    seen: dict[int, int] = {}
+    for i, n in enumerate(nums):
+        if target - n in seen:
+            return [seen[target - n], i]
+        seen[n] = i
+    return []
+```
+
+**Sliding window — longest substring without repeats (O(n))**
+
+```python
+def longest_unique(s: str) -> int:
+    last: dict[str, int] = {}
+    start = best = 0
+    for i, ch in enumerate(s):
+        if ch in last and last[ch] >= start:
+            start = last[ch] + 1            # shrink window past the duplicate
+        last[ch] = i
+        best = max(best, i - start + 1)
+    return best
+```
+
+**Binary search (O(log n))**
+
+```python
+def bsearch(a: list[int], x: int) -> int:
+    lo, hi = 0, len(a) - 1
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        if a[mid] == x:
+            return mid
+        if a[mid] < x:
+            lo = mid + 1
+        else:
+            hi = mid - 1
+    return -1
+```
+
+**Kadane — maximum subarray (O(n))**
+
+```python
+def max_subarray(nums: list[int]) -> int:
+    cur = best = nums[0]
+    for n in nums[1:]:
+        cur = max(n, cur + n)               # extend or restart
+        best = max(best, cur)
+    return best
+```
+
+**LRU cache (O(1) get/put)**
+
+```python
+from collections import OrderedDict
+
+class LRUCache:
+    def __init__(self, capacity: int):
+        self.cap = capacity
+        self.data: OrderedDict[int, int] = OrderedDict()
+
+    def get(self, key: int) -> int:
+        if key not in self.data:
+            return -1
+        self.data.move_to_end(key)          # mark most recently used
+        return self.data[key]
+
+    def put(self, key: int, value: int) -> None:
+        self.data[key] = value
+        self.data.move_to_end(key)
+        if len(self.data) > self.cap:
+            self.data.popitem(last=False)   # evict least recently used
+```
+
+Be ready to also build it from a hash map plus a doubly linked list, since many
+interviewers ask for that version.
+
+**Top K frequent (heap or Counter)**
+
+```python
+import heapq
+from collections import Counter
+
+def top_k_frequent(nums: list[int], k: int) -> list[int]:
+    counts = Counter(nums)
+    return heapq.nlargest(k, counts, key=counts.get)    # O(n log k)
+```
+
+**BFS (graph traversal / shortest path in unweighted graphs)**
+
+```python
+from collections import deque
+
+def bfs(graph: dict[str, list[str]], start: str) -> list[str]:
+    seen = {start}
+    queue = deque([start])
+    order = []
+    while queue:
+        node = queue.popleft()
+        order.append(node)
+        for nb in graph[node]:
+            if nb not in seen:
+                seen.add(nb)
+                queue.append(nb)
+    return order
+```
+
+**Topological sort (Kahn's algorithm)**
+
+```python
+from collections import deque
+
+def topo_sort(n: int, edges: list[tuple[int, int]]) -> list[int]:
+    adj = [[] for _ in range(n)]
+    indegree = [0] * n
+    for a, b in edges:                      # a must come before b
+        adj[a].append(b)
+        indegree[b] += 1
+    queue = deque(i for i in range(n) if indegree[i] == 0)
+    order = []
+    while queue:
+        node = queue.popleft()
+        order.append(node)
+        for nb in adj[node]:
+            indegree[nb] -= 1
+            if indegree[nb] == 0:
+                queue.append(nb)
+    return order if len(order) == n else []     # empty means a cycle exists
+```
+
+**Dynamic programming — coin change (bottom-up)**
+
+```python
+def coin_change(coins: list[int], amount: int) -> int:
+    INF = amount + 1
+    dp = [0] + [INF] * amount               # dp[a] = fewest coins to make a
+    for a in range(1, amount + 1):
+        for c in coins:
+            if c <= a:
+                dp[a] = min(dp[a], dp[a - c] + 1)
+    return dp[amount] if dp[amount] != INF else -1
+```
+
+DP recipe: **define the state → write the transition → set base cases → pick
+the order → optimize space**. Start with plain recursion, add memoization
+(`functools.cache`), then convert to a table.
+
+**Union-find**
+
+```python
+class DSU:
+    def __init__(self, n: int):
+        self.parent = list(range(n))
+
+    def find(self, x: int) -> int:
+        while self.parent[x] != x:
+            self.parent[x] = self.parent[self.parent[x]]    # path compression
+            x = self.parent[x]
+        return x
+
+    def union(self, a: int, b: int) -> bool:
+        ra, rb = self.find(a), self.find(b)
+        if ra == rb:
+            return False
+        self.parent[rb] = ra
+        return True
+```
+
+**Edge cases checklist:** empty input, single element, duplicates, negative
+numbers, all equal values, already sorted / reverse sorted, very large input
+(overflow isn't an issue in Python, but time is), and `None` or invalid input.
+
+---
+
+## Phase 3 — Advanced Python
+
+**P1 · Important**
+
+*Goal: Understand Python internals well enough to debug tricky behavior, write
+maintainable libraries, and discuss language trade-offs in senior interviews.*
+
+### 3.1 Memory model and object lifecycle
+
+- [ ] Names, objects and references
+- [ ] CPython reference counting
+- [ ] Cyclic garbage collection
+- [ ] Strong vs weak references
+- [ ] Reference cycles and memory leaks
+- [ ] `weakref`
+- [ ] Object lifetime and destruction
+- [ ] `__del__` caveats
+- [ ] Shallow and deep copying of complex objects
+- [ ] Memory profiling with `tracemalloc`
+- [ ] Object size and memory overhead
+- [ ] Interning and implementation-specific optimizations
+
+### 3.2 Scope, closures and functional programming
+
+- [ ] LEGB scope resolution
+- [ ] Lexical scoping
+- [ ] Closures and free variables
+- [ ] Late binding in closures
+- [ ] `nonlocal`
+- [ ] Higher-order functions
+- [ ] Pure functions and side effects
+- [ ] Referential transparency as a functional programming concept
+- [ ] `map`, `filter` and `reduce`
+- [ ] Partial application with `functools.partial`
+- [ ] Function composition patterns
+- [ ] Immutability and functional-style design
+
+### 3.3 Comprehensions and lazy evaluation
+
+- [ ] List comprehensions
+- [ ] Dictionary and set comprehensions
+- [ ] Nested comprehensions
+- [ ] Generator expressions
+- [ ] Eager vs lazy evaluation
+- [ ] Generator pipelines
+- [ ] `itertools` for memory-efficient iteration
+- [ ] Avoiding unnecessary intermediate collections
+- [ ] Performance and readability trade-offs
+
+### 3.4 Context managers and resource management
+
+- [ ] `with` statement
+- [ ] `__enter__` and `__exit__`
+- [ ] Context manager exception handling
+- [ ] `contextlib.contextmanager`
+- [ ] `contextlib.ExitStack`
+- [ ] Managing files, locks, transactions and connections
+- [ ] Cleanup when exceptions occur
+- [ ] Async context managers: `async with`, `__aenter__`, `__aexit__`
+
+### 3.5 Type system and modern Python
+
+- [ ] Type annotations and static analysis
+- [ ] Built-in generic types: `list[str]`, `dict[str, int]`
+- [ ] Optional and union types
+- [ ] `Any`, `object` and `Never`
+- [ ] `TypedDict`
+- [ ] `Literal` and `Final`
+- [ ] `Protocol` and structural typing
+- [ ] Generics and type variables
+- [ ] `Callable` annotations
+- [ ] Type narrowing and `TypeGuard`
+- [ ] Runtime validation vs static type checking
+- [ ] Mypy or Pyright fundamentals
+
+### 3.6 Dataclasses and data modeling
+
+- [ ] `@dataclass`
+- [ ] Generated constructors and representations
+- [ ] `frozen=True`
+- [ ] `default_factory`
+- [ ] Equality and ordering
+- [ ] `slots=True`
+- [ ] Dataclasses vs Pydantic models
+- [ ] Named tuples
+- [ ] `Enum`
+- [ ] Designing immutable value objects
+- [ ] Serialization and validation boundaries
+
+### 3.7 Python internals and language features
+
+- [ ] Bytecode and the `dis` module
+- [ ] Python compilation and interpretation
+- [ ] CPython vs alternative implementations
+- [ ] Descriptors and the descriptor protocol
+- [ ] `__getattr__` vs `__getattribute__`
+- [ ] Properties and attribute lookup
+- [ ] Metaclasses: basic purpose and use cases
+- [ ] MRO and C3 linearization
+- [ ] `__new__` vs `__init__`
+- [ ] Import system and module caching
+- [ ] `__name__ == "__main__"`
+- [ ] Python's Global Interpreter Lock (GIL)
+- [ ] Free-threaded Python and its implications
+- [ ] Performance profiling and optimization
+- [ ] Common design patterns: Strategy, Factory, Adapter, Observer and Dependency Injection
+
+### Phase 3 — Interview Q&A and Snippets
+
+**How does CPython manage memory?** Primarily **reference counting**: each
+object tracks how many references point to it and is freed when the count hits
+zero. Reference counting can't free **cycles** (A refers to B refers to A), so a
+supplementary **cyclic garbage collector** periodically finds and frees
+unreachable cycles. `weakref` lets you reference an object *without* keeping it
+alive, which is useful for caches and observer lists. `__del__` is unreliable
+(timing, cycles, interpreter shutdown), so prefer context managers for cleanup.
+
+```python
+import tracemalloc
+
+tracemalloc.start()
+data = [str(i) * 10 for i in range(100_000)]
+current, peak = tracemalloc.get_traced_memory()
+print(f"current={current / 1e6:.1f}MB peak={peak / 1e6:.1f}MB")
+```
+
+**Context managers — class vs `contextlib`:**
+
+```python
+from contextlib import contextmanager
+import time
+
+class Timer:
+    def __enter__(self):
+        self.start = time.perf_counter()
+        return self
+    def __exit__(self, exc_type, exc, tb):
+        self.elapsed = time.perf_counter() - self.start
+        return False                    # False/None: don't suppress exceptions
+
+@contextmanager
+def transaction(conn):
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+```
+
+`ExitStack` manages a *dynamic* number of context managers (for example
+opening N files). Async resources use `async with` with `__aenter__` /
+`__aexit__` (or `contextlib.asynccontextmanager`).
+
+**Generator pipelines are lazy and memory-efficient:**
+
+```python
+def read(path):
+    with open(path) as f:
+        yield from f
+
+def parse(lines):
+    for line in lines:
+        yield line.split(",")
+
+def only_errors(rows):
+    return (r for r in rows if r[2] == "ERROR")
+
+for row in only_errors(parse(read("app.log"))):    # one row in memory at a time
+    handle(row)
+```
+
+**Type hints, `Protocol`, and static vs runtime checking:** type hints are
+ignored at runtime; tools like mypy/Pyright check them statically. A
+**`Protocol`** gives structural typing ("if it has these methods, it fits"),
+which suits duck-typed Python and dependency injection:
+
+```python
+from typing import Protocol
+
+class Embedder(Protocol):
+    def embed(self, texts: list[str]) -> list[list[float]]: ...
+
+class OllamaEmbedder:
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        ...
+
+def build_index(embedder: Embedder, docs: list[str]):    # accepts anything matching
+    return embedder.embed(docs)
+```
+
+Use **Pydantic** where you need *runtime* validation of untrusted data (API
+input, config, LLM output); use **dataclasses** for lightweight internal
+structures:
+
+```python
+from dataclasses import dataclass, field
+
+@dataclass(frozen=True, slots=True)
+class Chunk:
+    doc_id: str
+    text: str
+    tags: tuple[str, ...] = ()            # immutable default; use default_factory for lists
+```
+
+**Descriptors** power `@property`, methods, and ORM fields. An object with
+`__get__`/`__set__` defined on a *class* controls attribute access on instances:
+
+```python
+class Positive:
+    def __set_name__(self, owner, name):
+        self.name = "_" + name
+    def __get__(self, obj, objtype=None):
+        return self if obj is None else getattr(obj, self.name)
+    def __set__(self, obj, value):
+        if value <= 0:
+            raise ValueError("must be positive")
+        setattr(obj, self.name, value)
+
+class Order:
+    quantity = Positive()
+```
+
+**`__new__` vs `__init__`:** `__new__` *creates* the instance (used for
+singletons, immutable subclasses); `__init__` *initializes* it. **Metaclasses**
+are "classes of classes"; they're rarely the right tool (prefer decorators or
+`__init_subclass__`) but explain frameworks like ORMs and Enums.
+
+**What's the GIL, and what changes with free-threaded Python?** The GIL lets one
+thread execute Python bytecode at a time in standard CPython, so CPU-bound
+threads don't run in parallel; I/O-bound threads still help because the GIL is
+released while waiting. Free-threaded builds (experimental in recent versions)
+remove that limit, but default builds still have it and the ecosystem is still
+adapting.
+
+**Design patterns that map naturally to Python:** *Strategy* (pass a function or
+object), *Factory* (a function or classmethod returning instances), *Adapter*
+(wrap a provider SDK behind your interface), *Observer* (callbacks/signals), and
+*Dependency Injection* (pass dependencies in, as FastAPI's `Depends` does).
+
+---
+
+## Phase 4 — Concurrency and Parallelism
+
+**P0 · Backend/AI**
+
+*Goal: Choose the right execution model for network calls, API requests,
+CPU-intensive work, and background processing.*
+
+### 4.1 Concurrency fundamentals
+
+- [ ] Concurrency vs parallelism
+- [ ] Synchronous vs asynchronous execution
+- [ ] I/O-bound vs CPU-bound workloads
+- [ ] Blocking vs non-blocking operations
+- [ ] Processes, threads and coroutines
+- [ ] Shared state and synchronization
+- [ ] Throughput, latency and resource utilization
+- [ ] Amdahl's law and parallel speedup
+
+### 4.2 Threading
+
+- [ ] `threading.Thread`
+- [ ] Starting, joining and naming threads
+- [ ] Daemon vs non-daemon threads
+- [ ] Thread safety
+- [ ] Race conditions
+- [ ] Locks and reentrant locks (`Lock`, `RLock`)
+- [ ] `Event`, `Condition` and `Semaphore`
+- [ ] Thread-local data
+- [ ] Producer-consumer patterns
+- [ ] `queue.Queue`
+- [ ] `ThreadPoolExecutor`
+- [ ] Deadlocks and lock ordering
+- [ ] Thread pools and resource limits
+
+### 4.3 Multiprocessing
+
+- [ ] `multiprocessing.Process`
+- [ ] Process pools and `Pool`
+- [ ] `ProcessPoolExecutor`
+- [ ] Process isolation
+- [ ] IPC: queues, pipes and shared memory
+- [ ] Pickling and serialization overhead
+- [ ] Spawn vs fork behavior
+- [ ] The `if __name__ == "__main__"` guard
+- [ ] Process lifecycle and cleanup
+- [ ] CPU-bound workloads
+- [ ] Worker crashes and task failures
+- [ ] Choosing worker counts
+
+### 4.4 Asyncio fundamentals
+
+- [ ] Coroutines and `async def`
+- [ ] `await` and awaitable objects
+- [ ] Event loop
+- [ ] `asyncio.run()`
+- [ ] Cooperative multitasking
+- [ ] Tasks vs coroutines vs futures
+- [ ] `asyncio.create_task()`
+- [ ] `asyncio.gather()`
+- [ ] `asyncio.TaskGroup`
+- [ ] `asyncio.wait()`
+- [ ] Cancellation and timeouts
+- [ ] `asyncio.wait_for()` and `asyncio.timeout()`
+- [ ] Exception handling in concurrent tasks
+- [ ] Graceful shutdown
+
+### 4.5 Async synchronization and queues
+
+- [ ] `asyncio.Lock`
+- [ ] `asyncio.Semaphore`
+- [ ] `asyncio.Event`
+- [ ] `asyncio.Condition`
+- [ ] `asyncio.Queue`
+- [ ] Bounded queues and backpressure
+- [ ] Producer-consumer workflows
+- [ ] Rate limiting with semaphores
+- [ ] Task coordination
+- [ ] Avoiding unbounded task creation
+- [ ] Handling cancellation during cleanup
+
+### 4.6 Async networking and integration
+
+- [ ] Async HTTP clients such as HTTPX
+- [ ] Connection pooling
+- [ ] Connection and read timeouts
+- [ ] Async database drivers
+- [ ] Async SQLAlchemy sessions
+- [ ] WebSockets and long-lived connections
+- [ ] Streaming responses
+- [ ] Calling blocking code from async handlers
+- [ ] `asyncio.to_thread()`
+- [ ] Running CPU-bound tasks in process pools
+- [ ] Retry and timeout behavior in concurrent workflows
+
+### 4.7 Concurrency interview scenarios
+
+- [ ] Why doesn't `async def` automatically make code non-blocking?
+- [ ] Why does the GIL matter for CPU-bound threads in conventional CPython?
+- [ ] How would you process 1,000 API calls with bounded concurrency?
+- [ ] How do you prevent a shared counter from losing updates?
+- [ ] How do you cancel a group of tasks safely?
+- [ ] How do you stop workers during application shutdown?
+- [ ] When would you choose threads, processes or asyncio?
+- [ ] How do you prevent a queue from growing without limit?
+
+### Phase 4 — Model Answers and Snippets
+
+:::note
+This phase has a dedicated deep-dive: [Python concurrency](../02-language-deep-dives/07-concurrency.mdx).
+Below are concise model answers to the scenario list.
+:::
+
+**Choosing the tool:** I/O-bound with many concurrent operations and async
+libraries → `asyncio`; I/O-bound with only blocking libraries → threads;
+CPU-bound → processes. Always measure first.
+
+**Why doesn't `async def` make code non-blocking?** `async def` only makes a
+function *awaitable*. If the body calls blocking code (`time.sleep`,
+`requests.get`, a sync DB driver, a CPU loop), it holds the single event-loop
+thread and everything else stalls. It's non-blocking only if it `await`s
+non-blocking operations. Fix: use async libraries, or offload with
+`asyncio.to_thread()` / a process pool.
+
+**Why does the GIL matter?** Only one thread runs Python bytecode at a time, so
+CPU-bound threads gain no parallelism. I/O-bound threads still overlap because
+the GIL is released while waiting.
+
+**1,000 API calls with bounded concurrency:**
+
+```python
+import asyncio, httpx
+
+async def fetch_all(urls: list[str], limit: int = 20):
+    sem = asyncio.Semaphore(limit)
+
+    async with httpx.AsyncClient(timeout=10) as client:
+        async def fetch(url: str):
+            async with sem:                          # at most `limit` in flight
+                resp = await client.get(url)
+                resp.raise_for_status()
+                return resp.json()
+
+        return await asyncio.gather(*(fetch(u) for u in urls), return_exceptions=True)
+```
+
+For far larger inputs, avoid creating all tasks up front: use a bounded
+`asyncio.Queue` with a fixed number of workers.
+
+**Prevent a shared counter losing updates:** `counter += 1` is read-modify-write
+and not atomic. Protect it with a `threading.Lock` (threads) or
+`multiprocessing.Value` with its lock (processes); better, avoid shared state by
+having workers return partial results and combine them, or funnel updates
+through a queue. In `asyncio`, a plain increment between awaits is safe, but a
+read, `await`, write sequence is not.
+
+```python
+import threading
+
+lock = threading.Lock()
+counter = 0
+
+def increment():
+    global counter
+    with lock:
+        counter += 1
+```
+
+**Cancel a group of tasks safely:** use `asyncio.TaskGroup` (failure cancels
+siblings automatically) or cancel tasks and then `await asyncio.gather(*tasks,
+return_exceptions=True)` to let them clean up. Handle `CancelledError` only to
+clean up in `finally`, and **re-raise it**.
+
+**Stop workers at shutdown:** handle `SIGTERM`, stop accepting new work, drain
+the queue with a timeout shorter than the platform's grace period, cancel the
+workers, and await them.
+
+```python
+import asyncio, signal
+
+async def main():
+    stop = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(sig, stop.set)
+
+    q: asyncio.Queue = asyncio.Queue(maxsize=100)
+    workers = [asyncio.create_task(worker(q)) for _ in range(8)]
+
+    await stop.wait()
+    await asyncio.wait_for(q.join(), timeout=25)
+    for w in workers:
+        w.cancel()
+    await asyncio.gather(*workers, return_exceptions=True)
+```
+
+**Prevent a queue growing without limit:** use a **bounded** queue
+(`maxsize`) so producers block (`await q.put`) when it's full — that's
+backpressure. At a system edge, shed load with `429`/`503`; for durable work use
+an external broker.
+
+**Amdahl's law:** speedup is limited by the serial fraction `s` of the work:
+`speedup = 1 / (s + (1 - s) / n)`. If 10% of the work is serial, even infinite
+cores cap the speedup at 10x.
+
+---
+
+## Phase 5 — Backend Engineering
+
+**P0 · Backend/AI**
+
+*Goal: Build reliable, secure, tested Python services that are ready for
+production.*
+
+### 5.1 FastAPI and API development
+
+- [ ] HTTP fundamentals: methods, status codes and headers
+- [ ] REST API design and resource modeling
+- [ ] Path parameters, query parameters and request bodies
+- [ ] Pydantic request and response models
+- [ ] Request validation and serialization
+- [ ] Dependency injection with `Depends`
+- [ ] Dependency overrides in tests
+- [ ] Middleware and request lifecycle
+- [ ] Custom exception handlers
+- [ ] Authentication vs authorization
+- [ ] OAuth2, JWT and password hashing
+- [ ] CORS and security headers
+- [ ] Pagination, filtering and sorting
+- [ ] File uploads and streaming responses
+- [ ] WebSockets and Server-Sent Events (SSE)
+- [ ] OpenAPI and Swagger documentation
+- [ ] API versioning and backward compatibility
+- [ ] Application lifespan and startup/shutdown hooks
+- [ ] Sync vs async route handlers
+
+### 5.2 Pydantic and data validation
+
+- [ ] `BaseModel` and field definitions
+- [ ] Required vs optional fields
+- [ ] Field constraints and validators
+- [ ] Model validators and field validators
+- [ ] Nested models and collections
+- [ ] `Field`, aliases and configuration
+- [ ] Pydantic settings and environment variables
+- [ ] Serialization with `model_dump()`
+- [ ] JSON serialization
+- [ ] Validation errors and error responses
+- [ ] Strict validation and coercion
+- [ ] Computed fields
+- [ ] Schema generation
+- [ ] DTOs vs database models
+
+### 5.3 SQL and PostgreSQL
+
+- [ ] Relational database fundamentals
+- [ ] Tables, constraints and relationships
+- [ ] Primary keys and foreign keys
+- [ ] Joins, aggregations and subqueries
+- [ ] Indexes and query plans
+- [ ] Transactions and ACID properties
+- [ ] Isolation levels and concurrency anomalies
+- [ ] Normalization and denormalization
+- [ ] Pagination and cursor-based pagination
+- [ ] Optimistic and pessimistic locking
+- [ ] Connection pooling
+- [ ] Deadlocks and transaction retries
+- [ ] Migrations with Alembic
+- [ ] PostgreSQL JSONB and full-text search
+- [ ] Database performance troubleshooting
+
+### 5.4 SQLAlchemy
+
+- [ ] Core vs ORM
+- [ ] Declarative models
+- [ ] Relationships and foreign keys
+- [ ] `select()`, filtering and joins
+- [ ] Session lifecycle
+- [ ] Commit, rollback and flush
+- [ ] Synchronous vs asynchronous SQLAlchemy
+- [ ] `AsyncSession` and transaction boundaries
+- [ ] Lazy vs eager loading
+- [ ] N+1 query problems
+- [ ] Connection pool configuration
+- [ ] Repository and service-layer patterns
+- [ ] Handling database exceptions
+- [ ] Safe session management in FastAPI dependencies
+
+### 5.5 Testing and quality
+
+- [ ] pytest fundamentals
+- [ ] Test discovery and assertions
+- [ ] Fixtures and fixture scopes
+- [ ] Parametrized tests
+- [ ] Mocking with `unittest.mock`
+- [ ] Unit, integration and end-to-end tests
+- [ ] FastAPI `TestClient` and async testing
+- [ ] Mocking HTTP APIs and database dependencies
+- [ ] Testing exceptions and validation failures
+- [ ] Database test isolation and rollback strategies
+- [ ] Test coverage and branch coverage
+- [ ] Property-based testing with Hypothesis
+- [ ] Contract testing
+- [ ] CI pipelines and automated test execution
+
+### 5.6 Caching, queues and background jobs
+
+- [ ] Redis data structures
+- [ ] Cache-aside and write-through patterns
+- [ ] TTL, eviction and invalidation
+- [ ] Cache stampedes and stale data
+- [ ] Idempotency keys
+- [ ] FastAPI `BackgroundTasks` and their limitations
+- [ ] Task queues: Celery, RQ or Dramatiq
+- [ ] Message brokers: RabbitMQ, Redis and Kafka fundamentals
+- [ ] Producers, consumers and worker pools
+- [ ] Acknowledgements, retries and dead-letter queues
+- [ ] At-most-once vs at-least-once delivery
+- [ ] Duplicate processing and idempotent consumers
+- [ ] Scheduled jobs and cron
+- [ ] Outbox pattern fundamentals
+- [ ] Long-running jobs with status tracking
+- [ ] Graceful worker shutdown
+
+### 5.7 API security and reliability
+
+- [ ] Password hashing and secure credential storage
+- [ ] JWT access and refresh tokens
+- [ ] Role-based and resource-based access control
+- [ ] CSRF and CORS distinctions
+- [ ] SQL injection and parameterized queries
+- [ ] SSRF, unsafe deserialization and input validation
+- [ ] Rate limiting and quotas
+- [ ] Request size limits
+- [ ] Secrets management
+- [ ] Timeouts, retries and exponential backoff
+- [ ] Circuit breakers and bulkheads
+- [ ] Idempotency and duplicate requests
+- [ ] Consistent error responses
+- [ ] Logging without exposing sensitive data
+
+### Phase 5 — Interview Q&A and Snippets
+
+**`async def` vs `def` route handlers in FastAPI?** `async def` runs on the event
+loop and must only await non-blocking code. Plain `def` runs in a worker thread
+pool, so blocking libraries won't freeze the server. Use `def` for sync
+libraries, `async def` for async ones.
+
+**How does `Depends` work, and why is it good for testing?** FastAPI resolves
+dependencies per request (and caches them within a request). Because endpoints
+get collaborators through `Depends`, tests can swap them with
+`app.dependency_overrides`:
+
+```python
+from fastapi import Depends, FastAPI
+from sqlalchemy.ext.asyncio import AsyncSession
+
+app = FastAPI()
+
+async def get_session():
+    async with SessionLocal() as session:        # one session per request
+        yield session
+
+@app.get("/users/{user_id}")
+async def read_user(user_id: int, session: AsyncSession = Depends(get_session)):
+    ...
+
+# in tests
+app.dependency_overrides[get_session] = get_test_session
+```
+
+**Pydantic validation example:**
+
+```python
+from pydantic import BaseModel, Field, field_validator
+
+class UserIn(BaseModel):
+    email: str
+    age: int = Field(ge=18, le=120)
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, v: str) -> str:
+        if "@" not in v:
+            raise ValueError("invalid email")
+        return v.lower()
+```
+
+Use separate **DTOs** (request/response schemas) from **database models** so
+API contracts and storage can evolve independently and you never leak internal
+fields like password hashes.
+
+**ACID and isolation levels?** Atomicity (all or nothing), Consistency
+(constraints hold), Isolation (concurrent transactions don't interfere
+incorrectly), Durability (committed data survives crashes).
+
+| Anomaly | Meaning | Prevented by |
+| --- | --- | --- |
+| Dirty read | Read another transaction's uncommitted data | Read Committed and above |
+| Non-repeatable read | Same row read twice gives different values | Repeatable Read and above |
+| Phantom read | Same query returns different rows | Serializable (and PostgreSQL's Repeatable Read) |
+
+PostgreSQL's default is **Read Committed**. For lost updates use `SELECT ...
+FOR UPDATE` (**pessimistic** locking) or a **version column** checked on update
+(**optimistic** locking), and retry on serialization failures or deadlocks.
+
+**Why do indexes help and what do they cost?** A B-tree index turns a scan into
+a log-time lookup for filters, joins, and sorts. Costs: slower writes, more
+storage. Use `EXPLAIN ANALYZE` to see whether a query uses an index; index
+columns used in `WHERE`, `JOIN`, and `ORDER BY`; composite index column order
+matters.
+
+**Pagination:** offset pagination (`LIMIT/OFFSET`) is simple but gets slow and
+inconsistent on large or changing tables; **cursor (keyset) pagination**
+(`WHERE id > :last_id ORDER BY id LIMIT n`) is stable and fast.
+
+**N+1 queries?** Loading a list and then lazily querying related rows for each
+item (1 query + N). Fix with eager loading or a join:
+
+```python
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
+
+stmt = select(Author).options(selectinload(Author.books))   # 2 queries instead of N+1
+authors = (await session.scalars(stmt)).all()
+```
+
+In **async** SQLAlchemy, implicit lazy loading raises errors, so load
+relationships explicitly.
+
+**SQL injection prevention:** always use parameterized queries or the ORM;
+never build SQL with string formatting.
+
+```python
+from sqlalchemy import text
+
+await session.execute(
+    text("SELECT * FROM users WHERE email = :email"),
+    {"email": email},                      # ✅ bound parameter
+)
+# ❌ text(f"SELECT * FROM users WHERE email = '{email}'")
+```
+
+**Testing with pytest — fixtures, parametrize, mocking:**
+
+```python
+import pytest
+from fastapi.testclient import TestClient
+from unittest.mock import AsyncMock
+
+@pytest.fixture
+def client():
+    app.dependency_overrides[get_llm] = lambda: FakeLlm()
+    with TestClient(app) as c:
+        yield c
+    app.dependency_overrides.clear()
+
+@pytest.mark.parametrize("question,status", [("hi", 200), ("", 422)])
+def test_ask_validation(client, question, status):
+    assert client.post("/ask", json={"question": question}).status_code == status
+
+async def test_retry_on_timeout():
+    llm = AsyncMock(side_effect=[TimeoutError, "ok"])
+    assert await call_with_retry(llm) == "ok"
+```
+
+Know the test pyramid (many unit tests, fewer integration, few end-to-end),
+isolate DB tests (transaction rollback per test or a throwaway database), mock
+**at the boundary** (HTTP/LLM clients), and mention coverage as a signal, not a
+goal.
+
+**Cache-aside pattern:**
+
+```python
+import json
+
+async def get_user(uid: int):
+    key = f"user:{uid}"
+    cached = await redis.get(key)
+    if cached:
+        return json.loads(cached)
+    user = await db_get_user(uid)                # cache miss → load from DB
+    await redis.set(key, json.dumps(user), ex=300)   # TTL bounds staleness
+    return user
+```
+
+Invalidate or update the key on writes. **Cache stampede**: a hot key expires and
+many requests hit the DB at once — mitigate with single-flight/locking, jittered
+TTLs, or refreshing early.
+
+**Idempotency keys:** the client sends a unique key per logical operation; the
+server stores the key and the result, and a repeated request returns the stored
+result instead of executing again. This makes retries safe for `POST` calls like
+payments.
+
+```python
+@app.post("/payments")
+async def create_payment(body: PaymentIn, idempotency_key: str = Header(...)):
+    first_time = await redis.set(f"idem:{idempotency_key}", "processing", nx=True, ex=86400)
+    if not first_time:
+        return await stored_response(idempotency_key)     # replay prior outcome
+    result = await process_payment(body)
+    await store_response(idempotency_key, result)
+    return result
+```
+
+**`BackgroundTasks` vs a task queue:** `BackgroundTasks` run in the same process
+after the response, and are lost if the process dies, with no retries or
+visibility. For work that must not be lost, is long-running, or needs retries,
+use a durable queue (Celery/RQ/Dramatiq) with a broker.
+
+**Delivery guarantees:** *at-most-once* (may lose messages), *at-least-once*
+(may duplicate; the common default), *exactly-once* (hard; usually approximated
+with at-least-once plus **idempotent consumers**). Use acks, retries with
+backoff, and a **dead-letter queue** for poison messages. The **outbox
+pattern** writes the event to an `outbox` table in the same DB transaction as the
+state change, and a separate relay publishes it, avoiding "DB committed but
+message not sent".
+
+**JWT and passwords:** hash passwords with a slow, salted algorithm (argon2 or
+bcrypt), never plain or fast hashes. JWTs are *signed*, not encrypted: don't put
+secrets in them; use short-lived access tokens plus refresh tokens; validate
+signature, expiry, audience, and issuer. **Authentication** = who you are;
+**authorization** = what you may do (role-based and resource-based checks).
+
+**CORS vs CSRF:** CORS is a browser policy controlling which origins may *read*
+cross-origin responses; it is not authentication. CSRF is an attack where a
+browser auto-sends cookies to your site from a malicious page; defend with
+SameSite cookies and CSRF tokens (less relevant for bearer-token APIs).
+
+**Other security items to be able to discuss:** SSRF (validate and restrict
+outbound URLs you fetch), unsafe deserialization (never unpickle untrusted data),
+rate limiting and quotas, request size limits, secrets in a secret manager, and
+logs that never contain tokens or PII. For timeouts, retries, circuit breakers,
+and bulkheads see [API & service design](../../10-production-patterns/01-api-service-design.mdx).
+
+---
+
+## Phase 6 — Production & AI Python
+
+**P1 · Role-specific**
+
+*Goal: Build scalable AI services and explain their architecture, failure
+handling, performance, and operational behavior.*
+
+### 6.1 LLM integration
+
+- [ ] Hosted model APIs and local inference endpoints
+- [ ] OpenAI-compatible clients
+- [ ] NVIDIA NIM and Ollama integration
+- [ ] Model selection and configuration
+- [ ] Temperature, `top_p` and maximum output tokens
+- [ ] System, user and developer instructions
+- [ ] Structured outputs and JSON schemas
+- [ ] Tool/function calling
+- [ ] Streaming completions
+- [ ] Token usage and cost tracking
+- [ ] Context window management
+- [ ] Rate limits and quotas
+- [ ] Timeouts, retries and fallback models
+- [ ] Concurrent model requests
+- [ ] Handling provider errors and malformed outputs
+
+### 6.2 Embeddings and RAG
+
+- [ ] Tokenization and token counting
+- [ ] Document loading and parsing
+- [ ] Text chunking and overlap
+- [ ] Embedding models and vector representations
+- [ ] Cosine similarity, dot product and distance metrics
+- [ ] Vector databases: Chroma, pgvector and other options
+- [ ] Metadata filtering
+- [ ] Dense, sparse and hybrid retrieval
+- [ ] BM25 and keyword search
+- [ ] Reranking and query rewriting
+- [ ] Retrieval pipelines and context assembly
+- [ ] Citations and source attribution
+- [ ] Multi-document ingestion
+- [ ] Incremental ingestion and deduplication
+- [ ] Updating and deleting indexed documents
+- [ ] Retrieval quality and context relevance
+- [ ] RAG evaluation: precision@k, recall@k, MRR and NDCG
+- [ ] Answer evaluation and groundedness
+- [ ] Document access control and tenant isolation
+
+### 6.3 AI orchestration and agents
+
+- [ ] LangChain fundamentals
+- [ ] LangGraph state, nodes and edges
+- [ ] Workflow vs agent architectures
+- [ ] Tool schemas and validation
+- [ ] State and conversation memory
+- [ ] Checkpointing and persistence
+- [ ] Human-in-the-loop approval
+- [ ] Tool permissions and least privilege
+- [ ] Multi-step workflows
+- [ ] Parallel tool execution
+- [ ] Agent retries and iteration limits
+- [ ] Idempotent tool operations
+- [ ] MCP clients, servers and tool discovery
+- [ ] Agent tracing and debugging
+- [ ] Preventing infinite loops and excessive tool calls
+
+### 6.4 Production AI architecture
+
+- [ ] Separating API, orchestration and inference layers
+- [ ] Background ingestion workers
+- [ ] Job queues for long-running tasks
+- [ ] Bounded concurrency for model calls
+- [ ] Streaming over SSE or WebSockets
+- [ ] Request IDs and distributed tracing
+- [ ] Caching embeddings and model responses where appropriate
+- [ ] Circuit breakers and provider fallback
+- [ ] Batching and micro-batching
+- [ ] Token, latency and cost budgets
+- [ ] Model versioning and configuration
+- [ ] Database and vector-index consistency
+- [ ] Multi-tenant data isolation
+- [ ] Graceful degradation when providers fail
+- [ ] Horizontal scaling and worker sizing
+
+### 6.5 AI testing and evaluation
+
+- [ ] Unit testing prompts and data transformations
+- [ ] Mocking model-provider APIs
+- [ ] Deterministic test fixtures
+- [ ] Golden datasets
+- [ ] Retrieval evaluation
+- [ ] LLM-as-a-judge
+- [ ] Faithfulness and answer relevance
+- [ ] Hallucination and unsupported-claim detection
+- [ ] Tool-call correctness
+- [ ] Regression testing across model versions
+- [ ] Adversarial prompt testing
+- [ ] RAGAS and DeepEval
+- [ ] LangSmith tracing and datasets
+- [ ] Latency, cost and quality trade-offs
+- [ ] Offline evaluation vs online monitoring
+
+### 6.6 Production engineering and DevOps
+
+- [ ] Dockerfiles and Docker Compose
+- [ ] Multi-stage builds and image optimization
+- [ ] Environment-based configuration
+- [ ] GitHub Actions or equivalent CI/CD
+- [ ] Jenkins fundamentals
+- [ ] Structured logging
+- [ ] Metrics and distributed tracing
+- [ ] OpenTelemetry fundamentals
+- [ ] Health checks and readiness probes
+- [ ] Resource limits and worker sizing
+- [ ] Kubernetes fundamentals where relevant
+- [ ] Database migration deployment
+- [ ] Secret rotation
+- [ ] Dependency and container vulnerability scanning
+- [ ] Load testing and bottleneck analysis
+- [ ] SLOs, SLIs and error budgets
+- [ ] Rollbacks and incident troubleshooting
+
+### 6.7 System design for Python and AI interviews
+
+Practise designing these systems end to end:
+
+- [ ] A scalable FastAPI service with PostgreSQL and Redis.
+- [ ] A background job processing system with retries and dead-letter queues.
+- [ ] A document ingestion and RAG platform.
+- [ ] A streaming AI chatbot with persistent conversation history.
+- [ ] A multi-tenant vector search service.
+- [ ] An LLM gateway with rate limiting, provider fallback and cost tracking.
+- [ ] A workflow or agent service with durable state and human approval.
+- [ ] A document processing platform handling thousands of concurrent uploads.
+
+For each design, cover API contracts, database schema, queues, concurrency,
+failure modes, security, scaling, observability, and cost.
+
+### Phase 6 — Interview Q&A and Snippets
+
+**LLM call parameters:** `temperature` controls randomness (low for extraction
+and deterministic tasks, higher for creative); `top_p` samples from the smallest
+set of tokens whose probability mass reaches p (tune temperature *or* top_p, not
+both aggressively); `max_tokens` caps output length and cost. Know the roles of
+system (rules and persona), user (the request), and developer/tool messages, and
+that the context window includes **input + output** tokens.
+
+**Reliable structured output:** request JSON/schema output where the provider
+supports it, validate with Pydantic, and re-ask a bounded number of times:
+
+```python
+from pydantic import BaseModel, ValidationError
+
+class Extraction(BaseModel):
+    title: str
+    tags: list[str]
+
+async def extract(text: str, max_attempts: int = 2) -> Extraction:
+    for _ in range(max_attempts):
+        raw = await llm(f"Return JSON with title and tags for:\n{text}")
+        try:
+            return Extraction.model_validate_json(raw)
+        except ValidationError:
+            continue
+    raise ValueError("model failed to return valid JSON")
+```
+
+**What is RAG and how do the pieces fit?** Retrieval-Augmented Generation:
+**ingest** (load → clean → chunk → embed → store with metadata) then **query**
+(embed question → retrieve top-k → optionally rerank → assemble context →
+generate with citations). It grounds answers in your data and reduces
+hallucination without retraining.
+
+**Chunking trade-offs:** small chunks → precise matches but lost context; large
+chunks → more context but noisier retrieval and more tokens. Use overlap so
+sentences at boundaries aren't lost, split on semantic boundaries (headings,
+paragraphs) where possible, and tune against an evaluation set rather than by
+guessing.
+
+**Similarity metrics:** cosine similarity measures angle (magnitude-independent);
+dot product equals cosine for normalized vectors and is faster; Euclidean
+measures distance. Use the metric the embedding model was trained for.
+
+```python
+import math
+
+def cosine(a: list[float], b: list[float]) -> float:
+    dot = sum(x * y for x, y in zip(a, b))
+    return dot / (math.sqrt(sum(x * x for x in a)) * math.sqrt(sum(y * y for y in b)))
+```
+
+**Dense vs sparse vs hybrid retrieval:** dense (embeddings) captures meaning but
+can miss exact terms (ids, names, error codes); sparse (BM25/keyword) nails exact
+terms but misses paraphrases; **hybrid** combines both. A simple, robust fusion
+method is **Reciprocal Rank Fusion**:
+
+```python
+def rrf(rankings: list[list[str]], k: int = 60) -> list[str]:
+    scores: dict[str, float] = {}
+    for ranking in rankings:
+        for rank, doc_id in enumerate(ranking, start=1):
+            scores[doc_id] = scores.get(doc_id, 0.0) + 1.0 / (k + rank)
+    return sorted(scores, key=scores.get, reverse=True)
+
+fused = rrf([dense_ids, bm25_ids])
+```
+
+A **reranker** (cross-encoder) then rescoring the top ~20–50 candidates improves
+precision at higher latency and cost. **Query rewriting** (expanding or
+decomposing the question) helps vague or multi-part queries.
+
+**RAG evaluation metrics:**
+
+| Metric | Meaning |
+| --- | --- |
+| precision@k | Fraction of the top k results that are relevant |
+| recall@k | Fraction of *all* relevant docs found in the top k |
+| MRR | Mean of 1 / rank of the first relevant result |
+| NDCG | Rewards relevant results ranked higher, graded relevance, normalized |
+| Faithfulness / groundedness | Is every claim in the answer supported by the retrieved context? |
+| Answer relevance | Does the answer actually address the question? |
+
+```python
+def recall_at_k(retrieved: list[str], relevant: set[str], k: int) -> float:
+    return len(set(retrieved[:k]) & relevant) / len(relevant) if relevant else 0.0
+
+def reciprocal_rank(retrieved: list[str], relevant: set[str]) -> float:
+    for rank, doc_id in enumerate(retrieved, start=1):
+        if doc_id in relevant:
+            return 1.0 / rank
+    return 0.0
+```
+
+Evaluate **retrieval and generation separately** to find the failing stage. Build
+a **golden dataset** of questions with expected sources/answers; use
+**LLM-as-a-judge** (RAGAS, DeepEval) for faithfulness and relevance, but
+calibrate it against human labels; run evaluations in CI to catch regressions
+when changing models, prompts, or chunking.
+
+**Tenant isolation in RAG:** enforce permissions in the **retrieval query**,
+using identity from the authenticated token, never from user-supplied input and
+never by asking the model to hide data:
+
+```python
+results = collection.query(
+    query_embeddings=[vector],
+    n_results=5,
+    where={"tenant_id": auth.tenant_id},     # server-side, from the verified token
+)
+```
+
+**Incremental ingestion and consistency:** use deterministic chunk ids (for
+example a hash of doc id + chunk index + content) so re-ingestion **upserts**
+instead of duplicating; store a content hash per document to skip unchanged
+files; when a document changes or is deleted, delete its old chunks. Keep the
+relational source of truth and the vector index in sync (outbox pattern or
+ingestion status tracking), and version the index when you change the embedding
+model.
+
+**Workflow vs agent:** a **workflow** follows predefined steps (predictable,
+cheaper, easier to test); an **agent** lets the model decide which tools to call
+in a loop (flexible, but less predictable and costlier). Prefer a workflow when
+the steps are known; use an agent when the path genuinely varies.
+
+**Agent loop with safety limits:**
+
+```python
+async def run_agent(messages: list[dict], max_steps: int = 6) -> str:
+    for _ in range(max_steps):                               # hard iteration cap
+        resp = await llm(messages, tools=TOOLS)
+        if not resp.tool_calls:
+            return resp.content
+        for call in resp.tool_calls:
+            args = TOOL_SCHEMAS[call.name].model_validate(call.arguments)   # validate
+            check_permission(user, call.name)                              # least privilege
+            result = await TOOLS_IMPL[call.name](args)                     # idempotent tools
+            messages.append(tool_result_message(call, result))
+    raise AgentLimitError("exceeded max steps")
+```
+
+Add timeouts per tool, a token/cost budget, **human-in-the-loop approval** for
+irreversible actions, **checkpointing** state (LangGraph) so runs can resume, and
+tracing (LangSmith/OpenTelemetry) for debugging. Treat tool output and retrieved
+text as **untrusted** (prompt injection); see
+[Logging, monitoring & guardrails](../../10-production-patterns/02-logging-monitoring-guardrails.mdx).
+
+**MCP (Model Context Protocol):** a standard for exposing tools, resources, and
+prompts to AI clients. An MCP **server** exposes capabilities; an MCP **client**
+(inside the host app) discovers and calls them. Be ready to discuss discovery,
+permissions, and trusting third-party servers.
+
+**Production AI architecture talking points:** separate the **API layer**
+(auth, validation, streaming), **orchestration layer** (workflows/agents,
+retrieval), and **inference layer** (model servers/providers) so each scales and
+fails independently; run **ingestion as background workers** fed by a queue;
+bound concurrent model calls with semaphores and queues; cache embeddings and
+(where safe) answers; add retries, circuit breakers, and **provider fallback**;
+track **tokens, latency, and cost** per request and per tenant; stream responses
+and handle client disconnects; version models, prompts, and indexes; degrade
+gracefully (return retrieved passages if generation is down).
+
+**Testing AI code:** mock the provider at the HTTP/client boundary with
+deterministic fixtures; unit-test chunking, prompt assembly, and parsers as
+normal code; use golden datasets for retrieval and answer quality; run adversarial
+prompt tests (injection, jailbreak, data-exfiltration probes) in CI; regression
+test across model versions; balance the **latency / cost / quality** triangle
+explicitly; use offline evals before release and online monitoring (feedback,
+no-answer rate, tracing) after.
+
+**Observability and delivery:** structured logs with request ids, metrics (p50/p95/p99
+latency, error rate, tokens, cache hit rate), OpenTelemetry traces across stages,
+liveness vs readiness probes, SLOs with error budgets, canary releases for
+prompt and model changes, and a rollback path. See
+[Deployment basics](../../10-production-patterns/03-deployment-basics.mdx) and
+[Logging, monitoring & guardrails](../../10-production-patterns/02-logging-monitoring-guardrails.mdx).
+
+### System Design Answer Template
+
+Use this skeleton for every design question:
+
+| Step | What to cover |
+| --- | --- |
+| 1. Requirements | Functional and non-functional (latency, throughput, availability, consistency, cost). Ask about scale. |
+| 2. API contract | Endpoints, request/response shapes, auth, pagination, errors, streaming vs request/response |
+| 3. Data model | Schema/tables or collections, indexes, tenant keys, what lives in SQL vs Redis vs vector DB vs object storage |
+| 4. Architecture | Components, sync vs async paths, queues, workers, caches, external providers |
+| 5. Concurrency | Bounded concurrency, worker sizing, backpressure, idempotency |
+| 6. Failure modes | Timeouts, retries, circuit breakers, dead-letter queues, fallbacks, partial failure |
+| 7. Security | Authn/z, tenant isolation, secrets, input validation, rate limits, prompt injection |
+| 8. Scaling | Stateless replicas, sharding/partitioning, caching, autoscaling signals |
+| 9. Observability | Logs, metrics, traces, alerts, SLOs |
+| 10. Cost and trade-offs | Token/compute cost, build vs buy, alternatives you rejected and why |
+
+**Key points for each practice design**
+
+| Design | Must mention |
+| --- | --- |
+| FastAPI + PostgreSQL + Redis | Stateless replicas, connection pooling, cache-aside, migrations, rate limiting, indexing, read replicas |
+| Job processing with retries and DLQ | Broker choice, at-least-once + idempotent workers, backoff, DLQ, status tracking, graceful shutdown |
+| Document ingestion and RAG platform | Async ingestion pipeline, chunking, batching embeddings, upserts, dedup, index versioning, eval loop |
+| Streaming AI chatbot with history | SSE/WebSockets, message storage schema, context window trimming/summarization, disconnect handling, per-user limits |
+| Multi-tenant vector search | Tenant filter or per-tenant collections, access control at query time, noisy-neighbor limits, isolation vs cost |
+| LLM gateway | Unified provider interface, rate limiting and quotas per key/tenant, fallback and circuit breakers, cost tracking, caching, auth |
+| Agent service with durable state | Checkpointed state, human approval step, idempotent tools, iteration/cost limits, tracing, resumability |
+| Document processing at thousands of uploads | Direct-to-object-storage uploads, queue + worker pool, process pool for CPU-bound parsing, backpressure, progress tracking |
+
+---
+
+## Common Mistakes in Interviews
+
+- Jumping to code without clarifying requirements and edge cases.
+- Saying "use async" without naming what is blocking and why async helps.
+- Not stating time and space complexity (or getting it wrong for built-ins).
+- Memorizing solutions instead of learning patterns, then freezing on variations.
+- Ignoring failure modes: timeouts, retries, partial failure, idempotency.
+- Treating AI components as magic: no evaluation plan, no cost or latency
+  discussion, no injection defenses.
+- Overengineering the design (Kafka and Kubernetes for a small service) without
+  justifying it from requirements.
+- Not explaining trade-offs, since senior interviews grade the reasoning more
+  than the final answer.
+
+## Things to Remember
+
+- Tick a checklist item only when you can explain it and code it from memory.
+- Patterns beat problem counts: learn to recognize *which pattern fits*.
+- Always say complexity, edge cases, and trade-offs out loud.
+- Concurrency: **I/O → async/threads, CPU → processes**; bound everything.
+- Backend: validate input, parameterize SQL, make retries safe with idempotency.
+- AI systems: retrieval quality, evaluation, guardrails, and cost control matter
+  as much as the model.
+- For designs, follow the template: requirements → API → data → architecture →
+  concurrency → failures → security → scale → observability → cost.
+
+## Mini Exercise
+
+1. **Week-by-week self-test:** for each phase, pick 5 checklist items at random
+   and explain each aloud in two minutes without notes. Re-study the ones you
+   stumble on.
+2. **Daily DSA:** solve 2 problems per day, rotating patterns (hash map, two
+   pointers/sliding window, heap, BFS/DFS, DP), and write down the pattern name
+   and complexity for each.
+3. **Build the capstone:** a tested FastAPI service with PostgreSQL
+   (Alembic migrations), Redis caching, a background worker, then add an LLM
+   endpoint with streaming, a small RAG pipeline, an evaluation script, request-id
+   logging, and a Dockerfile.
+4. **Mock design:** pick one of the 8 system designs, give yourself 40 minutes,
+   and walk through the template out loud (or with a friend).
+5. **Mock Q&A:** record yourself answering the Phase 4 scenarios and the "How
+   to answer" format, then listen back for filler and gaps.
+
+## Done When
+
+- [ ] You can explain Python's object model, mutability, closures, generators,
+      and decorators clearly, with examples.
+- [ ] You can solve common DSA patterns, state complexity, and cover edge cases.
+- [ ] You can discuss Python internals (memory, GIL, descriptors, typing) at
+      senior depth.
+- [ ] You can choose between threads, processes, and asyncio, and write bounded,
+      cancellable, shutdown-safe concurrent code.
+- [ ] You can build and test a secure FastAPI + PostgreSQL + Redis service with
+      background jobs.
+- [ ] You can design, evaluate, and operate an LLM/RAG system, including failure
+      handling, cost, and security.
+- [ ] You can walk through any of the 8 system designs using the template.

@@ -2,6 +2,7 @@ import type * as Preset from '@docusaurus/preset-classic';
 import type { Config } from '@docusaurus/types';
 import { themes as prismThemes } from 'prism-react-renderer';
 import remarkLineNumbers from './plugins/remark-line-numbers.mjs';
+import { SOCIALS } from './src/data/socials';
 
 // This runs in Node.js - Don't use client-side code here (browser APIs, JSX...)
 
@@ -26,11 +27,20 @@ const config: Config = {
   projectName: 'ai-roadmap', // Repo name.
   trailingSlash: false,
 
-  // Preconnect + load web fonts (Inter for text, Newsreader for headings,
-  // JetBrains Mono for code). NOTE: this used to load Space Grotesk —
-  // updated to match the current theme's heading font (custom.css sets
-  // --ifm-heading-font-family to Newsreader, so it needs to be loaded here
-  // or it silently falls back to Georgia).
+  // Preconnect + load web fonts.
+  //
+  // Headings and body both use SF Pro Display (see --ra-font-sf in
+  // custom.css). SF Pro is deliberately NOT loaded here: Apple ships it
+  // as a system-only face and its license doesn't cover web embedding,
+  // so it's resolved locally via -apple-system / system-ui instead.
+  //
+  // That leaves two fonts to actually fetch:
+  //   Inter          — the non-Apple fallback for SF Pro Display
+  //   JetBrains Mono — code blocks and small technical labels
+  //
+  // Newsreader used to be loaded here for serif headings; it was dropped
+  // when headings moved to SF Pro Display, since nothing referenced it
+  // any more and it was a wasted font download.
   headTags: [
     {
       tagName: 'link',
@@ -46,7 +56,7 @@ const config: Config = {
     },
   ],
   stylesheets: [
-    'https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,500&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap',
+    'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap',
   ],
 
   // Production build must fail on broken internal links.
@@ -121,13 +131,17 @@ const config: Config = {
           position: 'left',
           label: 'Roadmap',
         },
+        {to: '/docs', label: 'Start Here', position: 'left'},
+        {to: '/docs/15-ai-roadmaps', label: 'Interview Prep', position: 'left'},
         {to: '/progress', label: 'Progress', position: 'left'},
         {to: '/docs/pacing', label: 'Pacing', position: 'left'},
         {
-          href: 'https://github.com/carefree-ladka/ai-roadmap',
+          // Icon row for the author's profiles. Rendered by
+          // src/components/SocialLinks, registered as a navbar item type in
+          // src/theme/NavbarItem/ComponentTypes.tsx. Links live in
+          // src/data/socials.ts so the footer can reuse them.
+          type: 'custom-socialLinks',
           position: 'right',
-          className: 'header-github-link',
-          'aria-label': 'GitHub repository',
         },
       ],
     },
@@ -137,29 +151,44 @@ const config: Config = {
         {
           title: 'Learn',
           items: [
-            {label: 'Roadmap', to: '/docs/00-prerequisites'},
+            {label: 'Start Here', to: '/docs'},
+            {label: 'Prerequisites', to: '/docs/00-prerequisites'},
             {label: 'Python', to: '/docs/01-python'},
             {label: 'FastAPI', to: '/docs/02-fastapi'},
           ],
         },
         {
-          title: 'Track',
+          title: 'Build',
           items: [
-            {label: 'Progress', to: '/progress'},
-            {label: 'Pacing', to: '/docs/pacing'},
+            {label: 'Local LLMs / Ollama', to: '/docs/03-local-llms-ollama'},
+            {label: 'RAG Fundamentals', to: '/docs/05-rag-fundamentals'},
+            {label: 'Advanced RAG', to: '/docs/06-advanced-rag'},
+            {label: 'Agents & Agentic AI', to: '/docs/08-agentic-ai'},
           ],
         },
         {
-          title: 'More',
+          title: 'Prepare',
+          items: [
+            {label: 'System Design', to: '/docs/13-system-design-interview'},
+            {label: 'AI Interview Roadmaps', to: '/docs/15-ai-roadmaps'},
+            {label: 'Progress', to: '/progress'},
+            {label: 'Pacing Plan', to: '/docs/pacing'},
+          ],
+        },
+        {
+          title: 'Elsewhere',
           items: [
             {
-              label: 'GitHub',
+              label: 'Repository',
               href: 'https://github.com/carefree-ladka/ai-roadmap',
             },
+            // Same profiles as the navbar icon row — shared so the two can't
+            // drift apart.
+            ...SOCIALS.map(({label, href}) => ({label, href})),
           ],
         },
       ],
-      copyright: `Copyright © ${new Date().getFullYear()} Local-First AI Engineer Roadmap. Built with Docusaurus.`,
+      copyright: `Copyright © ${new Date().getFullYear()} Local-First AI Engineer Roadmap`,
     },
     prism: {
       theme: prismThemes.github,

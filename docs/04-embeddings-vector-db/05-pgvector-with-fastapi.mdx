@@ -1,0 +1,1157 @@
+---
+title: pgvector with FastAPI
+description: "End-to-end pgvector: extension setup, SQLAlchemy 2.0 async models, Alembic migrations, HNSW and IVFFlat index DDL, operator matching, hybrid search and operations."
+---
+
+import TOCInline from '@theme/TOCInline';
+
+# pgvector with FastAPI
+
+<TOCInline toc={toc} minHeadingLevel={2} maxHeadingLevel={2} />
+
+:::tip[In this guide]
+A complete pgvector setup you could ship: extension and column types,
+SQLAlchemy 2.0 async models, an Alembic migration, HNSW versus IVFFlat index
+DDL, why a mismatched operator silently kills your index, hybrid search in
+pure SQL, an async repository behind a FastAPI dependency, and the operational
+details that bite later.
+:::
+
+## What Is It?
+
+**pgvector** is a Postgres extension that adds a `vector` column type,
+distance operators, and approximate-nearest-neighbor indexes. Your embeddings
+become ordinary columns in ordinary tables, queryable with ordinary SQL.
+
+This page assumes you have decided pgvector is the right call — if you have
+not, read [Choosing a Vector Store](./04-choosing-a-vector-store.mdx) first.
+It also assumes comfort with SQLAlchemy 2.0 async sessions
+([deep dive here](../02-fastapi/02-deep-dives/03-sqlalchemy-with-fastapi.mdx))
+and Postgres basics
+([cheatsheet here](../01-python/04-sql-and-databases/02-postgresql-cheatsheet-and-roadmap.mdx)).
+
+## Why Does It Matter?
+
+The thing pgvector gives you that a dedicated vector store cannot is **one
+query**. This is the common requirement that dedicated stores make awkward:
+
+> Top 10 chunks most similar to this question, from documents this user is
+> allowed to read, in projects that are not archived, published in the last
+> 90 days, with the parent document's title and author.
+
+In pgvector that is a single statement with joins and a `WHERE` clause, planned
+and executed by one engine, inside one transaction. Everywhere else it is two
+round trips, an oversampled vector search, a post-filter, and a bug where
+small tenants get empty results.
+
+## Setup
+
+### Install the extension
+
+The extension ships with most managed Postgres offerings and with the
+`pgvector/pgvector` images.
+
+```bash
+docker run -d --name pg \
+  -e POSTGRES_PASSWORD=postgres \
+  -e POSTGRES_DB=rag \
+  -p 5432:5432 \
+  pgvector/pgvector:pg17
+```
+
+```sql
+CREATE EXTENSION IF NOT EXISTS vector;
+
+-- Confirm, and check the version. Features differ meaningfully by version.
+SELECT extname, extversion FROM pg_extension WHERE extname = 'vector';
+```
+
+`CREATE EXTENSION` requires superuser or the `rds_superuser`-equivalent role.
+On managed Postgres, run it once as the admin user — do not expect your
+application role to be able to.
+
+Python side:
+
+```bash
+pip install "pgvector>=0.3" "sqlalchemy[asyncio]>=2.0" asyncpg alembic \
+    fastapi "pydantic>=2" uvicorn
+```
+
+### Column types
+
+| Type | Storage per dim | Max dimensions | Use for |
+| --- | --- | --- | --- |
+| `vector(d)` | 4 bytes | 2000 (16000 unindexed) | The default. Full float32 precision. |
+| `halfvec(d)` | 2 bytes | 4000 indexed | Halving storage and index size for ~0.1% recall loss. |
+| `bit(d)` | 1 bit | 64000 | Binary quantization, with rescoring against `vector`. |
+| `sparsevec(d)` | varies | 1000 non-zero | Sparse/lexical vectors for hybrid search. |
+
+Dimension is part of the type and is enforced on insert. This is a feature —
+inserting a 1536-dim vector into a `vector(768)` column errors immediately
+rather than silently corrupting your corpus.
+
+```sql
+-- Declare the dimension. Changing it later is an ALTER plus a reindex.
+ALTER TABLE chunks ADD COLUMN embedding vector(768);
+```
+
+:::warning
+`vector` columns above 2000 dimensions cannot be indexed by HNSW or IVFFlat.
+If you use `text-embedding-3-large` at 3072 dimensions, you must either
+truncate the embedding (the model supports it — see
+[embeddings](./01-embeddings.mdx)) or store it as `halfvec(3072)`, which
+indexes up to 4000. Find this out now, not after loading 10M rows.
+:::
+
+## SQLAlchemy 2.0 Models
+
+A realistic two-table schema: documents with real metadata, and chunks with
+the embedding plus the versioning columns future-you will need.
+
+```python
+from __future__ import annotations
+
+import datetime as dt
+import uuid
+
+from pgvector.sqlalchemy import Vector
+from sqlalchemy import (
+    Computed,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
+from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+EMBEDDING_DIM = 768
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+class Document(Base):
+    __tablename__ = "documents"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    source_uri: Mapped[str] = mapped_column(Text)
+    title: Mapped[str] = mapped_column(Text)
+    author: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Idempotent ingestion hinges on this; see the operations page.
+    content_hash: Mapped[str] = mapped_column(String(64))
+
+    published_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    is_archived: Mapped[bool] = mapped_column(default=False)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    chunks: Mapped[list["Chunk"]] = relationship(
+        back_populates="document", cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "source_uri", name="uq_documents_tenant_source"),
+    )
+
+
+class Chunk(Base):
+    __tablename__ = "chunks"
+
+    # A deterministic id derived from document + chunk index + content hash,
+    # so re-ingesting the same content upserts instead of duplicating.
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("documents.id", ondelete="CASCADE")
+    )
+    tenant_id: Mapped[str] = mapped_column(String(64))
+    chunk_index: Mapped[int] = mapped_column(Integer)
+
+    content: Mapped[str] = mapped_column(Text)
+    token_count: Mapped[int] = mapped_column(Integer)
+
+    embedding: Mapped[list[float]] = mapped_column(Vector(EMBEDDING_DIM))
+
+    # Provenance. Cheap to store, impossible to reconstruct later.
+    embedding_model: Mapped[str] = mapped_column(String(128))
+    model_version: Mapped[str] = mapped_column(String(64))
+    chunker_version: Mapped[str] = mapped_column(String(32))
+
+    # Generated column for full-text search; Postgres maintains it.
+    content_tsv: Mapped[str] = mapped_column(
+        TSVECTOR,
+        Computed("to_tsvector('english', content)", persisted=True),
+    )
+
+    extra: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
+
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    document: Mapped[Document] = relationship(back_populates="chunks")
+
+    __table_args__ = (
+        # Filter columns need their own btree indexes. The vector index
+        # does not help a WHERE clause.
+        Index("ix_chunks_tenant_id", "tenant_id"),
+        Index("ix_chunks_document_id", "document_id"),
+        Index("ix_chunks_model", "embedding_model", "model_version"),
+        Index("ix_chunks_content_tsv", "content_tsv", postgresql_using="gin"),
+        UniqueConstraint("document_id", "chunk_index", name="uq_chunks_doc_index"),
+    )
+```
+
+Using a generated `tsvector` column instead of computing `to_tsvector(...)` at
+query time means the GIN index can actually be used.
+
+Three design choices worth stating plainly:
+
+- **`tenant_id` is denormalized onto `chunks`.** A join to `documents` on every
+  search costs you the ability to filter before the vector scan. Duplicate the
+  column.
+- **`id` is a deterministic string, not a serial.** Stable chunk ids are what
+  make ingestion idempotent.
+- **Model provenance lives on the row.** Without `embedding_model` and
+  `model_version` you cannot run a dual-index migration, and you cannot tell
+  which rows are stale.
+
+### Async engine and session
+
+```python
+from collections.abc import AsyncIterator
+
+from sqlalchemy.ext.asyncio import (
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
+
+engine = create_async_engine(
+    "postgresql+asyncpg://postgres:postgres@localhost:5432/rag",
+    pool_size=10,
+    max_overflow=5,
+    pool_pre_ping=True,
+    pool_recycle=1800,
+)
+
+session_factory = async_sessionmaker(
+    engine, expire_on_commit=False, class_=AsyncSession
+)
+
+
+async def get_session() -> AsyncIterator[AsyncSession]:
+    async with session_factory() as session:
+        yield session
+```
+
+`expire_on_commit=False` matters more than usual here: with it on, touching an
+ORM attribute after commit triggers a refresh, and refreshing a row pulls the
+whole 768-float embedding back over the wire for no reason.
+
+## The Alembic Migration
+
+The extension, the tables and the indexes in one revision. Order matters: the
+extension must exist before the column type resolves.
+
+```python
+"""create documents and chunks with pgvector
+
+Revision ID: 0001_pgvector_schema
+"""
+
+from __future__ import annotations
+
+import pgvector.sqlalchemy
+import sqlalchemy as sa
+from alembic import op
+from sqlalchemy.dialects import postgresql
+
+revision = "0001_pgvector_schema"
+down_revision = None
+
+
+def upgrade() -> None:
+    op.execute("CREATE EXTENSION IF NOT EXISTS vector")
+
+    op.create_table(
+        "documents",
+        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
+        sa.Column("tenant_id", sa.String(64), nullable=False),
+        sa.Column("source_uri", sa.Text(), nullable=False),
+        sa.Column("title", sa.Text(), nullable=False),
+        sa.Column("author", sa.Text(), nullable=True),
+        sa.Column("content_hash", sa.String(64), nullable=False),
+        sa.Column("published_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("is_archived", sa.Boolean(), nullable=False, server_default=sa.false()),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
+        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
+        sa.UniqueConstraint("tenant_id", "source_uri", name="uq_documents_tenant_source"),
+    )
+    op.create_index("ix_documents_tenant_id", "documents", ["tenant_id"])
+
+    op.create_table(
+        "chunks",
+        sa.Column("id", sa.String(80), primary_key=True),
+        sa.Column("document_id", postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column("tenant_id", sa.String(64), nullable=False),
+        sa.Column("chunk_index", sa.Integer(), nullable=False),
+        sa.Column("content", sa.Text(), nullable=False),
+        sa.Column("token_count", sa.Integer(), nullable=False),
+        sa.Column("embedding", pgvector.sqlalchemy.Vector(768), nullable=False),
+        sa.Column("embedding_model", sa.String(128), nullable=False),
+        sa.Column("model_version", sa.String(64), nullable=False),
+        sa.Column("chunker_version", sa.String(32), nullable=False),
+        sa.Column(
+            "content_tsv",
+            postgresql.TSVECTOR(),
+            sa.Computed("to_tsvector('english', content)", persisted=True),
+        ),
+        sa.Column(
+            "extra", postgresql.JSONB(), nullable=False, server_default=sa.text("'{}'")
+        ),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
+        sa.ForeignKeyConstraint(["document_id"], ["documents.id"], ondelete="CASCADE"),
+        sa.UniqueConstraint("document_id", "chunk_index", name="uq_chunks_doc_index"),
+    )
+    op.create_index("ix_chunks_tenant_id", "chunks", ["tenant_id"])
+    op.create_index("ix_chunks_document_id", "chunks", ["document_id"])
+    op.create_index(
+        "ix_chunks_model", "chunks", ["embedding_model", "model_version"]
+    )
+    op.create_index(
+        "ix_chunks_content_tsv", "chunks", ["content_tsv"], postgresql_using="gin"
+    )
+
+    # Give the build room. Session-scoped, so it does not affect other sessions.
+    op.execute("SET maintenance_work_mem = '2GB'")
+    op.execute("SET max_parallel_maintenance_workers = 4")
+    op.create_index(
+        "ix_chunks_embedding_hnsw",
+        "chunks",
+        ["embedding"],
+        postgresql_using="hnsw",
+        postgresql_with={"m": 16, "ef_construction": 200},
+        postgresql_ops={"embedding": "vector_cosine_ops"},
+    )
+
+
+def downgrade() -> None:
+    op.drop_index("ix_chunks_embedding_hnsw", table_name="chunks")
+    op.drop_table("chunks")
+    op.drop_index("ix_documents_tenant_id", table_name="documents")
+    op.drop_table("documents")
+    # Deliberately not dropping the extension: other schemas may use it.
+```
+
+Two gotchas Alembic will not warn you about:
+
+1. **Autogenerate does not know about `vector`.** Run
+   `alembic revision --autogenerate` and the `embedding` column either goes
+   missing or comes out as a generic type. Import `pgvector.sqlalchemy` in
+   `env.py` and in the migration, and review every generated revision by hand.
+2. **Creating an HNSW index inside a migration locks the table** for the
+   duration. On a large existing table, build it outside Alembic with
+   `CREATE INDEX CONCURRENTLY` instead, which cannot run in a transaction and
+   therefore cannot live in a normal migration.
+
+```sql
+-- For an existing large table: no exclusive lock, slower, can fail and leave
+-- an invalid index you must drop and retry.
+CREATE INDEX CONCURRENTLY ix_chunks_embedding_hnsw
+    ON chunks USING hnsw (embedding vector_cosine_ops)
+    WITH (m = 16, ef_construction = 200);
+```
+
+## Index DDL: HNSW and IVFFlat
+
+### HNSW
+
+```sql
+CREATE INDEX ix_chunks_embedding_hnsw
+    ON chunks USING hnsw (embedding vector_cosine_ops)
+    WITH (m = 16, ef_construction = 200);
+
+-- Query-time recall dial. Set per transaction, not globally.
+SET LOCAL hnsw.ef_search = 100;
+```
+
+Default `m` is 16 and `ef_construction` is 64. Raising `ef_construction` to
+200 costs build time only and raises the recall ceiling — see
+[index internals](./03-vector-index-internals.mdx) for what each knob does.
+
+### IVFFlat
+
+```sql
+CREATE INDEX ix_chunks_embedding_ivf
+    ON chunks USING ivfflat (embedding vector_cosine_ops)
+    WITH (lists = 1000);
+
+SET LOCAL ivfflat.probes = 20;
+```
+
+| | HNSW | IVFFlat |
+| --- | --- | --- |
+| Build time | Slow | Fast (often 5–10× faster) |
+| Build memory | High | Moderate |
+| Query speed at equal recall | Faster | Slower |
+| Index size | Larger | Smaller |
+| Needs data before building | No | **Yes** |
+| Degrades as data grows | No | Yes — cells unbalance |
+| Query knob | `hnsw.ef_search` | `ivfflat.probes` |
+
+Default to HNSW. Choose IVFFlat only when build time or build memory is the
+binding constraint.
+
+### The operator must match the opclass
+
+This is the pgvector mistake that costs the most and announces itself the
+least.
+
+| Operator | Distance | Required opclass |
+| --- | --- | --- |
+| `<=>` | Cosine distance | `vector_cosine_ops` |
+| `<->` | Euclidean / L2 | `vector_l2_ops` |
+| `<#>` | Negative inner product | `vector_ip_ops` |
+| `<+>` | Taxicab / L1 | `vector_l1_ops` |
+
+If your index is `vector_cosine_ops` and your query uses `<->`, Postgres
+**cannot use the index**. It does not error. It does not warn. It runs a
+sequential scan over every row, computes every distance, sorts, and returns
+the correct answer — slowly. Your 3 ms query becomes 4 seconds and the only
+symptom is latency.
+
+### Proving it with EXPLAIN ANALYZE
+
+Set up a test that fails loudly instead of trusting yourself.
+
+```sql
+-- Matching operator: index scan.
+EXPLAIN ANALYZE
+SELECT id, content, embedding <=> '[0.1, 0.2, ...]'::vector AS distance
+FROM chunks
+ORDER BY embedding <=> '[0.1, 0.2, ...]'::vector
+LIMIT 10;
+```
+
+```text
+Limit  (cost=48.12..85.33 rows=10 width=72) (actual time=2.411..2.903 rows=10 loops=1)
+  ->  Index Scan using ix_chunks_embedding_hnsw on chunks
+        (cost=48.12..3821.44 rows=1000000 width=72)
+        (actual time=2.409..2.898 rows=10 loops=1)
+        Order By: (embedding <=> '[0.1,0.2,...]'::vector)
+Planning Time: 0.182 ms
+Execution Time: 2.954 ms
+```
+
+```sql
+-- Mismatched operator: same correct answer, sequential scan.
+EXPLAIN ANALYZE
+SELECT id, content, embedding <-> '[0.1, 0.2, ...]'::vector AS distance
+FROM chunks
+ORDER BY embedding <-> '[0.1, 0.2, ...]'::vector
+LIMIT 10;
+```
+
+```text
+Limit  (cost=142851.02..142851.05 rows=10 width=72)
+       (actual time=4182.771..4182.779 rows=10 loops=1)
+  ->  Sort  (cost=142851.02..145351.02 rows=1000000 width=72)
+            (actual time=4182.769..4182.774 rows=10 loops=1)
+        Sort Key: ((embedding <-> '[0.1,0.2,...]'::vector))
+        Sort Method: top-N heapsort  Memory: 28kB
+        ->  Seq Scan on chunks  (cost=0.00..120351.00 rows=1000000 width=72)
+                                (actual time=0.019..3611.402 rows=1000000 loops=1)
+Planning Time: 0.147 ms
+Execution Time: 4182.812 ms
+```
+
+`Index Scan using ix_chunks_embedding_hnsw` versus `Seq Scan on chunks`. That
+one line is the difference between 3 ms and 4.2 seconds.
+
+Other things that silently disable the vector index:
+
+- Omitting `ORDER BY` on the distance expression. The index only accelerates
+  ordered nearest-neighbor scans, not `WHERE distance < 0.3`.
+- Omitting `LIMIT`. Without a limit the planner has no reason to prefer the
+  index.
+- Ordering by a different expression than the one in the index, including a
+  different vector literal cast.
+- A `WHERE` clause selective enough that the planner prefers a btree scan —
+  which is often correct, but check.
+
+Pin this down with a test:
+
+```python
+import pytest
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
+
+
+@pytest.mark.asyncio
+async def test_vector_search_uses_the_index(session: AsyncSession) -> None:
+    plan = await session.execute(
+        text(
+            """
+            EXPLAIN (FORMAT TEXT)
+            SELECT id FROM chunks
+            ORDER BY embedding <=> :q
+            LIMIT 10
+            """
+        ),
+        {"q": str([0.0] * 768)},
+    )
+    plan_text = "\n".join(row[0] for row in plan)
+    assert "Seq Scan" not in plan_text, plan_text
+    assert "ix_chunks_embedding_hnsw" in plan_text, plan_text
+```
+
+Postgres will not choose an index on a nearly empty table, so seed this test
+with enough rows (a few thousand) to make the index attractive.
+
+## Top-k With Metadata Filtering in One Statement
+
+Here is the payoff. Semantic search, authorization, freshness, a join and
+ordering, in one plan:
+
+```sql
+SET LOCAL hnsw.ef_search = 100;
+
+SELECT
+    c.id,
+    c.content,
+    c.chunk_index,
+    d.title,
+    d.author,
+    d.source_uri,
+    1 - (c.embedding <=> $1::vector) AS similarity
+FROM chunks c
+JOIN documents d ON d.id = c.document_id
+WHERE c.tenant_id = $2
+  AND d.is_archived = false
+  AND d.published_at >= now() - interval '90 days'
+  AND c.embedding_model = $3
+ORDER BY c.embedding <=> $1::vector
+LIMIT 10;
+```
+
+Note `1 - (embedding <=> query)` in the select list to return cosine
+*similarity* (higher is better) while ordering by *distance* (lower is better).
+Order by the raw operator expression, or the index will not be used.
+
+The same thing in SQLAlchemy 2.0:
+
+```python
+from sqlalchemy import select, text
+
+async def search(
+    session: AsyncSession,
+    query_embedding: list[float],
+    tenant_id: str,
+    model: str,
+    k: int = 10,
+) -> list[tuple[Chunk, Document, float]]:
+    await session.execute(text("SET LOCAL hnsw.ef_search = 100"))
+
+    distance = Chunk.embedding.cosine_distance(query_embedding)
+    stmt = (
+        select(Chunk, Document, (1 - distance).label("similarity"))
+        .join(Document, Document.id == Chunk.document_id)
+        .where(
+            Chunk.tenant_id == tenant_id,
+            Chunk.embedding_model == model,
+            Document.is_archived.is_(False),
+        )
+        .order_by(distance)
+        .limit(k)
+    )
+    return list((await session.execute(stmt)).all())
+```
+
+`Chunk.embedding.cosine_distance(...)` emits `<=>`. The siblings are
+`l2_distance` for `<->` and `max_inner_product` for `<#>`. Pick the one that
+matches your opclass, and write it down next to the model definition.
+
+### How the planner handles the filter
+
+pgvector's HNSW implementation does post-filtering with iterative scanning:
+it walks the graph, discards rows failing the `WHERE` clause, and keeps
+walking until it has `k` survivors or hits a limit. Consequences:
+
+- Permissive filters: nearly free.
+- Selective filters: more graph traversal, higher latency, and in older
+  pgvector versions **fewer than `k` results**.
+- Very selective filters: the planner should switch to a btree scan on
+  `tenant_id` plus an exact sort. That is the right plan. Make sure the btree
+  index exists.
+
+pgvector 0.8 added `hnsw.iterative_scan` to keep searching rather than return
+short. If you are on it, turn it on for filtered workloads:
+
+```sql
+SET LOCAL hnsw.iterative_scan = relaxed_order;
+SET LOCAL hnsw.max_scan_tuples = 20000;
+```
+
+On older versions, oversample and filter in SQL yourself:
+
+```sql
+WITH candidates AS (
+    SELECT id, content, document_id, embedding <=> $1::vector AS distance
+    FROM chunks
+    WHERE tenant_id = $2              -- cheap, indexed, keeps correctness
+    ORDER BY embedding <=> $1::vector
+    LIMIT 200                          -- oversample
+)
+SELECT c.id, c.content, 1 - c.distance AS similarity
+FROM candidates c
+JOIN documents d ON d.id = c.document_id
+WHERE d.is_archived = false           -- expensive filter, applied after
+ORDER BY c.distance
+LIMIT 10;
+```
+
+The general pre-filter versus post-filter reasoning is on the
+[metadata filtering page](../05-rag-fundamentals/09-metadata-filtering.mdx)
+and in [index internals](./03-vector-index-internals.mdx).
+
+## Hybrid Search in Pure Postgres
+
+Postgres has full-text search built in, so [hybrid search](../05-rag-fundamentals/10-hybrid-search.mdx)
+needs no second system. Reciprocal rank fusion in one statement:
+
+```sql
+WITH
+semantic AS (
+    SELECT
+        id,
+        ROW_NUMBER() OVER (ORDER BY embedding <=> $1::vector) AS rank
+    FROM chunks
+    WHERE tenant_id = $3
+    ORDER BY embedding <=> $1::vector
+    LIMIT 60
+),
+lexical AS (
+    SELECT
+        id,
+        ROW_NUMBER() OVER (
+            ORDER BY ts_rank_cd(content_tsv, websearch_to_tsquery('english', $2)) DESC
+        ) AS rank
+    FROM chunks
+    WHERE tenant_id = $3
+      AND content_tsv @@ websearch_to_tsquery('english', $2)
+    ORDER BY ts_rank_cd(content_tsv, websearch_to_tsquery('english', $2)) DESC
+    LIMIT 60
+)
+SELECT
+    c.id,
+    c.content,
+    COALESCE(1.0 / (60 + s.rank), 0.0) + COALESCE(1.0 / (60 + l.rank), 0.0) AS rrf_score,
+    s.rank AS semantic_rank,
+    l.rank AS lexical_rank
+FROM chunks c
+LEFT JOIN semantic s ON s.id = c.id
+LEFT JOIN lexical  l ON l.id = c.id
+WHERE s.id IS NOT NULL OR l.id IS NOT NULL
+ORDER BY rrf_score DESC
+LIMIT 10;
+```
+
+The `60` is RRF's standard smoothing constant `k`; it damps the influence of
+top ranks so one list cannot dominate. `websearch_to_tsquery` is the right
+parser for user input — it tolerates quotes, `or`, and `-exclusion` without
+throwing on malformed syntax the way `to_tsquery` does.
+
+Use `ts_rank_cd` rather than `ts_rank` when chunk lengths vary; it accounts
+for term proximity and is less biased toward short documents.
+
+If you prefer fusing in Python — easier to unit test, easier to weight —
+run the two queries concurrently and merge:
+
+```python
+import asyncio
+from collections import defaultdict
+
+
+async def hybrid_search(
+    session_factory: async_sessionmaker[AsyncSession],
+    query_embedding: list[float],
+    query_text: str,
+    tenant_id: str,
+    k: int = 10,
+    candidates: int = 60,
+    rrf_k: int = 60,
+    semantic_weight: float = 1.0,
+    lexical_weight: float = 1.0,
+) -> list[str]:
+    async def semantic() -> list[str]:
+        async with session_factory() as s:
+            await s.execute(text("SET LOCAL hnsw.ef_search = 100"))
+            stmt = (
+                select(Chunk.id)
+                .where(Chunk.tenant_id == tenant_id)
+                .order_by(Chunk.embedding.cosine_distance(query_embedding))
+                .limit(candidates)
+            )
+            return list((await s.execute(stmt)).scalars())
+
+    async def lexical() -> list[str]:
+        async with session_factory() as s:
+            rows = await s.execute(
+                text(
+                    """
+                    SELECT id FROM chunks
+                    WHERE tenant_id = :tenant
+                      AND content_tsv @@ websearch_to_tsquery('english', :q)
+                    ORDER BY ts_rank_cd(
+                        content_tsv, websearch_to_tsquery('english', :q)
+                    ) DESC
+                    LIMIT :lim
+                    """
+                ),
+                {"tenant": tenant_id, "q": query_text, "lim": candidates},
+            )
+            return list(rows.scalars())
+
+    dense_ids, sparse_ids = await asyncio.gather(semantic(), lexical())
+
+    scores: dict[str, float] = defaultdict(float)
+    for rank, cid in enumerate(dense_ids, start=1):
+        scores[cid] += semantic_weight / (rrf_k + rank)
+    for rank, cid in enumerate(sparse_ids, start=1):
+        scores[cid] += lexical_weight / (rrf_k + rank)
+
+    return sorted(scores, key=scores.__getitem__, reverse=True)[:k]
+```
+
+Two separate sessions, because `asyncio.gather` on one `AsyncSession` is a
+bug — sessions are not safe for concurrent use.
+
+## IVFFlat List Tuning and the Empty-Table Gotcha
+
+`lists` is the number of k-means cells. Standard guidance:
+
+```text
+rows <= 1_000_000   ->  lists = rows / 1000
+rows >  1_000_000   ->  lists = sqrt(rows)
+
+100_000   rows -> lists = 100
+1_000_000 rows -> lists = 1000
+10_000_000 rows -> lists ≈ 3162
+```
+
+Then set `ivfflat.probes` to roughly `sqrt(lists)` as a starting point and
+tune it against a flat ground truth.
+
+### You must have data before you build an IVFFlat index
+
+Building `ivfflat` runs k-means over the table's current contents. On an empty
+table there is nothing to cluster, so you get a degenerate partitioning, and
+**it is never recomputed**. Every row you insert afterward lands in a
+meaningless cell. Recall stays bad forever, with no error and no warning.
+
+```sql
+-- WRONG: migration creates the table and index, then ingestion loads data.
+CREATE TABLE chunks (...);
+CREATE INDEX ON chunks USING ivfflat (embedding vector_cosine_ops) WITH (lists = 1000);
+-- ... load 1M rows ...
+-- Recall is now terrible and nothing told you.
+```
+
+```sql
+-- RIGHT: load a representative sample first, then build.
+CREATE TABLE chunks (...);
+-- ... load rows (at least ~50 per intended list) ...
+CREATE INDEX ON chunks USING ivfflat (embedding vector_cosine_ops) WITH (lists = 1000);
+```
+
+This conflicts directly with the normal Alembic pattern of creating tables and
+indexes in one revision. Two workable approaches:
+
+- Create the table in the migration; create the IVFFlat index in a separate
+  post-ingestion step (a management command or a job that runs after the first
+  bulk load).
+- Use HNSW, which has no training step and is safe to create on an empty
+  table. This is why HNSW is the better default.
+
+You must also **rebuild IVFFlat periodically** as the corpus grows, because the
+centroids reflect the data at build time. HNSW does not have this problem.
+
+```sql
+REINDEX INDEX CONCURRENTLY ix_chunks_embedding_ivf;
+```
+
+## An Async Repository Behind a FastAPI Dependency
+
+Keep SQL in one class, keep routes thin.
+
+```python
+from __future__ import annotations
+
+import hashlib
+from dataclasses import dataclass
+from typing import Annotated, Any
+
+from fastapi import Depends, FastAPI, HTTPException
+from pydantic import BaseModel, Field
+from sqlalchemy import select, text
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.ext.asyncio import AsyncSession
+
+
+@dataclass(frozen=True, slots=True)
+class RetrievedChunk:
+    chunk_id: str
+    content: str
+    similarity: float
+    document_title: str
+    source_uri: str
+    chunk_index: int
+
+
+def stable_chunk_id(document_id: str, chunk_index: int, content: str) -> str:
+    digest = hashlib.sha256(content.encode("utf-8")).hexdigest()[:16]
+    return f"{document_id}:{chunk_index:05d}:{digest}"
+
+
+class ChunkRepository:
+    """All chunk SQL lives here. Routes never see SQLAlchemy."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def upsert_chunks(self, rows: list[dict[str, Any]]) -> int:
+        if not rows:
+            return 0
+        stmt = pg_insert(Chunk).values(rows)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=[Chunk.id],
+            set_={
+                "content": stmt.excluded.content,
+                "embedding": stmt.excluded.embedding,
+                "token_count": stmt.excluded.token_count,
+                "embedding_model": stmt.excluded.embedding_model,
+                "model_version": stmt.excluded.model_version,
+                "chunker_version": stmt.excluded.chunker_version,
+                "extra": stmt.excluded.extra,
+            },
+        )
+        result = await self._session.execute(stmt)
+        await self._session.commit()
+        return result.rowcount or 0
+
+    async def search(
+        self,
+        embedding: list[float],
+        tenant_id: str,
+        model: str,
+        k: int = 10,
+        ef_search: int = 100,
+        include_archived: bool = False,
+    ) -> list[RetrievedChunk]:
+        # SET does not accept bind parameters, so use set_config/3 with
+        # is_local=true. Transaction-scoped, and therefore pgbouncer-safe.
+        await self._session.execute(
+            text("SELECT set_config('hnsw.ef_search', :ef, true)"),
+            {"ef": str(ef_search)},
+        )
+
+        distance = Chunk.embedding.cosine_distance(embedding)
+        stmt = (
+            select(
+                Chunk.id,
+                Chunk.content,
+                Chunk.chunk_index,
+                Document.title,
+                Document.source_uri,
+                (1 - distance).label("similarity"),
+            )
+            .join(Document, Document.id == Chunk.document_id)
+            .where(
+                Chunk.tenant_id == tenant_id,
+                Chunk.embedding_model == model,
+            )
+            .order_by(distance)
+            .limit(k)
+        )
+        if not include_archived:
+            stmt = stmt.where(Document.is_archived.is_(False))
+
+        rows = (await self._session.execute(stmt)).all()
+        return [
+            RetrievedChunk(
+                chunk_id=r.id,
+                content=r.content,
+                similarity=float(r.similarity),
+                document_title=r.title,
+                source_uri=r.source_uri,
+                chunk_index=r.chunk_index,
+            )
+            for r in rows
+        ]
+
+    async def delete_document_chunks(self, document_id: str) -> int:
+        result = await self._session.execute(
+            text("DELETE FROM chunks WHERE document_id = :doc"),
+            {"doc": document_id},
+        )
+        await self._session.commit()
+        return result.rowcount or 0
+```
+
+Wiring it up:
+
+```python
+async def get_chunk_repository(
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> ChunkRepository:
+    return ChunkRepository(session)
+
+
+class SearchRequest(BaseModel):
+    query: str = Field(min_length=1, max_length=2000)
+    k: int = Field(default=5, ge=1, le=50)
+    ef_search: int = Field(default=100, ge=10, le=500)
+
+
+class SearchResponse(BaseModel):
+    chunk_id: str
+    content: str
+    similarity: float
+    document_title: str
+    source_uri: str
+
+
+app = FastAPI()
+
+
+@app.post("/search", response_model=list[SearchResponse])
+async def search_endpoint(
+    body: SearchRequest,
+    repo: Annotated[ChunkRepository, Depends(get_chunk_repository)],
+    tenant_id: Annotated[str, Depends(get_current_tenant_id)],
+) -> list[RetrievedChunk]:
+    embedding = await embed_query(body.query)
+    if len(embedding) != EMBEDDING_DIM:
+        raise HTTPException(500, "embedding dimension mismatch")
+    return await repo.search(
+        embedding=embedding,
+        tenant_id=tenant_id,
+        model=settings.embedding_model,
+        k=body.k,
+        ef_search=body.ef_search,
+    )
+```
+
+:::warning
+`tenant_id` comes from an authentication dependency, never from the request
+body. A tenant id a caller can set is not a filter, it is an access-control
+hole. Consider Postgres row-level security as a second layer so a forgotten
+`WHERE` clause cannot leak data.
+:::
+
+## Operational Notes
+
+### Connection pooling and pgbouncer
+
+`asyncpg` uses prepared statements, and pgbouncer in **transaction** pooling
+mode breaks them, because the statement may be prepared on one server
+connection and executed on another. Symptom: intermittent
+`prepared statement "__asyncpg_stmt_1__" does not exist`.
+
+```python
+engine = create_async_engine(
+    "postgresql+asyncpg://user:pw@pgbouncer:6432/rag",
+    poolclass=NullPool,                        # pgbouncer owns pooling
+    connect_args={
+        "statement_cache_size": 0,             # disable asyncpg's prepared cache
+        "prepared_statement_cache_size": 0,
+    },
+)
+```
+
+Also, with transaction pooling:
+
+- `SET LOCAL hnsw.ef_search = ...` is fine. It is transaction-scoped. Note
+  that `SET` takes no bind parameters, so for a dynamic value use
+  `SELECT set_config('hnsw.ef_search', :ef, true)` rather than interpolating
+  into SQL.
+- Plain `SET hnsw.ef_search = ...` is a bug. It is session-scoped and the
+  session is not yours after the transaction ends — you will leak the setting
+  onto other requests or lose it entirely.
+- `LISTEN`/`NOTIFY` and advisory locks across transactions do not work.
+
+If you do not need pgbouncer, don't add it. SQLAlchemy's own pool plus a
+sensible `pool_size` handles a normal FastAPI deployment. Add pgbouncer when
+the number of application pods × `pool_size` approaches `max_connections`.
+
+### maintenance_work_mem for index builds
+
+HNSW builds the graph in memory. If it does not fit in
+`maintenance_work_mem`, pgvector spills to disk and the build gets
+dramatically slower — often an order of magnitude.
+
+```sql
+-- Session-scoped, for the build only. Do not leave this in postgresql.conf.
+SET maintenance_work_mem = '4GB';
+SET max_parallel_maintenance_workers = 7;   -- plus the leader = 8 workers
+
+CREATE INDEX CONCURRENTLY ... USING hnsw (...);
+
+RESET maintenance_work_mem;
+```
+
+Size it from the index, not the table:
+
+```text
+hnsw index memory ≈ rows * (dim * 4 + m * 2 * 4) bytes
+
+1M rows, 768 dim, m=16  ->  1e6 * 3200   ≈ 3.0 GB
+5M rows, 768 dim, m=16  ->  5e6 * 3200   ≈ 15 GB
+```
+
+At 15 GB you are not giving one session that much `maintenance_work_mem`.
+Options: `halfvec` to halve it, build on a bigger machine and restore,
+partition the table, or move to a store designed for that scale.
+
+Watch the build:
+
+```sql
+SELECT phase, blocks_done, blocks_total, tuples_done, tuples_total
+FROM pg_stat_progress_create_index;
+```
+
+### Bloat from re-embedding, and VACUUM
+
+Postgres `UPDATE` writes a new row version and marks the old one dead. For a
+768-dim embedding that is ~3 KB of dead tuple per update, plus HNSW index
+churn. Re-embedding 1M chunks creates roughly 3 GB of dead tuples and an index
+full of stale entries.
+
+```sql
+SELECT relname, n_live_tup, n_dead_tup,
+       round(100.0 * n_dead_tup / NULLIF(n_live_tup + n_dead_tup, 0), 1) AS dead_pct,
+       last_autovacuum
+FROM pg_stat_user_tables
+WHERE relname IN ('chunks', 'documents');
+```
+
+What to do about it:
+
+- Make autovacuum more aggressive on `chunks` specifically. Its defaults
+  assume a table with small rows and modest churn.
+
+  ```sql
+  ALTER TABLE chunks SET (
+      autovacuum_vacuum_scale_factor = 0.05,
+      autovacuum_vacuum_cost_limit = 2000,
+      autovacuum_analyze_scale_factor = 0.02
+  );
+  ```
+
+- After a bulk re-embed, reclaim space rather than waiting:
+  `VACUUM (ANALYZE, VERBOSE) chunks;` to free space for reuse, or
+  `VACUUM FULL` / `pg_repack` to return it to the OS. `VACUUM FULL` takes an
+  exclusive lock; `pg_repack` does not.
+- Better still, do not re-embed in place. Write to a new table or a new
+  `model_version` partition and swap — the zero-downtime playbook is on the
+  [operations page](./06-vector-store-operations.mdx). This avoids bloat
+  entirely and gives you a rollback.
+- `REINDEX INDEX CONCURRENTLY` the HNSW index after heavy churn, because soft
+  deletes accumulate in the graph.
+
+### Other things worth setting
+
+| Setting | Why |
+| --- | --- |
+| `shared_buffers` | The vector index must be cached to be fast. 25–40% of RAM. |
+| `effective_cache_size` | Tells the planner how much the OS is caching; too low and it avoids index scans. |
+| `work_mem` | Sorting oversampled candidates. Raise modestly for hybrid queries. |
+| `statement_timeout` | A runaway sequential scan over 10M vectors should be killed, not served. |
+| `jit = off` | JIT often hurts short vector queries more than it helps. Measure. |
+
+Store embeddings as `vector`, not `text` or `jsonb`. Casting on every query is
+slow and unindexable. Also keep `content` in the same row if you need it with
+results — a separate lookup doubles your round trips. If `content` is large,
+Postgres TOASTs it anyway, so the row stays narrow.
+
+## Common Mistakes
+
+- Index built with `vector_cosine_ops`, query written with `<->`. Correct results, sequential scan, no warning.
+- No `ORDER BY` on the distance expression, or no `LIMIT`, so the index is never considered.
+- Creating an `ivfflat` index on an empty table and living with permanently bad recall.
+- Expecting `alembic revision --autogenerate` to handle `vector` columns correctly.
+- `CREATE INDEX` without `CONCURRENTLY` on a live table, locking writes for the whole build.
+- Using `SET` instead of `SET LOCAL` for `hnsw.ef_search` behind a transaction-pooling pgbouncer.
+- Leaving `asyncpg` prepared statements enabled through pgbouncer and getting intermittent `prepared statement does not exist` errors.
+- Forgetting btree indexes on filter columns because "the vector index handles it". It does not.
+- Joining to `documents` just to get `tenant_id`, instead of denormalizing it onto `chunks`.
+- Re-embedding in place and leaving the table 40% dead tuples with a stale HNSW graph.
+- Default `maintenance_work_mem` for a multi-gigabyte HNSW build, turning minutes into hours.
+- Storing embeddings as `jsonb` or `text` and casting at query time.
+- Taking `tenant_id` from the request body instead of the auth context.
+- `expire_on_commit=True` with ORM objects, re-fetching 768 floats after every commit.
+
+## Interview Questions
+
+- Why does a mismatched distance operator make pgvector do a sequential scan, and how would you detect it in CI?
+- Compare HNSW and IVFFlat in pgvector across build time, query speed and operational risk.
+- What is the empty-table problem with IVFFlat, and why does HNSW not have it?
+- Walk through an `EXPLAIN ANALYZE` plan for a vector query. What tells you the index was used?
+- How do you set `hnsw.ef_search` safely when pgbouncer is in transaction pooling mode?
+- Implement hybrid search in pure Postgres. Where does the RRF constant come from?
+- Why denormalize `tenant_id` onto the chunks table?
+- You re-embedded 5M chunks with `UPDATE` and query latency doubled. Diagnose it.
+- How do you size `maintenance_work_mem` for an HNSW build?
+- When would you store `halfvec` instead of `vector`?
+- What breaks if your embedding model outputs 3072 dimensions?
+
+## Things to Remember
+
+- The query operator must match the index opclass. `<=>` with `vector_cosine_ops`, every time.
+- The index needs `ORDER BY <distance expression>` plus `LIMIT` to be used at all.
+- HNSW is the default. IVFFlat only when build cost forces it, and only after data is loaded.
+- `SET LOCAL hnsw.ef_search` is your runtime recall dial and is pgbouncer-safe.
+- One SQL statement does semantic search, joins, authorization and freshness. That is pgvector's whole advantage.
+- Hybrid search needs no second system: generated `tsvector` column, GIN index, RRF.
+- Re-embedding in place causes bloat. Write to a new table and swap instead.
+- Index builds need `maintenance_work_mem` sized from the index, not the table.
+
+## Mini Exercise
+
+Stand up Postgres with pgvector and build the schema above.
+
+1. Ingest 20k chunks from any text corpus with `sentence-transformers`
+   embeddings, using `stable_chunk_id` and `on_conflict_do_update`. Re-run the
+   ingestion and confirm the row count does not change.
+2. Create the HNSW index with `vector_cosine_ops`. Run `EXPLAIN ANALYZE` with
+   `<=>` and again with `<->`. Record both plans and both execution times.
+3. Add the `EXPLAIN`-asserting test and confirm it fails when you deliberately
+   switch the operator.
+4. Implement the RRF hybrid query. Find one query where lexical search wins
+   (an error code or identifier) and one where semantic wins (a paraphrase).
+5. `UPDATE` every embedding to simulate a re-embed. Check `n_dead_tup`, then
+   `VACUUM ANALYZE` and check again.
+
+## Done When
+
+- [ ] `CREATE EXTENSION vector` is in a migration and your `vector` column has an explicit dimension.
+- [ ] You have an HNSW index and have proved via `EXPLAIN ANALYZE` that your query uses it.
+- [ ] You can state which operator pairs with which opclass without looking it up.
+- [ ] Top-k search with metadata filters and a join runs as one SQL statement.
+- [ ] Hybrid search works in pure Postgres with a generated `tsvector` column and RRF.
+- [ ] You know your `maintenance_work_mem` requirement and your bloat/vacuum plan for re-embedding.
