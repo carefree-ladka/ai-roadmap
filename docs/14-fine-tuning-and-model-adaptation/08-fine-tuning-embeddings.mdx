@@ -4,7 +4,7 @@ description: The highest-return fine-tune most RAG teams never try — hard-nega
 sidebar_label: Embeddings & Rerankers
 ---
 
-import TOCInline from '@theme/TOCInline';
+import TOCInline from "@theme/TOCInline";
 
 # Fine-Tuning Embeddings & Rerankers
 
@@ -21,20 +21,20 @@ cross-encoder reranker, and the re-embedding migration nobody plans for.
 ## What Is It?
 
 Fine-tuning a retrieval model means continuing to train an embedding model, a
-reranker, or both on query-document pairs from your own domain, so that *your*
-queries retrieve *your* documents better.
+reranker, or both on query-document pairs from your own domain, so that _your_
+queries retrieve _your_ documents better.
 
 Two model types, two different jobs:
 
-| | Bi-encoder (embedder) | Cross-encoder (reranker) |
-| --- | --- | --- |
-| Input | Query and document encoded **separately** | Query and document encoded **together** |
-| Output | A vector per text | A relevance score per pair |
-| Precompute | Documents embedded once, offline | Nothing — scoring happens at query time |
-| Query cost | One encode plus an index lookup | One forward pass **per candidate** |
-| Scales to | Millions of documents | Tens of candidates |
-| Role | First-stage recall over the whole corpus | Reordering a shortlist for precision |
-| Typical size | 20M–500M parameters | 20M–500M parameters |
+|              | Bi-encoder (embedder)                     | Cross-encoder (reranker)                |
+| ------------ | ----------------------------------------- | --------------------------------------- |
+| Input        | Query and document encoded **separately** | Query and document encoded **together** |
+| Output       | A vector per text                         | A relevance score per pair              |
+| Precompute   | Documents embedded once, offline          | Nothing — scoring happens at query time |
+| Query cost   | One encode plus an index lookup           | One forward pass **per candidate**      |
+| Scales to    | Millions of documents                     | Tens of candidates                      |
+| Role         | First-stage recall over the whole corpus  | Reordering a shortlist for precision    |
+| Typical size | 20M–500M parameters                       | 20M–500M parameters                     |
 
 Most production stacks run both: the bi-encoder plus keyword search produces
 50–100 candidates, the cross-encoder reorders them, and the top 5 go into the
@@ -49,17 +49,17 @@ This is the highest-return fine-tune most RAG teams never try, and the reason
 is almost entirely attention: "fine-tuning" has become synonymous with
 fine-tuning the generator.
 
-| Factor | Generator fine-tune (7B) | Embedder fine-tune (110M) |
-| --- | --- | --- |
-| Where the errors come from | Downstream of retrieval | The usual bottleneck |
-| Parameters | Billions | Tens to hundreds of millions |
-| Training hardware | One 24GB GPU minimum, QLoRA | One modest GPU, often a full fine-tune |
-| Training time | Hours to days | Minutes to a few hours |
-| Data to see gains | 1,000–5,000 curated examples | A few thousand mined pairs, mostly automatic |
-| Labour to build the data | Written or heavily curated by humans | Mined from logs plus synthetic generation |
-| Typical gain on a domain corpus | A few points on the task metric | Often large on `recall@k`; double digits is common on a specialised corpus |
-| Blast radius if it goes wrong | Behaviour, safety, formats | Ranking only |
-| Reversibility | Redeploy, re-evaluate | Keep the old index, flip a pointer |
+| Factor                          | Generator fine-tune (7B)             | Embedder fine-tune (110M)                                                  |
+| ------------------------------- | ------------------------------------ | -------------------------------------------------------------------------- |
+| Where the errors come from      | Downstream of retrieval              | The usual bottleneck                                                       |
+| Parameters                      | Billions                             | Tens to hundreds of millions                                               |
+| Training hardware               | One 24GB GPU minimum, QLoRA          | One modest GPU, often a full fine-tune                                     |
+| Training time                   | Hours to days                        | Minutes to a few hours                                                     |
+| Data to see gains               | 1,000–5,000 curated examples         | A few thousand mined pairs, mostly automatic                               |
+| Labour to build the data        | Written or heavily curated by humans | Mined from logs plus synthetic generation                                  |
+| Typical gain on a domain corpus | A few points on the task metric      | Often large on `recall@k`; double digits is common on a specialised corpus |
+| Blast radius if it goes wrong   | Behaviour, safety, formats           | Ranking only                                                               |
+| Reversibility                   | Redeploy, re-evaluate                | Keep the old index, flip a pointer                                         |
 
 The arithmetic is simple: **if the right chunk is not in the top-k, no amount
 of generator fine-tuning can recover it.** A fine-tuned generator on a retriever
@@ -95,7 +95,7 @@ mismatches follow.
 
 **Domain vocabulary and acronyms the model never saw.** If your company writes
 "TPR" for a form nobody outside the building has heard of, the model has no
-useful representation for it — and worse than none, it has a *plausible* one.
+useful representation for it — and worse than none, it has a _plausible_ one.
 `TPR` embeds near "true positive rate" because that is what the token sequence
 meant in training data, so retrieval silently ranks machine-learning documents
 above the form you wanted. Acronym collisions are the most common failure on
@@ -133,15 +133,15 @@ some known-irrelevant-but-plausible documents.
 You likely have more supervision than you think, sitting in systems nobody
 thinks of as training data.
 
-| Source | Pair construction | Caveats |
-| --- | --- | --- |
-| Search click logs | Query plus the clicked result | Position bias: users click rank 1 because it is rank 1. Down-weight or debias. |
-| Thumbs-up on RAG answers | The query plus the chunks actually cited | Only usable if you log retrieved chunk IDs per answer |
-| Support ticket resolutions | The customer's message plus the KB article the agent linked | Excellent quality — agent links are human relevance labels |
-| Resolved issue threads | Title or first message plus the resolving comment | Noisy but plentiful |
-| Existing FAQ pages | Question plus answer section | Clean, limited volume, and your users do not phrase things that way |
-| Documentation anchors | Section heading plus section body | Weak supervision, nearly free, fine as a warm-up signal |
-| Queries with no click | Treated as **hard cases**, not pairs | Your evaluation gold mine. Label them by hand. |
+| Source                     | Pair construction                                           | Caveats                                                                        |
+| -------------------------- | ----------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| Search click logs          | Query plus the clicked result                               | Position bias: users click rank 1 because it is rank 1. Down-weight or debias. |
+| Thumbs-up on RAG answers   | The query plus the chunks actually cited                    | Only usable if you log retrieved chunk IDs per answer                          |
+| Support ticket resolutions | The customer's message plus the KB article the agent linked | Excellent quality — agent links are human relevance labels                     |
+| Resolved issue threads     | Title or first message plus the resolving comment           | Noisy but plentiful                                                            |
+| Existing FAQ pages         | Question plus answer section                                | Clean, limited volume, and your users do not phrase things that way            |
+| Documentation anchors      | Section heading plus section body                           | Weak supervision, nearly free, fine as a warm-up signal                        |
+| Queries with no click      | Treated as **hard cases**, not pairs                        | Your evaluation gold mine. Label them by hand.                                 |
 
 Two rules for mined data. **Log the chunk IDs you retrieved and the ones you
 cited**, per request, from day one — without that you cannot build pairs from
@@ -200,13 +200,13 @@ distribution you will never see in production.
 
 Quality filtering, because raw synthetic pairs contain junk:
 
-| Filter | Why |
-| --- | --- |
-| Round-trip retrieval | Embed the synthetic query with the *current* model. If the source chunk is not in the top 20, the query is probably unanswerable or malformed. |
-| Specificity check | Drop queries so generic that dozens of chunks answer them ("what are the steps"). They create false negatives everywhere. |
-| Deduplicate near-identical queries | Three paraphrases of one question triple that chunk's weight for no gain |
-| Length bounds | Single-word queries and 60-word essays are both off-distribution |
-| Human spot-check | Read 50. You will find a systematic prompt problem in ten minutes that would otherwise cost a training run. |
+| Filter                             | Why                                                                                                                                            |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| Round-trip retrieval               | Embed the synthetic query with the _current_ model. If the source chunk is not in the top 20, the query is probably unanswerable or malformed. |
+| Specificity check                  | Drop queries so generic that dozens of chunks answer them ("what are the steps"). They create false negatives everywhere.                      |
+| Deduplicate near-identical queries | Three paraphrases of one question triple that chunk's weight for no gain                                                                       |
+| Length bounds                      | Single-word queries and 60-word essays are both off-distribution                                                                               |
+| Human spot-check                   | Read 50. You will find a systematic prompt problem in ten minutes that would otherwise cost a training run.                                    |
 
 Synthetic pairs are good enough to carry a first fine-tune and noticeably worse
 than mined pairs. Treat them as the bootstrap: train on synthetic, ship, start
@@ -233,22 +233,22 @@ query retrieve a generous top-k (50–100); remove every known positive; then
 **sample from the rank window just below the positives** — if the positive sits
 at rank 3, draw negatives from roughly ranks 10–50.
 
-| Rank window | What lives there | Use it? |
-| --- | --- | --- |
-| Ranks 1–9 | Unlabelled positives, mostly | No. High false-negative risk. |
-| Ranks 10–50 | Plausible, topically close, usually wrong | **Yes.** This is the signal. |
-| Ranks 50+ | Near-random | Weak gradient, little value |
+| Rank window | What lives there                          | Use it?                       |
+| ----------- | ----------------------------------------- | ----------------------------- |
+| Ranks 1–9   | Unlabelled positives, mostly              | No. High false-negative risk. |
+| Ranks 10–50 | Plausible, topically close, usually wrong | **Yes.** This is the signal.  |
+| Ranks 50+   | Near-random                               | Weak gradient, little value   |
 
 Why not take the top-ranked non-positives? Because of the hazard that makes
 this whole technique delicate.
 
 **The false-negative hazard.** Your positive labels are incomplete. A corpus has
 many chunks that answer a given query; your logs captured one. When you mine
-the top of the ranking, the thing at rank 2 is very often an *unlabelled
-positive* — a genuinely correct answer you never labelled. Using it as a
+the top of the ranking, the thing at rank 2 is very often an _unlabelled
+positive_ — a genuinely correct answer you never labelled. Using it as a
 negative does not merely waste an example: it actively teaches the model to push
 a correct document away from the query. That is worse than no signal, and it is
-a known way to make a fine-tune come out *worse* than the base model.
+a known way to make a fine-tune come out _worse_ than the base model.
 
 Two mitigations, use both:
 
@@ -333,13 +333,13 @@ def mine_hard_negatives(
 
 :::warning
 Hard-negative mining is the step most likely to make your fine-tune worse than
-the base model. If the metric goes *down* after training, suspect false
+the base model. If the metric goes _down_ after training, suspect false
 negatives before hyperparameters. The diagnostic: sample 30 mined negatives and
 read them. If several genuinely answer the query, raise `rank_floor`, tighten
 `relative_margin`, or add the cross-encoder filter.
 :::
 
-Two refinements. Re-mining with the model you are *currently* training — every
+Two refinements. Re-mining with the model you are _currently_ training — every
 epoch or two — gives progressively harder negatives as the model improves, at
 the cost of a full corpus re-embed each round. And `sentence-transformers` ships
 a mining utility implementing this pattern, so check for it before writing your
@@ -347,14 +347,14 @@ own; the function above is here so you understand what it does.
 
 ## Loss Functions
 
-| Loss | Data it needs | How it works | Use it when |
-| --- | --- | --- | --- |
-| `MultipleNegativesRankingLoss` (MNRL) | Positive pairs; negatives optional | Every other document in the batch is a negative for every query | **The default.** Pairs, no graded labels. |
-| `CachedMultipleNegativesRankingLoss` | Same | MNRL with gradient caching, so large batches fit in modest VRAM | You want a batch your GPU cannot hold |
-| `TripletLoss` | Query, positive, explicit negative | Pushes the positive closer than the negative by a fixed margin | Curated negatives, direct control |
-| `CosineSimilarityLoss` | Pairs with a **graded score** in `[0, 1]` | Regresses predicted cosine similarity onto the label | You have relevance grades. Rare; expensive to label. |
-| `MatryoshkaLoss` | Wraps another loss | Trains so the first `d` dimensions are usable alone | You want truncatable vectors for cheaper storage and search |
-| `GISTEmbedLoss` | Pairs plus a guide model | Uses a stronger model to filter in-batch false negatives | In-batch false negatives are hurting and you have a good guide |
+| Loss                                  | Data it needs                             | How it works                                                    | Use it when                                                    |
+| ------------------------------------- | ----------------------------------------- | --------------------------------------------------------------- | -------------------------------------------------------------- |
+| `MultipleNegativesRankingLoss` (MNRL) | Positive pairs; negatives optional        | Every other document in the batch is a negative for every query | **The default.** Pairs, no graded labels.                      |
+| `CachedMultipleNegativesRankingLoss`  | Same                                      | MNRL with gradient caching, so large batches fit in modest VRAM | You want a batch your GPU cannot hold                          |
+| `TripletLoss`                         | Query, positive, explicit negative        | Pushes the positive closer than the negative by a fixed margin  | Curated negatives, direct control                              |
+| `CosineSimilarityLoss`                | Pairs with a **graded score** in `[0, 1]` | Regresses predicted cosine similarity onto the label            | You have relevance grades. Rare; expensive to label.           |
+| `MatryoshkaLoss`                      | Wraps another loss                        | Trains so the first `d` dimensions are usable alone             | You want truncatable vectors for cheaper storage and search    |
+| `GISTEmbedLoss`                       | Pairs plus a guide model                  | Uses a stronger model to filter in-batch false negatives        | In-batch false negatives are hurting and you have a good guide |
 
 ### Why MNRL is the default
 
@@ -370,7 +370,7 @@ pairs. Nothing else gives you that leverage from pairs alone.
 
 ### Why batch size is a hyperparameter of the loss
 
-With in-batch negatives, **batch size *is* the number of negatives per query.**
+With in-batch negatives, **batch size _is_ the number of negatives per query.**
 A batch of 16 asks the model to pick the right document out of 16. A batch of
 256 asks it to pick out of 256 — a much harder task, so a much stronger training
 signal. The gap between batch 16 and batch 256 on MNRL is usually larger than
@@ -492,14 +492,14 @@ rather than trusting `metric_for_best_model` to be spelled right.
 Four things that go wrong here more often than anything else:
 
 - **Prefixes.** If the base model expects `query:` and `passage:` prefixes or an
-  instruction prompt, apply them in training data *and* at inference, correct
+  instruction prompt, apply them in training data _and_ at inference, correct
   side each time. Check the model card.
 - **Column order.** MNRL reads positional meaning from column order, not names.
   An anchor column second is a silent disaster.
 - **Epochs.** Two is often right, three usually too many. Retrieval fine-tunes
   overfit visibly: held-out `ndcg@10` peaks and falls while training loss keeps
   dropping.
-- **Evaluator corpus size.** Evaluate against the *full* corpus, not just the
+- **Evaluator corpus size.** Evaluate against the _full_ corpus, not just the
   documents in your eval pairs. Retrieving from 500 documents is a much easier
   problem than retrieving from 500,000, and the easy number will mislead you.
 
@@ -509,7 +509,7 @@ Often the better return than the embedder, for three reasons.
 
 **It sees query and document together.** Full cross-attention between query
 tokens and document tokens, rather than two vectors compared after the fact. It
-can represent "this passage mentions macOS Sonoma *and* the VPN client version"
+can represent "this passage mentions macOS Sonoma _and_ the VPN client version"
 in a way no cosine similarity between independently-computed vectors can.
 
 **Inference cost is bounded.** It only scores the shortlist. Fifty candidates, a
@@ -602,13 +602,13 @@ disagreement is the most useful thing you will learn.
 
 ### Retrieval metrics on held-out queries
 
-| Metric | What it tells you | Watch out for |
-| --- | --- | --- |
-| `recall@k` at your real `k` | Is the answer in the context you send the generator? **The one that matters most.** | Measure at the `k` you actually use, not `k=100` |
-| `MRR@10` | How high the first correct result lands | Insensitive to additional correct results |
-| `nDCG@10` | Graded, position-weighted quality | Needs graded labels to mean much; with binary labels it is close to MRR |
-| `precision@k` | Share of the context window that is useful | Matters when context is tight or expensive |
-| Latency p95 at your corpus size | The cost of the win | Reranking adds a forward pass per candidate |
+| Metric                          | What it tells you                                                                   | Watch out for                                                           |
+| ------------------------------- | ----------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `recall@k` at your real `k`     | Is the answer in the context you send the generator? **The one that matters most.** | Measure at the `k` you actually use, not `k=100`                        |
+| `MRR@10`                        | How high the first correct result lands                                             | Insensitive to additional correct results                               |
+| `nDCG@10`                       | Graded, position-weighted quality                                                   | Needs graded labels to mean much; with binary labels it is close to MRR |
+| `precision@k`                   | Share of the context window that is useful                                          | Matters when context is tight or expensive                              |
+| Latency p95 at your corpus size | The cost of the win                                                                 | Reranking adds a forward pass per candidate                             |
 
 Non-negotiable: **held-out queries, full corpus, measured before and after with
 the same evaluator.** And decontaminate — a synthetic query generated from chunk
@@ -633,15 +633,15 @@ decoding. The comparison discipline from
 [evaluating a fine-tune](./07-evaluating-fine-tunes.mdx) applies unchanged: one
 variable, which here is the retriever.
 
-| Layer | Before | After | Delta |
-| --- | --- | --- | --- |
-| `recall@5` on held-out queries | 0.68 | 0.84 | +16 pts |
-| `recall@20` | 0.89 | 0.95 | +6 pts |
-| `MRR@10` | 0.52 | 0.71 | +19 pts |
-| Answer faithfulness (judge) | 0.74 | 0.83 | +9 pts |
-| Answer correctness (judge) | 0.71 | 0.79 | +8 pts |
-| Retrieval p95 latency | 38 ms | 41 ms | +3 ms |
-| "I don't know" rate | 0.18 | 0.09 | -9 pts |
+| Layer                          | Before | After | Delta   |
+| ------------------------------ | ------ | ----- | ------- |
+| `recall@5` on held-out queries | 0.68   | 0.84  | +16 pts |
+| `recall@20`                    | 0.89   | 0.95  | +6 pts  |
+| `MRR@10`                       | 0.52   | 0.71  | +19 pts |
+| Answer faithfulness (judge)    | 0.74   | 0.83  | +9 pts  |
+| Answer correctness (judge)     | 0.71   | 0.79  | +8 pts  |
+| Retrieval p95 latency          | 38 ms  | 41 ms | +3 ms   |
+| "I don't know" rate            | 0.18   | 0.09  | -9 pts  |
 
 That last row is often the clearest signal of a retrieval win in a grounded
 system: the model stops saying it cannot find the answer, because it can.
@@ -695,16 +695,16 @@ Price it before you promise a date.
 
 ## Where to Spend Effort on Retrieval Quality
 
-| Intervention | Expected gain | Effort | Re-embed required? |
-| --- | --- | --- | --- |
-| Fix chunking: size, overlap, respect structure | Often the largest single gain, especially if chunks split tables or sections | Days | **Yes** (chunks changed) |
-| Hybrid search: BM25 plus vector, fused | Large and reliable, especially for IDs, error codes, acronyms | Days | No |
-| Off-the-shelf cross-encoder reranker | Large on precision; the standard next move | Hours | No |
-| **Fine-tuned reranker** | Moderate to large on a specialised corpus | Days | **No** |
-| **Fine-tuned embedder** | Moderate to large on recall, biggest on specialised corpora | Days to weeks, mostly data and migration | **Yes** |
-| Query transformation: rewriting, expansion, HyDE | Moderate, variable by domain; adds latency | Days | No |
-| Metadata filtering and structured pre-filters | Large where it applies, zero where it does not | Days | No |
-| Fine-tuned generator | Small for retrieval quality; it is not a retrieval fix | Weeks | No |
+| Intervention                                     | Expected gain                                                                | Effort                                   | Re-embed required?       |
+| ------------------------------------------------ | ---------------------------------------------------------------------------- | ---------------------------------------- | ------------------------ |
+| Fix chunking: size, overlap, respect structure   | Often the largest single gain, especially if chunks split tables or sections | Days                                     | **Yes** (chunks changed) |
+| Hybrid search: BM25 plus vector, fused           | Large and reliable, especially for IDs, error codes, acronyms                | Days                                     | No                       |
+| Off-the-shelf cross-encoder reranker             | Large on precision; the standard next move                                   | Hours                                    | No                       |
+| **Fine-tuned reranker**                          | Moderate to large on a specialised corpus                                    | Days                                     | **No**                   |
+| **Fine-tuned embedder**                          | Moderate to large on recall, biggest on specialised corpora                  | Days to weeks, mostly data and migration | **Yes**                  |
+| Query transformation: rewriting, expansion, HyDE | Moderate, variable by domain; adds latency                                   | Days                                     | No                       |
+| Metadata filtering and structured pre-filters    | Large where it applies, zero where it does not                               | Days                                     | No                       |
+| Fine-tuned generator                             | Small for retrieval quality; it is not a retrieval fix                       | Weeks                                    | No                       |
 
 **The explicit recommendation:** fix chunking, add hybrid search, add an
 off-the-shelf reranker, measuring after each. If you are still short,
@@ -804,3 +804,5 @@ period, and how you would roll back.
 - [ ] You have trained or evaluated a cross-encoder reranker and can say why it needs no re-embed.
 - [ ] You can describe the re-embedding migration — backfill, dual-write, canary, rollback — and estimate its cost.
 - [ ] You can order the retrieval-quality interventions and justify why the embedder fine-tune is not first.
+
+Next: [Synthetic Data Generation](./09-synthetic-data-generation.mdx).

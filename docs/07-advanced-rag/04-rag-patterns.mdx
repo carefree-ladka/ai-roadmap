@@ -224,6 +224,39 @@ Generate SQL against a known schema and run it read-only.
 **Use when:** aggregations, counts, precise filters, time ranges.
 **Cost:** +1 call, plus serious security work to do it safely.
 
+### Vectorless / reasoning-based RAG
+
+Drop embeddings entirely. At index time, build a hierarchical tree of each
+document — an "intelligent table of contents" of sections and subsections. At
+query time, the LLM **navigates** that tree by reasoning ("the answer is
+probably under 'Billing → Refunds', open that"), then reads the selected
+sections to answer. No embedding model, no vector store, no fixed-size
+chunking. The best-known implementation is
+[PageIndex](https://pageindex.ai/blog/pageindex-intro), which calls it
+reasoning-based retrieval. [Content was rephrased for compliance with licensing restrictions.]
+
+Two properties make it worth knowing. Retrieval is **traceable** — every answer
+maps to a specific section and page, not an opaque similarity score, which the
+approach's advocates contrast with the "vibe retrieval" of approximate vector
+search. And it sidesteps embeddings' weak spots: long structured documents,
+heavy domain jargon, and tables of contents that a generic embedder reads no
+better than prose. There is also no re-embedding migration to ever run.
+
+The cost is real and query-time. Navigation is one or more LLM reasoning calls
+per query, so latency and token cost scale with tree size and depth rather than
+being a near-instant index lookup. It assumes the document *has* a navigable
+structure, and it does not natively scale to millions of unrelated documents —
+you navigate *within* a document or a bounded set, so a large heterogeneous
+corpus still needs a routing or first-pass step to pick which tree to walk.
+Think of it as the structured-document cousin of agentic RAG: the model uses
+reasoning instead of cosine similarity to decide what to read.
+
+**Use when:** long, well-structured documents — manuals, filings, contracts,
+textbooks — where traceability matters and the corpus is bounded.
+**Cost:** +N reasoning calls per query, no index-time embedding.
+**Fails when:** documents are unstructured, or the corpus is a vast flat pile
+with no hierarchy to navigate.
+
 ### Agentic RAG
 
 Give the model retrieval as a tool and let it decide whether, where and how
@@ -287,6 +320,7 @@ provider or runtime support for cache reuse, and the corpus must be static.
 | Adaptive RAG | Mixed difficulty traffic | +1..6 | Variable | High | Wide query distribution |
 | Graph RAG | Multi-hop, global themes | +1..N | Med-high | Very high | Relationship questions |
 | Text-to-SQL | Counts, aggregates, filters | +1 | Low-med | Med-high | Numeric/tabular truth |
+| Vectorless / reasoning | No embeddings; traceable retrieval | +N (nav) | Med-high | Medium | Long structured docs, bounded corpus |
 | Agentic RAG | Open-ended research | 3-20+ | Very high | High | Depth over speed |
 | Multimodal | Non-text sources | +N at index | Medium | High | Decks, scans, charts |
 | Long-context stuffing | Pipeline complexity | 0 | High | None | Small static corpus |
@@ -326,7 +360,7 @@ Run that over 30-50 real failures and count. Then:
 
 | Diagnosis | Patterns that help | Patterns that won't |
 | --- | --- | --- |
-| Answer absent from context | Hybrid, Multi-Query, HyDE, routing, graph | Reranking, compression, bigger prompts |
+| Answer absent from context | Hybrid, Multi-Query, HyDE, routing, graph, vectorless (if structured) | Reranking, compression, bigger prompts |
 | Answer present but ranked low | Reranking, RRF | Query transforms |
 | Answer present, model ignored it | Reordering, compression, prompt work, smaller k | More retrieval |
 | Answer spans several documents | Decomposition, graph, agentic | Bigger top-k |
@@ -353,6 +387,7 @@ flowchart TD
     D -->|"Multi-hop question"| MH["Decomposition, then Graph RAG"]
     D -->|"Needs fresh data"| FR["Routing to web / API tool"]
     D -->|"Needs exact numbers"| SQ["Text-to-SQL"]
+    D -->|"Long structured doc, needs traceable retrieval"| VL["Vectorless / reasoning-based"]
     D -->|"Quality is inconsistent"| CR["CRAG / Adaptive RAG"]
 ```
 
@@ -423,6 +458,8 @@ Each family has its own implementation page:
 - What's the difference between Multi-Query and RAG-Fusion?
 - Why does HyDE help, and when does it backfire?
 - When would you choose a graph over a vector store?
+- What is vectorless / reasoning-based RAG, and when would you prefer it to
+  embeddings? What does it cost, and where does it stop scaling?
 - You have a 2-second latency budget. Which advanced RAG patterns are off the
   table, and which still fit?
 - Long-context models keep getting bigger. Does RAG become obsolete? Why not?

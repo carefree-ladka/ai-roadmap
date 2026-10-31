@@ -1,10 +1,10 @@
 ---
 title: Fine-Tuning and Model Adaptation
-description: Decide whether to fine-tune at all, then execute it end to end — data, LoRA and QLoRA, training, preference tuning, serving, evaluation, and embedding models.
+description: Decide whether to fine-tune at all, then execute it end to end — data, LoRA and QLoRA, training, preference tuning, serving, evaluation, embedding models, synthetic data, and distillation.
 slug: /14-fine-tuning-and-model-adaptation
 ---
 
-import TOCInline from '@theme/TOCInline';
+import TOCInline from "@theme/TOCInline";
 
 # 14 · Fine-Tuning and Model Adaptation
 
@@ -17,7 +17,7 @@ Fine-tuning is the most expensive and least reversible lever you have, and it is
 the one people reach for first. This section teaches you to run it properly —
 and to recognise the much more common case where prompting, retrieval or better
 chunking gets you there for a fraction of the cost. The most valuable outcome of
-this section may well be a well-argued decision *not* to fine-tune.
+this section may well be a well-argued decision _not_ to fine-tune.
 :::
 
 ## Goal
@@ -69,12 +69,19 @@ the one people underestimate.
    whether the project succeeded.
 7. [Evaluating a Fine-Tune](./07-evaluating-fine-tunes.mdx) — baselining before
    you train, deterministic checks before model-graded ones, regression suites
-   for capabilities you did *not* train on, safety re-evaluation, and a
+   for capabilities you did _not_ train on, safety re-evaluation, and a
    ship/no-ship scorecard.
 8. [Fine-Tuning Embeddings & Rerankers](./08-fine-tuning-embeddings.mdx) — the
    highest-return fine-tune most RAG teams never try: hard-negative mining,
    `sentence-transformers` training, reranker fine-tuning, and the re-embedding
    migration it forces.
+9. [Synthetic Data Generation](./09-synthetic-data-generation.mdx) — manufacture
+   training and eval data with a strong model: Self-Instruct and Evol-Instruct,
+   the quality gauntlet, decontamination, the licensing trap, and the ways
+   synthetic data quietly poisons a run.
+10. [Distillation & Model Compression](./10-distillation-and-compression.mdx) —
+    shrink an accurate-but-expensive model: sequence and logit distillation,
+    pruning, speculative decoding, and how all of it relates to quantization.
 
 The general evaluation machinery — dataset construction, judge calibration, CI
 harnesses — is not repeated here. It lives in
@@ -126,5 +133,7 @@ case for not doing it.
 - [ ] You can describe how you would evaluate the result against a frozen baseline, including a regression suite for untrained capabilities.
 - [ ] You can name the serving pattern you would use, and the cost comparison that justifies it.
 - [ ] You know that fine-tuning an embedding model or reranker is usually the cheaper win than fine-tuning the generator, and why.
+- [ ] You can generate synthetic training or eval data, filter it hard, and decontaminate it against a frozen eval set — and you know the licensing gate on distilling from a hosted model.
+- [ ] You can order the compression levers (speculative decoding, quantization, distillation, pruning) by cost and quality impact, and explain why distillation comes last.
 
 Next: [15 · Multimodal GenAI](../15-multimodal-genai/index.mdx).

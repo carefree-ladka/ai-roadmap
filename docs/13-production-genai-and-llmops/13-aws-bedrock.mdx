@@ -1,0 +1,505 @@
+---
+title: "AWS Bedrock — Complete Guide"
+description: Amazon Bedrock end to end — the Converse API, streaming, tool use, embeddings, managed RAG with Knowledge Bases, Agents and AgentCore, Guardrails, model customization, inference options, and a FastAPI integration, with boto3 examples throughout.
+sidebar_label: AWS Bedrock
+---
+
+# AWS Bedrock — Complete Guide
+
+## Table of Contents
+
+1. [What Amazon Bedrock Is & Why It Exists](#1-what-amazon-bedrock-is--why-it-exists)
+2. [Core Concepts](#2-core-concepts)
+3. [Setup: Access, IAM, and the boto3 Clients](#3-setup-access-iam-and-the-boto3-clients)
+4. [Two Invocation APIs: InvokeModel vs Converse](#4-two-invocation-apis-invokemodel-vs-converse)
+5. [The Converse API: Chat, System Prompts, Inference Config](#5-the-converse-api-chat-system-prompts-inference-config)
+6. [Streaming with ConverseStream](#6-streaming-with-conversestream)
+7. [Tool Use (Function Calling)](#7-tool-use-function-calling)
+8. [Embeddings](#8-embeddings)
+9. [Knowledge Bases: Managed RAG](#9-knowledge-bases-managed-rag)
+10. [Agents and AgentCore](#10-agents-and-agentcore)
+11. [Guardrails](#11-guardrails)
+12. [Model Customization](#12-model-customization)
+13. [Inference Options: On-Demand, Provisioned, Batch, Caching](#13-inference-options-on-demand-provisioned-batch-caching)
+14. [FastAPI Integration](#14-fastapi-integration)
+15. [Observability, Cost, and Security](#15-observability-cost-and-security)
+16. [When to Use Bedrock (and When Not To)](#16-when-to-use-bedrock-and-when-not-to)
+17. [Checklist — Topics You Must Master](#17-checklist--topics-you-must-master)
+
+---
+
+## 1. What Amazon Bedrock Is & Why It Exists
+
+**Amazon Bedrock** is AWS's fully managed service for calling foundation models
+from several providers — Anthropic Claude, Meta Llama, Mistral, Cohere, AI21,
+Stability, and Amazon's own Nova and Titan families — through **one API, one IAM
+boundary, and one bill**. It is serverless: there is no GPU to provision, no
+container to run, no capacity to size. You call an endpoint and pay per token.
+
+The reason it exists, and the reason to reach for it, is the same as the
+[NVIDIA NIM hosted-endpoint](./01-nvidia-nim-endpoints.mdx) story one level up:
+you want a model behind an HTTP call without operating inference. Bedrock's
+specific pitch is **multi-provider access inside AWS** — swap Claude for Llama
+by changing a model ID, keep your data inside your AWS account and VPC, and
+authorize everything with IAM instead of a scatter of provider API keys.
+
+Mental model: **Bedrock is a model gateway that AWS runs for you**, with managed
+RAG (Knowledge Bases), managed agents (Agents / AgentCore), and managed safety
+(Guardrails) bolted on. If you already run your own
+[model gateway](./07-model-gateway-and-fallbacks.mdx), Bedrock is one more
+backend behind it — a very capable one.
+
+## 2. Core Concepts
+
+| Concept | What it means |
+| --- | --- |
+| **Foundation model** | A provider's model, identified by a **model ID** like `anthropic.claude-3-5-sonnet-20240620-v1:0` or `amazon.nova-pro-v1:0` |
+| **Model access** | You must *request access* to each model family in the console before you can call it |
+| **Inference profile** | A cross-region alias (e.g. `us.anthropic.claude-...`) that routes to whichever Region has capacity; increasingly the recommended thing to pass as `modelId` |
+| **On-demand** | Pay per input/output token, no commitment — the default |
+| **Provisioned throughput** | Reserved capacity (model units) for guaranteed throughput and some custom models |
+| **Region** | Model availability and pricing vary by Region; not every model is in every Region |
+
+Two gotchas that cost people a morning: **a model you have not requested access
+to returns an access error, not a "model not found"**, and **the `modelId` you
+can pass may need to be an inference profile rather than a bare model ID** for
+some models, because on-demand throughput is only offered through the profile.
+
+## 3. Setup: Access, IAM, and the boto3 Clients
+
+Request model access in the Bedrock console, then grant IAM permission. Least
+privilege means scoping to specific model ARNs, not `bedrock:*`:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Action": ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
+    "Resource": [
+      "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-3-5-sonnet-*",
+      "arn:aws:bedrock:*::foundation-model/amazon.nova-*"
+    ]
+  }]
+}
+```
+
+Bedrock is split across **four boto3 clients**, and picking the wrong one is the
+most common first mistake:
+
+| Client | Plane | Use it for |
+| --- | --- | --- |
+| `bedrock` | Control | Managing models, creating Guardrails, custom models |
+| `bedrock-runtime` | Data | **Invoking models**: `invoke_model`, `converse`, `converse_stream`, `apply_guardrail` |
+| `bedrock-agent` | Control | Creating/managing Knowledge Bases and Agents |
+| `bedrock-agent-runtime` | Data | **Querying** them: `retrieve`, `retrieve_and_generate`, `invoke_agent` |
+
+```python
+import boto3
+
+rt = boto3.client("bedrock-runtime", region_name="us-east-1")        # invoke models
+agent_rt = boto3.client("bedrock-agent-runtime", region_name="us-east-1")  # query KBs/agents
+```
+
+## 4. Two Invocation APIs: InvokeModel vs Converse
+
+Bedrock has a lower-level and a higher-level way to call a chat model.
+
+| | `InvokeModel` | `Converse` |
+| --- | --- | --- |
+| Request body | **Provider-specific JSON** — Claude's shape differs from Llama's | **One unified schema** for every model |
+| Swapping models | Rewrite the body | Change the `modelId` string |
+| Tool use, system prompts | Provider-specific | Normalized across models |
+| When to use | A provider feature Converse has not exposed yet | **Almost always** |
+
+The practical rule, and what AWS itself recommends: **use Converse unless you
+have a specific reason not to.** It removes the per-model coupling — you write
+the call once and change only the model ID. `InvokeModel` is the escape hatch
+for a provider parameter Converse does not surface. [Content was rephrased for compliance with licensing restrictions, from the [Bedrock Converse API docs](https://docs.aws.amazon.com/nova/latest/userguide/using-converse-api.html).]
+
+## 5. The Converse API: Chat, System Prompts, Inference Config
+
+The shape to memorize: `messages` is a list of turns, each turn's `content` is a
+list of **content blocks** (text, image, document, tool use/result).
+
+```python
+resp = rt.converse(
+    modelId="anthropic.claude-3-5-sonnet-20240620-v1:0",   # or an inference profile id
+    system=[{"text": "You are a concise technical assistant. Cite sources."}],
+    messages=[
+        {"role": "user", "content": [{"text": "Explain prompt caching in two sentences."}]},
+    ],
+    inferenceConfig={"maxTokens": 512, "temperature": 0.2, "topP": 0.9},
+)
+
+print(resp["output"]["message"]["content"][0]["text"])
+print(resp["stopReason"])          # "end_turn", "max_tokens", "tool_use", ...
+print(resp["usage"])               # inputTokens, outputTokens, totalTokens
+```
+
+Three things that make this robust in production:
+
+- **`usage` is returned on every call** — log `inputTokens`/`outputTokens` for
+  the [cost model](./08-cost-and-latency.mdx). You do not have to count tokens
+  yourself.
+- **`stopReason` tells you why generation ended.** `max_tokens` means you
+  truncated the answer; treat it as a signal, not success.
+- **Multi-turn is just a longer `messages` list.** Bedrock is stateless — you
+  resend the history each call, exactly like any other provider.
+
+## 6. Streaming with ConverseStream
+
+`converse_stream` returns an event stream. The deltas arrive as
+`contentBlockDelta` events; metadata (usage, stop reason) arrives at the end.
+
+```python
+resp = rt.converse_stream(
+    modelId="anthropic.claude-3-5-sonnet-20240620-v1:0",
+    messages=[{"role": "user", "content": [{"text": "Write a haiku about latency."}]}],
+    inferenceConfig={"maxTokens": 256},
+)
+
+for event in resp["stream"]:
+    if "contentBlockDelta" in event:
+        print(event["contentBlockDelta"]["delta"]["text"], end="", flush=True)
+    elif "metadata" in event:
+        print("\n", event["metadata"]["usage"])
+```
+
+Streaming here is perceived-latency only, the same tradeoff as everywhere —
+see [cost & latency](./08-cost-and-latency.mdx). The FastAPI section below turns
+this iterator into Server-Sent Events.
+
+## 7. Tool Use (Function Calling)
+
+Converse normalizes tool calling across models. You pass a `toolConfig`
+describing each tool with a JSON Schema; the model may stop with
+`stopReason == "tool_use"`; you run the tool and send the result back as a
+`toolResult` content block.
+
+```python
+tool_config = {
+    "tools": [{
+        "toolSpec": {
+            "name": "get_weather",
+            "description": "Current weather for a city.",
+            "inputSchema": {"json": {
+                "type": "object",
+                "properties": {"city": {"type": "string"}},
+                "required": ["city"],
+            }},
+        }
+    }]
+}
+
+messages = [{"role": "user", "content": [{"text": "Weather in Berlin?"}]}]
+resp = rt.converse(modelId=MODEL, messages=messages, toolConfig=tool_config)
+
+if resp["stopReason"] == "tool_use":
+    # Echo the assistant turn back, then append the tool result.
+    messages.append(resp["output"]["message"])
+    for block in resp["output"]["message"]["content"]:
+        if "toolUse" in block:
+            call = block["toolUse"]
+            result = run_tool(call["name"], call["input"])      # your code
+            messages.append({"role": "user", "content": [{
+                "toolResult": {
+                    "toolUseId": call["toolUseId"],
+                    "content": [{"json": result}],
+                }
+            }]})
+    final = rt.converse(modelId=MODEL, messages=messages, toolConfig=tool_config)
+    print(final["output"]["message"]["content"][0]["text"])
+```
+
+The loop is identical to the one in
+[Tool Design](../09-tool-calling-and-ai-agents/07-tool-design.mdx); Bedrock just
+gives it a provider-neutral wire format. For a full agent, you wrap this in the
+same bounded loop with a step cap.
+
+## 8. Embeddings
+
+Converse is for chat; embeddings go through `invoke_model` with an embedding
+model (Amazon Titan Text Embeddings or Cohere Embed):
+
+```python
+import json
+
+resp = rt.invoke_model(
+    modelId="amazon.titan-embed-text-v2:0",
+    body=json.dumps({"inputText": "chunk of text to embed"}),
+)
+vector = json.loads(resp["body"].read())["embedding"]
+```
+
+Use these as the embedding step in your own RAG pipeline — or let Knowledge
+Bases do the embedding for you, which is the next section.
+
+## 9. Knowledge Bases: Managed RAG
+
+**Knowledge Bases for Amazon Bedrock** is fully managed RAG: point it at a data
+source, and AWS handles chunking, embedding, vector storage, and retrieval, so
+there is no ingestion pipeline to build or vector store to operate. [Content was rephrased for compliance with licensing restrictions, from the [Knowledge Bases docs](https://docs.aws.amazon.com/bedrock/latest/userguide/knowledge-base.html).]
+
+| Piece | Options |
+| --- | --- |
+| Data source | S3, and connectors for SharePoint, Confluence, Salesforce, web crawl |
+| Embedding model | Titan or Cohere, chosen at creation |
+| Vector store | OpenSearch Serverless, Aurora PostgreSQL (pgvector), Pinecone, Redis, MongoDB, S3 Vectors — or let Bedrock quick-create one |
+| Query APIs | `retrieve` (chunks only) and `retrieve_and_generate` (chunks + an answer) |
+
+The two query modes map onto the split from your own
+[RAG pipeline](../06-rag/02-retrieval-generation.mdx) — retrieve, or
+retrieve-then-generate:
+
+```python
+# retrieve_and_generate: one call does retrieval AND generation, with citations.
+resp = agent_rt.retrieve_and_generate(
+    input={"text": "What is our refund window for EU customers?"},
+    retrieveAndGenerateConfiguration={
+        "type": "KNOWLEDGE_BASE",
+        "knowledgeBaseConfiguration": {
+            "knowledgeBaseId": "KB123456",
+            "modelArn": "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-3-5-sonnet-20240620-v1:0",
+        },
+    },
+)
+print(resp["output"]["text"])
+for c in resp["citations"]:                 # which chunks grounded the answer
+    for ref in c["retrievedReferences"]:
+        print(ref["location"], ref["content"]["text"][:120])
+```
+
+```python
+# retrieve: just the chunks, when you want to build the prompt yourself.
+hits = agent_rt.retrieve(
+    knowledgeBaseId="KB123456",
+    retrievalQuery={"text": "refund window EU"},
+    retrievalConfiguration={"vectorSearchConfiguration": {"numberOfResults": 5}},
+)
+```
+
+The honest tradeoff: Knowledge Bases buys you speed-to-first-RAG and zero
+retrieval ops, at the cost of the fine control your own pipeline gives you over
+[chunking](../06-rag/05-chunking-strategies.mdx),
+[hybrid search](../06-rag/10-hybrid-search.mdx) and
+[reranking](../06-rag/11-reranking.mdx). It supports metadata filtering, hybrid
+search and reranking, but you tune within its knobs, not your own code. Use it
+when managed RAG is the goal; keep your own pipeline when retrieval quality is
+the product.
+
+## 10. Agents and AgentCore
+
+There are two layers here, and they are easy to confuse.
+
+- **Amazon Bedrock Agents** — the managed agent product: you define *action
+  groups* (backed by Lambda functions or an API schema), attach Knowledge Bases,
+  and Bedrock runs the orchestration loop (reason → call action → observe). You
+  invoke it with `invoke_agent`. Good when you want a managed ReAct-style agent
+  without running your own loop.
+- **Amazon Bedrock AgentCore** — a newer set of building blocks for running
+  agents you build yourself (in any framework): a managed Runtime, a Gateway
+  that turns APIs and Knowledge Bases into tools, managed Memory, Identity, code
+  interpreter and browser tools, and Observability. It is the "operate my agent"
+  layer rather than the "define an agent in the console" product.
+
+For how agent loops actually work and when a managed agent is worth it versus
+your own [LangGraph](../10-genai-frameworks-and-ecosystem/03-complete-guides/04-langgraph-complete-guide.mdx)
+or [Deep Agent](../10-genai-frameworks-and-ecosystem/04-deep-agents/01-deep-agents-overview.mdx),
+see [Tool Calling & AI Agents](../09-tool-calling-and-ai-agents/index.mdx). The
+same "managed vs self-built" judgement applies: the console agent is fastest to
+stand up and hardest to customize.
+
+## 11. Guardrails
+
+**Amazon Bedrock Guardrails** is a configurable, model-independent safety layer
+— content filters, denied topics, word filters, PII/sensitive-information
+filters, contextual grounding (hallucination) checks, and automated-reasoning
+checks. You can attach it to a Converse call, or apply it to arbitrary text
+(including non-Bedrock model output) with the `apply_guardrail` API.
+
+```python
+# Attach to a Converse call:
+resp = rt.converse(modelId=MODEL, messages=msgs,
+                   guardrailConfig={"guardrailIdentifier": "gr-abc123", "guardrailVersion": "1"})
+
+# Or screen arbitrary text independently:
+check = rt.apply_guardrail(
+    guardrailIdentifier="gr-abc123", guardrailVersion="1",
+    source="INPUT", content=[{"text": {"text": user_text}}],
+)
+if check["action"] == "GUARDRAIL_INTERVENED":
+    ...  # blocked or masked
+```
+
+Guardrails is one option in the broader **safety-model layer** — how it compares
+to Llama Guard, LlamaFirewall and Azure AI Content Safety, how to layer guards,
+and how to measure a guard's false-positive rate, is in
+[Safety Models & Managed Guardrails](./12-safety-models-and-guardrail-services.mdx).
+
+## 12. Model Customization
+
+Three ways to adapt a model, in rising order of cost:
+
+| Method | What it does | Serving |
+| --- | --- | --- |
+| **Fine-tuning** | Supervised adaptation on your labeled data | Requires **provisioned throughput** for the custom model |
+| **Continued pre-training** | Further pre-train on large unlabeled domain text | Provisioned throughput |
+| **Model distillation** | Train a smaller Bedrock model from a larger teacher's outputs | On-demand or provisioned |
+
+The decision discipline is unchanged from
+[Fine-Tuning and Model Adaptation](../14-fine-tuning-and-model-adaptation/index.mdx):
+exhaust prompting and RAG first, and note the operational catch specific to
+Bedrock — **a custom model needs provisioned throughput to serve**, which is a
+standing monthly cost, not a per-token one. Price that in before you fine-tune.
+
+## 13. Inference Options: On-Demand, Provisioned, Batch, Caching
+
+| Option | What it is | Use when |
+| --- | --- | --- |
+| **On-demand** | Per-token, no commitment | Default; variable or low volume |
+| **Provisioned throughput** | Reserved model units, hourly commitment | High steady volume, or serving a custom model |
+| **Batch inference** | Submit a file, get results later, roughly half price | Offline bulk work — embeddings, classification |
+| **Cross-region inference profiles** | Route to whichever Region has capacity | Availability and throughput headroom |
+| **Prompt caching** | Reuse a cached prompt prefix, discounted | Long stable system prompts (supported models) |
+| **Latency-optimized inference** | Faster decode on supported models | Interactive, latency-sensitive paths |
+
+These map directly onto the levers in
+[cost & latency](./08-cost-and-latency.mdx): batch for offline work, prompt
+caching for a stable prefix, provisioned throughput only once steady volume
+justifies the commitment. Do the arithmetic — provisioned throughput loses to
+on-demand at low or spiky volume, every time.
+
+## 14. FastAPI Integration
+
+`boto3` is synchronous, so in an async FastAPI service run Bedrock calls in a
+worker thread (or use `aioboto3`). A non-streaming endpoint:
+
+```python
+import anyio
+import boto3
+from fastapi import FastAPI
+from pydantic import BaseModel
+
+app = FastAPI()
+rt = boto3.client("bedrock-runtime", region_name="us-east-1")
+MODEL = "anthropic.claude-3-5-sonnet-20240620-v1:0"
+
+
+class Ask(BaseModel):
+    question: str
+
+
+@app.post("/chat")
+async def chat(req: Ask) -> dict:
+    def call() -> dict:
+        return rt.converse(
+            modelId=MODEL,
+            messages=[{"role": "user", "content": [{"text": req.question}]}],
+            inferenceConfig={"maxTokens": 512, "temperature": 0.2},
+        )
+
+    resp = await anyio.to_thread.run_sync(call)     # don't block the event loop
+    return {
+        "answer": resp["output"]["message"]["content"][0]["text"],
+        "usage": resp["usage"],
+    }
+```
+
+Streaming over Server-Sent Events. The Bedrock stream is a sync iterator, so
+bridge it to an async generator through a thread:
+
+```python
+import json
+from fastapi import FastAPI
+from fastapi.responses import StreamingResponse
+from starlette.concurrency import iterate_in_threadpool
+
+
+@app.post("/chat/stream")
+async def chat_stream(req: Ask) -> StreamingResponse:
+    resp = rt.converse_stream(
+        modelId=MODEL,
+        messages=[{"role": "user", "content": [{"text": req.question}]}],
+        inferenceConfig={"maxTokens": 512},
+    )
+
+    async def events():
+        async for event in iterate_in_threadpool(resp["stream"]):
+            if "contentBlockDelta" in event:
+                token = event["contentBlockDelta"]["delta"]["text"]
+                yield f"data: {json.dumps({'token': token})}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(events(), media_type="text/event-stream")
+```
+
+The SSE mechanics — heartbeats, disabling proxy buffering, cancellation — are
+the same as any streaming endpoint; see
+[Agents in Production](../09-tool-calling-and-ai-agents/12-production-agents.mdx).
+In a real service, put this behind your [model gateway](./07-model-gateway-and-fallbacks.mdx)
+so Bedrock is a backend you can fall back from, not a hard dependency.
+
+## 15. Observability, Cost, and Security
+
+**Observability.** Turn on **model invocation logging** to send full request and
+response (and token counts) to CloudWatch Logs or S3 — subject to the same
+PII-logging rules as everywhere; do not log raw prompts into a general pipeline
+(see [Security & Privacy](./09-security-and-privacy.mdx)). CloudWatch metrics
+cover invocation counts, latency, and throttles. For prompt-level tracing, wire
+it into your normal [tracing stack](../12-evaluation-testing-and-observability/07-tracing-and-observability.mdx).
+
+**Cost.** On-demand is per input/output token, priced per model and Region. The
+`usage` block on every Converse response is your source of truth — attribute it
+per route and tenant exactly as in [cost & latency](./08-cost-and-latency.mdx).
+Batch is about half price; provisioned throughput is an hourly commitment that
+only wins at steady volume.
+
+**Security.** The AWS-native story is Bedrock's strongest card:
+
+- **IAM** scopes who can invoke which model — no provider API keys to leak.
+- **PrivateLink / VPC endpoints** keep traffic off the public internet.
+- **KMS** encrypts custom models and Knowledge Base data.
+- **Data governance**: prompts and completions are **not used to train the base
+  models**, and stay in your account's Region. Still sign off the data map and
+  retention like any provider — see [Security & Privacy](./09-security-and-privacy.mdx).
+
+## 16. When to Use Bedrock (and When Not To)
+
+| Choose Bedrock when | Prefer an alternative when |
+| --- | --- |
+| You are AWS-native and want IAM/VPC/one bill | You want the newest frontier model the day it ships (often direct APIs first) |
+| You want several providers behind one API | You need a single model and the simplest possible path (a direct SDK) |
+| Compliance needs data to stay in your VPC/account | You run high steady volume and self-hosting/[NIM](./01-nvidia-nim-endpoints.mdx) is cheaper |
+| You want managed RAG or managed agents fast | Retrieval quality is the product and you want full pipeline control |
+
+Bedrock's value is **integration, not peak capability**: one API, IAM security,
+VPC isolation, managed RAG/agents/guardrails, inside AWS. If none of those
+matter to you, a direct provider SDK is simpler, and at scale self-hosting is
+cheaper. As always, put it behind your own gateway so the choice stays
+reversible.
+
+## 17. Checklist — Topics You Must Master
+
+- [ ] Request model access and scope IAM to specific model ARNs.
+- [ ] Know the four clients — `bedrock`, `bedrock-runtime`, `bedrock-agent`,
+      `bedrock-agent-runtime` — and which plane each is.
+- [ ] Use the **Converse API** by default; explain why over `InvokeModel`.
+- [ ] Read `usage` and `stopReason` from every response.
+- [ ] Stream with `converse_stream` and bridge it to SSE without blocking the
+      event loop.
+- [ ] Implement the tool-use loop with `toolConfig` / `toolUse` / `toolResult`.
+- [ ] Generate embeddings via `invoke_model`.
+- [ ] Choose between `retrieve` and `retrieve_and_generate`, and state when
+      managed Knowledge Bases beat your own pipeline and when they do not.
+- [ ] Explain Bedrock Agents vs AgentCore, and managed vs self-built agents.
+- [ ] Attach a Guardrail to a call and apply one independently with
+      `apply_guardrail`.
+- [ ] Know that custom models need provisioned throughput to serve.
+- [ ] Pick an inference option (on-demand, provisioned, batch, caching) with the
+      cost arithmetic behind it.
+- [ ] State Bedrock's security story: IAM, PrivateLink, KMS, no training on your
+      data.
+- [ ] Say when Bedrock is the wrong choice.
+
+Next: [14 · Fine-Tuning and Model Adaptation](../14-fine-tuning-and-model-adaptation/index.mdx).

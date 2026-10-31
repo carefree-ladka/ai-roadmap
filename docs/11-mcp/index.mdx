@@ -1,10 +1,10 @@
 ---
 title: MCP
-description: Learn the Model Context Protocol end to end — the wire format, building servers and clients, security and auth, deployment, and when it is not worth it.
+description: Learn the Model Context Protocol end to end — the wire format, building servers and clients, security and auth, deployment, Code Mode for large tool surfaces, when it is not worth it, and how agent-to-agent protocols sit alongside it.
 slug: /11-mcp
 ---
 
-import TOCInline from '@theme/TOCInline';
+import TOCInline from "@theme/TOCInline";
 
 # 11 · MCP
 
@@ -44,6 +44,8 @@ protocol is worth the process boundary it adds.
 5. [MCP Security & Auth](./05-security-and-auth.mdx) — the threat model, OAuth for remote servers, why token passthrough is wrong, consent design, and a hardening checklist.
 6. [Deploying & Operating MCP](./06-deploying-and-operating.mdx) — local vs remote topology, running alongside FastAPI, scaling the HTTP transport, observability, and versioning your tool surface.
 7. [MCP in Practice](./07-mcp-in-practice.mdx) — patterns, anti-patterns, the ecosystem, migrating existing tools, and a closing verdict.
+8. [Code Mode](./08-code-mode.mdx) — when many tools or a large API crowd the context window, expose code execution instead: the model writes code against a typed API in a sandbox, and a whole API fits in ~1,000 tokens.
+9. [Agent-to-Agent Protocols (A2A)](./09-agent-to-agent-protocols.mdx) — the layer above MCP: delegating to peer agents you do not own, Agent Cards and tasks, how A2A differs from MCP, the trust model, and when a function call beats a protocol.
 
 ## Where This Fits
 
@@ -75,7 +77,7 @@ usually some version of "how would you let an agent reach our internal systems
 without rebuilding tools for every framework?" Interviewers also probe the
 security side, because the answers reveal whether you have thought about an
 agent running untrusted code with your credentials. The strongest answer
-includes when you would *not* use it.
+includes when you would _not_ use it.
 
 ## Done When
 
@@ -85,5 +87,7 @@ includes when you would *not* use it.
 - [ ] You have converted a server's tools into your agent framework's tool objects.
 - [ ] You can name three MCP-specific security risks and their mitigations.
 - [ ] You can argue convincingly against adopting MCP for a given project.
+- [ ] You can explain Code Mode — why tool definitions cost context, how exposing code execution makes that cost fixed, and where authorization must still live.
+- [ ] You can state the difference between MCP (agent-to-tool) and A2A (agent-to-agent), and when a peer agent should be a protocol call rather than a function.
 
 Next: [12 · Evaluation, Testing and Observability](../12-evaluation-testing-and-observability/index.mdx).

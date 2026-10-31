@@ -1,0 +1,178 @@
+---
+title: "Human-in-the-Loop & Production"
+description: Approvals with interrupt_on, filesystem permissions and sandboxes as guardrails, managed vs self-hosted deployment, the real cost of the harness, evaluation, and when a deep agent is over-engineering.
+sidebar_label: Human-in-the-Loop & Production
+---
+
+import TOCInline from '@theme/TOCInline';
+
+# Human-in-the-Loop & Production
+
+<TOCInline toc={toc} minHeadingLevel={2} maxHeadingLevel={2} />
+
+:::tip[In this guide]
+A deep agent takes many autonomous steps, writes files, runs code and spends
+real tokens — so the production questions are control, safety, cost and
+deployment. This page covers approvals, the guardrails, managed vs self-hosted,
+what the harness actually costs, and the honest case for not using it.
+:::
+
+## Human-in-the-Loop Approvals
+
+A deep agent acts on its own, which is exactly why you want a hand on sensitive
+actions. Deep Agents uses LangGraph interrupts: pass `interrupt_on` to pause
+before chosen tool calls and wait for a human to approve, edit the arguments, or
+add guidance before the call runs. [Content was rephrased for compliance with licensing restrictions, from the [Deep Agents human-in-the-loop docs](https://docs.langchain.com/oss/python/deepagents/overview).]
+
+```python
+agent = create_deep_agent(
+    tools=[internet_search, write_record],
+    system_prompt="...",
+    model="anthropic:claude-sonnet-4-5",
+    interrupt_on={"edit_file": True, "write_record": True},   # pause before these
+)
+```
+
+Reserve it for the actions that are expensive, destructive or irreversible —
+file edits, payments, external writes. Interrupting every tool call turns an
+autonomous agent back into a manual one. Because it is built on LangGraph
+interrupts, resuming works the same way as the
+[LangGraph human-in-the-loop](../03-complete-guides/04-langgraph-complete-guide.mdx)
+pattern you already know.
+
+## Guardrails: Permissions and Sandboxes
+
+Approvals are the interactive layer; two more sit underneath:
+
+- **Filesystem permissions** — declarative allow/deny rules confine reads and
+  writes to safe paths and protect secrets. Covered on the
+  [filesystem page](./05-filesystem-and-memory.mdx).
+- **Sandboxes for code execution** — when the agent needs a real shell
+  (installing packages, running tests, using CLIs), a sandbox backend provides
+  an `execute` tool in an isolated environment. Treat agent-run code as
+  untrusted: the model may have been steered by
+  [injected content](../../09-tool-calling-and-ai-agents/11-agent-safety.mdx)
+  in a document or a tool result, so isolation is the precondition, not a nicety
+  — the same argument as [Code Mode](../../11-mcp/08-code-mode.mdx).
+
+The layering to remember: **permissions bound what files it touches, sandboxes
+bound what code can do, interrupts put a human on the rest.**
+
+## Managed vs Self-Hosted
+
+| | Self-hosted SDK (`deepagents`) | Managed Deep Agents |
+| --- | --- | --- |
+| Where it runs | Your process or container | LangChain-operated infrastructure |
+| You control | Backend, store, checkpointer, deployment | The agent definition; infra is handled |
+| Trade | Maximum flexibility, you operate it | Less ops, less control |
+| Also | A custom LangSmith Deployment you configure | — |
+
+Learn the SDK first — it is the portable skill and it is what makes the managed
+option legible. Reach for managed when you would rather not run the queues,
+checkpointer and scaling yourself; the operational concerns are the same ones in
+[Agents in Production](../../09-tool-calling-and-ai-agents/12-production-agents.mdx).
+
+## What the Harness Costs
+
+Deep Agents is powerful and not free. Price it honestly:
+
+- **More tool calls.** Planning, file reads and writes, and delegation each add
+  calls beyond the core reasoning.
+- **Subagent token spend.** Every subagent is another agent loop with its own
+  context and its own bill. Isolation saves the *main* context but costs tokens
+  in the subagent.
+- **Latency.** Multi-step runs with delegation take seconds to minutes. Stream
+  progress or the UI reads as broken.
+- **Unpredictability.** An autonomous agent choosing its own path is harder to
+  reason about than a fixed graph. Trace everything.
+
+The cost levers are the same as any LLM system — see
+[cost & latency](../../13-production-genai-and-llmops/08-cost-and-latency.mdx) —
+with prompt caching (automatic on Anthropic/Bedrock) doing real work here because
+the system prompt is large and stable.
+
+## Evaluation
+
+A deep agent is judged on its **trajectory**, not just its final answer: did it
+plan, delegate and use files sensibly, or flail? Use LangSmith to run it against
+a dataset and score both the outcome and the path. The agent-evaluation
+discipline — task success, tool-call correctness, efficiency budgets — is in
+[evaluating agents](../../09-tool-calling-and-ai-agents/10-agent-evaluation.mdx)
+and applies unchanged.
+
+## When a Deep Agent Is the Wrong Tool
+
+The most important production decision is whether to use the harness at all.
+
+| Use a deep agent | Use something simpler |
+| --- | --- |
+| Long, open-ended, multi-step work | A bounded task with known steps |
+| Context genuinely overflows one window | The job fits in context |
+| Independent subtasks worth isolating | A single linear flow |
+| | RAG Q&A → a [chain or basic agent](../01-langchain-core/09-memory-agents.mdx) |
+| | Enforced control flow → plain [LangGraph](../03-complete-guides/04-langgraph-complete-guide.mdx) |
+
+Reaching for a deep agent on a shallow task buys you planning overhead, subagent
+token spend and unpredictability to solve a problem you did not have. The skill
+is naming the threshold, exactly as with
+[agentic RAG](../../07-advanced-rag/09-agentic-rag.mdx) and
+[multi-agent systems](../../09-tool-calling-and-ai-agents/04-multi-agent-systems.mdx).
+
+## Common Mistakes
+
+- Interrupting on every tool call, turning an autonomous agent into a manual
+  one.
+- Running an `execute`-capable agent without a real sandbox, trusting
+  model-written code that may have been injection-steered.
+- No filesystem permissions, so the agent can read secrets or write anywhere.
+- Ignoring subagent token spend because "isolation saves context" — it saves the
+  *main* context and still costs tokens.
+- Blocking on a multi-minute run instead of streaming progress.
+- Using a deep agent for a task a chain or basic agent would handle, then paying
+  for the harness in cost and unpredictability.
+- Evaluating only the final answer and never the trajectory.
+
+## Interview Questions
+
+- How do you add human approval to a deep agent, and which actions warrant it?
+- What are the three guardrail layers, and what does each bound?
+- Managed vs self-hosted Deep Agents — what do you trade?
+- Where does the cost of the harness actually come from?
+- How would you evaluate a deep agent, and why is the trajectory part of the
+  score?
+- Give a concrete task where a deep agent is the wrong choice, and say what you
+  would use instead.
+
+## Things to Remember
+
+- `interrupt_on` pauses before sensitive tool calls for human approval, built on
+  LangGraph interrupts; reserve it for costly or irreversible actions.
+- Guardrails layer: permissions bound files, sandboxes bound code, interrupts
+  put a human on the rest.
+- SDK gives control and ops burden; managed gives less of both. Learn the SDK
+  first.
+- The harness costs extra tool calls, subagent tokens, latency and
+  predictability — stream and trace, and lean on prompt caching.
+- Evaluate the trajectory, not only the answer.
+- The key decision is whether to use a deep agent at all; shallow tasks want a
+  chain, a basic agent, or plain LangGraph.
+
+## Mini Exercise
+
+Take your research agent and make it production-shaped: add `interrupt_on` for
+any write or file-edit tool and confirm it pauses for approval; add a filesystem
+permission denying writes outside a working directory; and run it once under a
+LangSmith dataset so you can see a trajectory score. Then write one paragraph
+arguing whether this task actually needed a deep agent, or whether a basic agent
+would have done — and defend the answer with the trace.
+
+## Done When
+
+- [ ] You can add and scope human approvals with `interrupt_on`.
+- [ ] You can describe the three guardrail layers and when each applies.
+- [ ] You can choose between self-hosted and managed deployment.
+- [ ] You can account for the harness's cost and evaluate a trajectory.
+- [ ] You can argue, with a concrete example, when a deep agent is
+      over-engineering.
+
+Next: [11 · MCP](../../11-mcp/index.mdx).

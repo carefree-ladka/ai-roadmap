@@ -1,0 +1,187 @@
+---
+title: Building a Deep Agent
+description: Create your first deep agent with create_deep_agent — tools, instructions and a model — then a research agent that offloads context and spawns subagents, with streaming and LangSmith tracing.
+sidebar_label: Building a Deep Agent
+---
+
+import TOCInline from '@theme/TOCInline';
+
+# Building a Deep Agent
+
+<TOCInline toc={toc} minHeadingLevel={2} maxHeadingLevel={2} />
+
+:::tip[In this guide]
+`create_deep_agent()` takes tools, instructions and a model and hands you a
+compiled LangGraph agent with a filesystem and subagents already wired in. We
+build the canonical example — a research agent — and cover the middleware model,
+streaming, and tracing.
+:::
+
+## What Is It?
+
+`create_deep_agent()` is the single entry point. You pass the tools the agent
+may call, a system prompt describing its job, and a model; you get back a
+runnable agent (a compiled LangGraph graph) you invoke like any other LangGraph
+app. [Content was rephrased for compliance with licensing restrictions, from the [Deep Agents quickstart](https://docs.langchain.com/oss/python/deepagents/quickstart).]
+
+## Install and Set Keys
+
+```bash
+pip install deepagents
+```
+
+Deep Agents is model-agnostic; set the key for whichever provider you use
+(Anthropic, OpenAI, Google, or a local model via Ollama). Prompt caching is
+applied automatically on Anthropic and Bedrock models, which matters for
+long-running agents — see [filesystem & memory](./05-filesystem-and-memory.mdx).
+
+## The Smallest Deep Agent
+
+```python
+from deepagents import create_deep_agent
+
+def internet_search(query: str) -> str:
+    """Search the web and return the top results for a query."""
+    ...  # your search tool — Tavily, a provider search tool, or your own
+
+agent = create_deep_agent(
+    tools=[internet_search],
+    system_prompt="You are a research assistant. Research thoroughly, then write a clear, cited report.",
+    model="anthropic:claude-sonnet-4-5",   # "provider:model" string, or a model instance
+)
+
+result = agent.invoke({"messages": [{"role": "user", "content": "Compare managed vector databases on price and recall."}]})
+print(result["messages"][-1].content)
+```
+
+That is a complete agent. Without writing any orchestration, it will:
+
+- call `internet_search` to gather information,
+- **offload** large search results to the virtual filesystem (`write_file`) and
+  read them back when needed, so raw pages do not clog the context window,
+- **spawn subagents** to handle chunky subtasks in isolated context,
+- synthesise a final report.
+
+The `model` argument takes a `"provider:model"` string or an initialised
+LangChain chat model, so swapping providers is a one-line change.
+
+## The Middleware Model
+
+A deep agent is assembled from **middleware** — composable pieces that each add
+a capability (filesystem, planning, subagents, summarisation). `create_deep_agent`
+wires sensible defaults, and you adjust them through the `middleware=` parameter.
+
+Two current defaults worth knowing, because versions have shifted:
+
+- **The filesystem middleware is on by default** and is treated as required
+  scaffolding — you restrict which file tools are exposed rather than removing
+  the middleware wholesale.
+- **Planning is opt-in** (as of recent versions). To give the agent the
+  `write_todos` tool, add `TodoListMiddleware` explicitly — see
+  [planning & to-dos](./03-planning-and-todos.mdx).
+
+```python
+from deepagents import create_deep_agent
+from deepagents.middleware import TodoListMiddleware   # import path may vary by version
+
+agent = create_deep_agent(
+    tools=[internet_search],
+    system_prompt="...",
+    model="anthropic:claude-sonnet-4-5",
+    middleware=[TodoListMiddleware()],    # add explicit planning
+)
+```
+
+:::note
+`deepagents` moves quickly — the middleware module paths, the planning default,
+and the subagent APIs have all changed across minor versions. Pin the version
+and check the [reference](https://reference.langchain.com/python/deepagents)
+before shipping; the snippets here illustrate the shape, not a frozen API.
+:::
+
+## Streaming
+
+Because a deep agent is a LangGraph graph, it streams the same way — and Deep
+Agents adds per-subagent streams so you can watch delegated work, not just the
+main loop. Stream events to a UI rather than blocking on a multi-minute run; the
+mechanics (SSE, event types, reconnection) are the same ones in
+[Agents in Production](../../09-tool-calling-and-ai-agents/12-production-agents.mdx).
+
+```python
+for chunk in agent.stream(
+    {"messages": [{"role": "user", "content": "Research X and write a brief."}]},
+    stream_mode="values",
+):
+    chunk["messages"][-1].pretty_print()
+```
+
+## Tracing
+
+A deep agent takes many steps and delegates to subagents, so a trace is not
+optional — it is how you see what happened. Point it at LangSmith by setting the
+tracing environment variables, and you get the full tree: tool calls, subagent
+delegation, file reads and writes, and model responses. See the
+[LangSmith guide](../03-complete-guides/05-langsmith-complete-guide.mdx).
+
+```bash
+export LANGSMITH_TRACING=true
+export LANGSMITH_API_KEY=...
+```
+
+## Managed vs Self-Hosted
+
+Two ways to run it, covered fully on the
+[production page](./06-human-in-the-loop-and-production.mdx):
+
+- **The SDK** (`deepagents`) — run the agent in your own process or container,
+  with your own backend, store and checkpointer. Maximum control.
+- **Managed Deep Agents** — LangChain hosts the infrastructure so you build the
+  agent without operating it.
+
+Learn the SDK first; it is the portable skill and makes the managed option
+legible.
+
+## Common Mistakes
+
+- Blocking on `invoke` for a long run and showing the user a frozen UI instead
+  of streaming.
+- Expecting the `write_todos` tool without adding `TodoListMiddleware` on a
+  version where planning is opt-in.
+- Copying middleware import paths from an old tutorial against a newer version.
+- Running a multi-step, subagent-spawning agent with no tracing, then being
+  unable to explain what it did.
+
+## Interview Questions
+
+- What are the three arguments `create_deep_agent` really needs, and what does
+  it return?
+- What does a research deep agent do automatically that you would otherwise
+  hand-code?
+- What is the middleware model, and what is on by default?
+- Why is streaming per-subagent useful, and why is tracing not optional here?
+
+## Things to Remember
+
+- `create_deep_agent(tools, system_prompt, model)` returns a compiled LangGraph
+  agent.
+- Capabilities are middleware; filesystem is default scaffolding, planning is
+  opt-in in current versions.
+- `model` is a `"provider:model"` string or a model instance — provider swaps
+  are one line.
+- Stream (including subagent streams) and trace from the start; pin the version.
+
+## Mini Exercise
+
+Build the research agent above with any search tool you have. Run a question
+that forces several searches, then open the LangSmith trace and find: how many
+tool calls it made, whether it wrote anything to the filesystem, and whether it
+spawned a subagent. Write down one thing the trace showed you that you would not
+have guessed from the final answer.
+
+## Done When
+
+- [ ] You can create and run a deep agent with a custom tool and a chosen model.
+- [ ] You can explain the middleware model and what is on by default.
+- [ ] You can stream a run and read its LangSmith trace.
+
+Next: [Planning & To-dos](./03-planning-and-todos.mdx).

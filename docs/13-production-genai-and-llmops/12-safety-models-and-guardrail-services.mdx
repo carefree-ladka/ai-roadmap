@@ -1,0 +1,322 @@
+---
+title: "Safety Models & Managed Guardrails"
+description: The safety-model layer — Llama Guard, Prompt Guard and Meta's LlamaFirewall, plus managed services like AWS Bedrock Guardrails, Azure AI Content Safety and the OpenAI Moderation API — how to layer them, and how to evaluate a guard rather than trust it.
+sidebar_label: Safety Models & Guardrails
+---
+
+import TOCInline from '@theme/TOCInline';
+
+# Safety Models & Managed Guardrails
+
+<TOCInline toc={toc} minHeadingLevel={2} maxHeadingLevel={2} />
+
+:::tip[In this guide]
+Prompt wording is not a control and regex misses paraphrases. A purpose-built
+*safety model* — a classifier trained to spot toxicity, jailbreaks, PII or an
+agent going off-goal — generalises where rules do not. This page covers the two
+families (open models you run, and managed services you call), the big named
+ones, how to layer them into a guard pipeline, and the step everyone skips:
+measuring the guard instead of trusting it.
+:::
+
+## What Is It?
+
+A **safety model** is a model whose only job is to judge other models' inputs
+and outputs — "is this prompt a jailbreak?", "does this answer contain hate
+speech?", "is this grounded in the retrieved context?". A **managed guardrail
+service** wraps one or more such models behind a cloud API you call before and
+after your main model.
+
+This is a distinct layer from what you have already met, and the three layers
+are complementary, not competing:
+
+| Layer | What it is | Covered in |
+| --- | --- | --- |
+| **Rule / flow guardrails** | Libraries with schemas, regex, topical flows | [LLM Guardrails guide](../10-genai-frameworks-and-ecosystem/03-complete-guides/07-llm-guardrails-complete-guide.mdx) (Guardrails AI, NeMo) |
+| **Safety models & services** | Trained classifiers that screen inputs/outputs | **This page** |
+| **Architectural controls** | Trust boundaries, egress allow-lists, least privilege | [Security & Privacy](./09-security-and-privacy.mdx) |
+
+A production system layers all three. This page is the middle one.
+
+## Why Does It Matter?
+
+Because the other two layers have gaps a classifier fills. Rules are exact:
+a regex that blocks one jailbreak phrase misses the paraphrase. Prompt wording
+("never reveal the system prompt") reduces frequency but is not a control,
+because it fails exactly when you need it — when the model is being
+manipulated. A model trained on thousands of jailbreak variants generalises to
+the one you did not write a rule for.
+
+The sharp caveat, stated once up front so the whole page reads correctly: **a
+safety model lowers the *probability* of a bad input or output; it does not make
+the system safe.** It is defence in depth. The architectural controls from the
+[security page](./09-security-and-privacy.mdx) are what bound the *consequence*
+when a guard misses — and guards do miss.
+
+## The Guard Pipeline
+
+The shape is always the same: screen the input, run the model, screen the
+output.
+
+```mermaid
+flowchart LR
+    U["User input"] --> IG{"Input guard:<br/>jailbreak? toxic? PII?"}
+    IG -->|"block"| R1["Refuse / sanitise"]
+    IG -->|"allow"| M["Your model / agent"]
+    M --> OG{"Output guard:<br/>toxic? leaks PII?<br/>grounded?"}
+    OG -->|"block"| R2["Suppress / regenerate"]
+    OG -->|"allow"| Resp["Response to user"]
+```
+
+Two design decisions matter more than which vendor you pick:
+
+- **Fail-open or fail-closed?** If the guard service times out or errors, do you
+  let the request through (fail-open, favouring availability) or block it
+  (fail-closed, favouring safety)? High-risk actions fail closed; a low-stakes
+  chat might fail open with the miss logged. Decide per route, deliberately.
+- **Latency.** Input checks can run **in parallel** with each other, and small
+  classifiers add tens of milliseconds. An LLM-as-judge guard adds seconds and
+  belongs off the hot path or on sampled traffic. Budget it against the
+  [latency targets](./08-cost-and-latency.mdx) — a guard that doubles p95 will
+  get switched off under pressure, which is the worst outcome.
+
+## Family 1 — Open Safety Models You Run
+
+Models you host yourself, usually small, giving you control and no per-call
+vendor cost.
+
+### Llama Guard
+
+An open classifier that screens both **inputs and outputs** against a hazard
+taxonomy (violence, sexual content, self-harm, etc.), returning safe/unsafe plus
+the category. Run it as the input and output guard in the pipeline above. It
+classifies content; it does not rewrite it.
+
+### Prompt Guard
+
+A small, fast classifier focused on **jailbreaks and prompt injection**,
+including indirect injection hidden in retrieved documents or tool output. It is
+cheap enough to run on every request as the input guard, and it pairs naturally
+with Llama Guard (one catches attacks, the other catches harmful content).
+
+### LlamaFirewall (for agents)
+
+Meta's open-source guardrail framework, designed as a **final layer of defence
+for AI agents** and used in production at Meta. [Content was rephrased for compliance with licensing restrictions, from the [LlamaFirewall paper](https://arxiv.org/abs/2505.03574).] It composes several scanners:
+
+| Scanner | Guards against |
+| --- | --- |
+| **PromptGuard 2** | Real-time jailbreak and prompt-injection detection |
+| **AlignmentCheck** | A chain-of-thought auditor that checks the agent is still pursuing the user's goal, catching goal hijacking from injected content |
+| **CodeShield** | Static analysis of model-generated code for insecure patterns |
+| Regex filters | Your own custom patterns |
+
+The published AgentDojo results make the layering case concretely: attack
+success rate dropped from roughly 17.6% with no guardrail to 7.5% with
+PromptGuard 2 alone, 2.9% with AlignmentCheck alone, and 1.75% with both — while
+task utility fell only a few points. [Content was rephrased for compliance with licensing restrictions.] The lesson is the architecture, not the
+exact numbers: **stacking a jailbreak detector and a goal-alignment auditor
+beats either alone**, and AlignmentCheck matters because it catches an agent
+that has been quietly redirected even when no obvious "jailbreak string" appears.
+
+`AlignmentCheck` is the piece worth noticing: it is the agent-specific control
+that the rule libraries and content classifiers do not have, and it maps
+directly to the [agent safety](../09-tool-calling-and-ai-agents/11-agent-safety.mdx)
+problem of injected tool output steering a long-running agent.
+
+### Others worth knowing
+
+**ShieldGemma** (Google) and **Granite Guardian** (IBM) are comparable open
+safety-classifier families; Granite Guardian also scores RAG-specific risks like
+groundedness. Know they exist; the choice between open classifiers is usually
+decided by which you can host and which scores best on *your* traffic.
+
+## Family 2 — Managed Guardrail Services
+
+Cloud APIs that bundle several safety models behind one call. You trade control
+and per-call cost for not hosting anything.
+
+### AWS Bedrock Guardrails
+
+A configurable, **model-independent** guardrail you apply to any model — or at
+any point in your own pipeline — via the `ApplyGuardrail` API. [Content was rephrased for compliance with licensing restrictions, from the [AWS Bedrock Guardrails docs](https://docs.aws.amazon.com/bedrock/latest/userguide/guardrails.html).] Its safeguards:
+
+| Safeguard | Does |
+| --- | --- |
+| Content filters | Block harmful categories; includes prompt-attack detection and image/multimodal filtering |
+| Denied topics | Block whole topics you define (e.g. a banking bot refusing investment advice) |
+| Word filters | Block specific words and phrases |
+| Sensitive information filters | Detect and redact or block PII |
+| Contextual grounding checks | **Hallucination detection** — score whether the answer is grounded in the source and relevant to the query |
+| Automated Reasoning checks | Logic/math-based verification to catch factual errors |
+
+The model-independence is the useful part: because it runs through
+`ApplyGuardrail`, you can put the same policy in front of an OpenAI model, a
+self-hosted model, or your RAG output, not only Bedrock models.
+
+### Azure AI Content Safety
+
+Microsoft's equivalent: harm categories with **severity levels** (hate, sexual,
+violence, self-harm), **Prompt Shields** for jailbreak and indirect-injection
+detection, a **groundedness** detector for hallucination, and protected-material
+detection. Same pipeline shape, different vendor.
+
+### OpenAI Moderation API
+
+A **free** moderation endpoint that classifies text and images into harm
+categories. Useful even in a non-OpenAI stack as a cheap first-pass content
+filter. It does not cover jailbreak detection, PII, or grounding — pair it with
+something that does.
+
+## What Each Layer Actually Detects
+
+The capabilities do not overlap neatly, which is why real systems combine them:
+
+| Risk | Where to catch it |
+| --- | --- |
+| Toxic / harmful content | Llama Guard, Bedrock content filters, Azure categories, OpenAI Moderation |
+| Jailbreak / prompt injection | Prompt Guard, LlamaFirewall (PromptGuard 2), Bedrock prompt-attack, Azure Prompt Shields |
+| Indirect injection (poisoned docs/tools) | Prompt Guard, Azure Prompt Shields, plus the trust-boundary [architecture](./09-security-and-privacy.mdx) |
+| PII in input or output | Bedrock sensitive-info filters, Azure, Presidio, your [redaction pipeline](./09-security-and-privacy.mdx) |
+| Hallucination / ungroundedness | Bedrock contextual grounding, Azure groundedness, Granite Guardian; and [hallucination detection](../04-prompt-engineering/05-hallucination-detection.mdx) |
+| Agent goal hijacking | LlamaFirewall AlignmentCheck |
+| Insecure generated code | LlamaFirewall CodeShield |
+| Off-topic queries | NeMo topical rails, Bedrock denied topics |
+
+Note the last row: "handling off-topic queries" is a **denied-topic / topical
+rail** job, not a safety-classifier job. Match the mechanism to the risk.
+
+## Choosing and Combining
+
+A workable default, ordered by return on effort:
+
+1. **Start managed if you are on a cloud platform.** Bedrock Guardrails or Azure
+   Content Safety give you content filters, PII and grounding checks with no
+   hosting, and Bedrock's `ApplyGuardrail` works even in front of non-Bedrock
+   models.
+2. **Add a jailbreak/injection classifier** (Prompt Guard, or the provider's
+   prompt-attack shield) on the input path. It is the highest-value guard for an
+   app that takes untrusted text.
+3. **For agents, add LlamaFirewall** — AlignmentCheck and CodeShield cover risks
+   the content classifiers do not touch.
+4. **Keep rule/flow guardrails** (NeMo topical rails, schema validation) for the
+   deterministic parts, and **keep the architectural controls** — a guard is not
+   a substitute for an egress allow-list or least-privilege tools.
+
+Self-host when you need control, data residency, or no per-call cost and can run
+the model. Use managed when you would rather not operate a classifier and the
+per-call price and data-handling terms are acceptable.
+
+## Evaluate the Guard, Do Not Trust It
+
+The step teams skip. A guard has two error modes and they pull against each
+other:
+
+- **False negatives** (a real attack slips through) — the safety risk.
+- **False positives** (a legitimate request blocked) — the product risk, and the
+  reason guards get disabled.
+
+A headline like "cuts attack success 10×" tells you nothing about *your* false
+positive rate. Measure both on your own traffic:
+
+- Build a labelled set of real attacks, real benign requests, and your edge
+  cases, and run the guard against it — exactly the
+  [eval](../12-evaluation-testing-and-observability/index.mdx) discipline you use
+  for the model, applied to the guard.
+- Track the **utility cost**: how many good requests does the guard block? A
+  guard that halves attacks but blocks 5% of legitimate traffic may be the wrong
+  trade for a low-risk feature and the right one for a high-risk action.
+- **Log every guard verdict** (not the content) so you can tune thresholds and
+  scope an incident — the audit fields are in the
+  [security page](./09-security-and-privacy.mdx).
+- **Version the guard config** and treat a threshold change like a code change,
+  with the labelled set as its regression test.
+
+One more, easy to forget: an **LLM-based guard reads attacker-controlled text**,
+so it is itself a prompt-injection target. Prefer small purpose-trained
+classifiers for the input screen, and do not let a guard hold credentials or
+tools.
+
+## Common Mistakes
+
+- Treating a safety model as a guarantee rather than a probability reducer, and
+  dropping the architectural controls that bound consequence.
+- Shipping a guard with no measurement of its false-positive rate, then
+  disabling it when it blocks real users.
+- Quoting a vendor's attack-reduction number as if it predicted behaviour on
+  your traffic.
+- Running an LLM-as-judge guard inline on the hot path and adding seconds to
+  p95.
+- Using a content classifier to handle off-topic queries instead of a
+  denied-topic / topical rail.
+- Fail-open on a high-risk action because the guard timed out, with no alert.
+- Only guarding the input, so the model's own unsafe output or PII leak reaches
+  the user.
+- Forgetting the guard itself reads hostile text and can be injected.
+- Not logging guard verdicts, so an incident cannot be scoped or the thresholds
+  tuned.
+
+## Interview Questions
+
+- Why is a trained safety classifier better than a regex or a prompt
+  instruction, and what can it still not do?
+- Name the three guardrail layers and give one example of each.
+- What does LlamaFirewall's AlignmentCheck catch that a content classifier and a
+  jailbreak detector do not?
+- Walk through a guard pipeline. Where do you fail open vs fail closed, and why?
+- What are contextual grounding checks (Bedrock) / groundedness (Azure)
+  actually detecting?
+- Why is a guard's false-positive rate as important as its false-negative rate,
+  and how would you measure both?
+- An LLM-based guard — what new risk does it introduce?
+- "Handle off-topic queries" — which mechanism, and why not a safety classifier?
+- When would you self-host a safety model versus use a managed service?
+
+## Things to Remember
+
+- Safety models are the middle layer between rule/flow guardrails and
+  architectural controls; production systems use all three.
+- Open models you run: Llama Guard (content), Prompt Guard (jailbreak/injection),
+  LlamaFirewall (agents: PromptGuard 2, AlignmentCheck, CodeShield).
+- Managed services: AWS Bedrock Guardrails (model-independent via
+  `ApplyGuardrail`, incl. grounding checks), Azure AI Content Safety (Prompt
+  Shields, groundedness), OpenAI Moderation (free, content only).
+- Layering a jailbreak detector with a goal-alignment auditor beats either
+  alone; stacking is the architecture.
+- A guard reduces probability; architecture bounds consequence. Keep both.
+- Measure the guard on your own traffic — false positives *and* negatives — log
+  verdicts, version thresholds, and keep LLM-judge guards off the hot path.
+- The guard reads hostile text; it is itself an injection target.
+
+## Mini Exercise
+
+Take your `/ask` endpoint and add a two-stage guard: a jailbreak/injection check
+on the input and a content-plus-grounding check on the output, using whichever
+family fits your stack (a managed service, or Llama Guard + Prompt Guard).
+
+First, assemble a small labelled set: 20 real injection/jailbreak attempts, 20
+clearly benign requests, and 10 edge cases from your own domain. Run the guard
+and record its false-negative and false-positive rates.
+
+Then measure the latency the guards add to p95, decide fail-open vs fail-closed
+for this route and justify it, and confirm a blocked request logs a verdict
+(without the content). Finally, plant an indirect injection in a retrieved
+document and confirm whether the input guard catches it — and whether your
+egress allow-list from the security page would have bounded the damage if it did
+not.
+
+## Done When
+
+- [ ] You can name the three guardrail layers and place safety models among
+      them.
+- [ ] You can describe a two-stage guard pipeline and choose fail-open vs
+      fail-closed per route.
+- [ ] You can match a risk (toxicity, jailbreak, PII, grounding, agent
+      alignment, insecure code, off-topic) to the right mechanism.
+- [ ] You can explain what LlamaFirewall adds for agents over a content
+      classifier.
+- [ ] You measure a guard's false-positive and false-negative rates on your own
+      traffic, log verdicts, and version thresholds.
+- [ ] You can state why a safety model is defence in depth, not a guarantee.
+
+Next: [AWS Bedrock — Complete Guide](./13-aws-bedrock.mdx).

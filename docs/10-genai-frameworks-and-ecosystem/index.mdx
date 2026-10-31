@@ -1,6 +1,6 @@
 ---
 title: GenAI Frameworks and Ecosystem
-description: Compose LLM pipelines with LangChain and LCEL — prompts, models, parsers, retrievers, RAG chains, streaming, memory, agents, and observability — then build RAG the LlamaIndex way and learn when to use each framework.
+description: Compose LLM pipelines with LangChain and LCEL — prompts, models, parsers, retrievers, RAG chains, streaming, memory, agents, and observability — then build RAG the LlamaIndex way, master the LangGraph Deep Agents harness, and learn when to use each framework.
 slug: /10-genai-frameworks-and-ecosystem
 ---
 
@@ -13,10 +13,11 @@ import TOCInline from '@theme/TOCInline';
 <TOCInline toc={toc} minHeadingLevel={2} maxHeadingLevel={2} />
 
 :::tip[In this guide]
-The two dominant LLM frameworks, end to end. You'll master LangChain's building
+The dominant LLM frameworks, end to end. You'll master LangChain's building
 blocks — prompts, models, output parsers, Runnables/LCEL, loaders, splitters,
-retrievers, RAG chains, streaming, memory, agents, and tracing — then rebuild
-RAG the LlamaIndex way and learn exactly when to reach for each (or neither).
+retrievers, RAG chains, streaming, memory, agents, and tracing — rebuild RAG the
+LlamaIndex way, learn the LangGraph Deep Agents harness for long-horizon work,
+and learn exactly when to reach for each (or neither).
 :::
 
 ## Goal
@@ -71,6 +72,21 @@ deep version of the lessons above, or as a refresher before an interview.
 | [LLM Guardrails](./03-complete-guides/07-llm-guardrails-complete-guide.mdx) | Output validation, input filtering, failing safely |
 | [Agent Frameworks Compared](./03-complete-guides/08-agent-frameworks.mdx) | LangGraph, CrewAI, Pydantic AI, LlamaIndex, provider SDKs and plain Python — the same agent in each, and how to choose |
 
+### Deep Agents (the LangGraph agent harness)
+
+The batteries-included harness on top of LangChain and LangGraph for
+long-horizon work — planning, a virtual filesystem, subagents and long-term
+memory, with the honest case for when it is over-engineering. Read the
+[LangGraph complete guide](./03-complete-guides/04-langgraph-complete-guide.mdx)
+first; Deep Agents compiles down to a LangGraph graph.
+
+14. [Deep Agents: Overview](./04-deep-agents/01-deep-agents-overview.mdx) — what a deep agent is, why shallow ReAct fails on long tasks, the four pillars, and how it relates to LangChain and LangGraph.
+15. [Building a Deep Agent](./04-deep-agents/02-building-a-deep-agent.mdx) — `create_deep_agent`, tools, model, a research agent, the middleware model, streaming and tracing.
+16. [Planning & To-dos](./04-deep-agents/03-planning-and-todos.mdx) — the `write_todos` tool, when an explicit plan helps, and why it is not a scheduler.
+17. [Subagents & Context Isolation](./04-deep-agents/04-subagents-and-context-isolation.mdx) — the task tool, isolated vs forked context, sync vs async subagents, custom subagents.
+18. [Virtual Filesystem & Memory](./04-deep-agents/05-filesystem-and-memory.mdx) — file tools, backends, permissions, context offloading, skills, and long-term memory.
+19. [Human-in-the-Loop & Production](./04-deep-agents/06-human-in-the-loop-and-production.mdx) — approvals, sandboxes, managed vs self-hosted, cost, evaluation, and when a deep agent is the wrong tool.
+
 ## Where This Fits
 
 ```mermaid
@@ -103,5 +119,8 @@ rolling your own?" — know the tradeoffs.
 - [ ] You can add conversational memory and explain when agents help or hurt.
 - [ ] You can add observability with callbacks/LangSmith.
 - [ ] You can build the same RAG in LlamaIndex and justify LangChain vs LlamaIndex.
+- [ ] You can explain what a deep agent is, its four pillars, and how it sits on top of LangChain and LangGraph.
+- [ ] You can build a deep agent with `create_deep_agent`, and configure planning, subagents and the filesystem.
+- [ ] You can argue when a deep agent is the right tool and when it is over-engineering.
 
 Next: [11 · MCP](../11-mcp/index.mdx).

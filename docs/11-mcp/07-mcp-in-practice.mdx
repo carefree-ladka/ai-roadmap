@@ -4,7 +4,7 @@ description: MCP versus plain function calling versus REST, patterns and anti-pa
 sidebar_label: MCP in Practice
 ---
 
-import TOCInline from '@theme/TOCInline';
+import TOCInline from "@theme/TOCInline";
 
 # MCP in Practice
 
@@ -34,17 +34,17 @@ negative.
 
 ## The Three Options
 
-| | Plain function calling | MCP server | REST API the agent calls |
-| --- | --- | --- | --- |
-| Where the code runs | In your agent process | Separate process | Separate service |
-| Latency overhead | None | One IPC or HTTP hop | One HTTP hop |
-| Schema | From your type hints | From your type hints, over the wire | You write it, and the tool wrapper |
-| Discovery | Compile time | Runtime | You hardcode the tool list |
-| Reusable by an IDE assistant | No | Yes | No, without a wrapper per host |
-| Reusable by another team's agent | Only if they import your code | Yes | Yes, with their own wrapper |
-| Credential scoping | One identity for the agent | Per server | Per service |
-| Testing | Trivial | Needs a transport or direct handler calls | Normal API testing |
-| Added moving parts | Zero | A process, a transport, a trust boundary | A service |
+|                                  | Plain function calling        | MCP server                                | REST API the agent calls           |
+| -------------------------------- | ----------------------------- | ----------------------------------------- | ---------------------------------- |
+| Where the code runs              | In your agent process         | Separate process                          | Separate service                   |
+| Latency overhead                 | None                          | One IPC or HTTP hop                       | One HTTP hop                       |
+| Schema                           | From your type hints          | From your type hints, over the wire       | You write it, and the tool wrapper |
+| Discovery                        | Compile time                  | Runtime                                   | You hardcode the tool list         |
+| Reusable by an IDE assistant     | No                            | Yes                                       | No, without a wrapper per host     |
+| Reusable by another team's agent | Only if they import your code | Yes                                       | Yes, with their own wrapper        |
+| Credential scoping               | One identity for the agent    | Per server                                | Per service                        |
+| Testing                          | Trivial                       | Needs a transport or direct handler calls | Normal API testing                 |
+| Added moving parts               | Zero                          | A process, a transport, a trust boundary  | A service                          |
 
 ### Choosing
 
@@ -55,7 +55,7 @@ deployment story.
 
 **MCP** when a second consumer is real — another team's agent, an IDE
 assistant, a desktop app, or your own product being used by third-party
-assistants. Also when another team *owns* the system and should own the
+assistants. Also when another team _owns_ the system and should own the
 integration.
 
 **A plain REST API** when the consumer is only ever your own agent and the
@@ -115,16 +115,16 @@ reinvented by each consumer.
 
 ## Anti-Patterns
 
-| Anti-pattern | Why it fails | Do instead |
-| --- | --- | --- |
-| One server, fifty tools | Routing accuracy collapses; schemas dominate the prompt | Split by domain; allow-list per agent |
-| Thin pass-through of a REST API | Adds a hop and no semantics; the model gets raw endpoints with no guidance | Expose task-shaped tools with real descriptions |
-| Resources where a tool belongs | The model cannot initiate a resource read, so the capability is unreachable | Tool when the model decides |
-| MCP for a single consumer | All the cost, none of the reuse | A function |
-| Business logic in the server | Diverges from your REST layer immediately | Logic in a service class, server as adapter |
-| One admin credential | Blast radius of every tool combined | One scoped credential per server |
-| Unpinned third-party servers | Tool descriptions you never reviewed, auto-updating | Pin versions; re-review on upgrade |
-| A tool per database table | Models cannot compose primitives well; you get fifteen calls per question | One tool per *task* |
+| Anti-pattern                    | Why it fails                                                                | Do instead                                      |
+| ------------------------------- | --------------------------------------------------------------------------- | ----------------------------------------------- |
+| One server, fifty tools         | Routing accuracy collapses; schemas dominate the prompt                     | Split by domain; allow-list per agent           |
+| Thin pass-through of a REST API | Adds a hop and no semantics; the model gets raw endpoints with no guidance  | Expose task-shaped tools with real descriptions |
+| Resources where a tool belongs  | The model cannot initiate a resource read, so the capability is unreachable | Tool when the model decides                     |
+| MCP for a single consumer       | All the cost, none of the reuse                                             | A function                                      |
+| Business logic in the server    | Diverges from your REST layer immediately                                   | Logic in a service class, server as adapter     |
+| One admin credential            | Blast radius of every tool combined                                         | One scoped credential per server                |
+| Unpinned third-party servers    | Tool descriptions you never reviewed, auto-updating                         | Pin versions; re-review on upgrade              |
+| A tool per database table       | Models cannot compose primitives well; you get fifteen calls per question   | One tool per _task_                             |
 
 That last one is worth dwelling on. `get_user`, `get_subscription`,
 `get_invoice`, `get_plan` looks clean and makes the model orchestrate four
@@ -135,7 +135,7 @@ questions people ask, not around your schema.
 ## Migrating Existing Tools
 
 If your agent already has tools as plain functions, republishing them is
-mechanical — *provided* the logic is not tangled into the tool definitions.
+mechanical — _provided_ the logic is not tangled into the tool definitions.
 
 Before:
 
@@ -338,4 +338,4 @@ not you ever add a server.
 - [ ] You can describe the code delta to serve a second consumer via MCP.
 - [ ] You have made and written down a decision for your own project.
 
-Next: [13 · Production GenAI and LLMOps](../13-production-genai-and-llmops/index.mdx).
+Next: [Code Mode](./08-code-mode.mdx).

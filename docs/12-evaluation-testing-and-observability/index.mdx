@@ -1,6 +1,6 @@
 ---
 title: Evaluation, Testing and Observability
-description: Treat evaluation as an engineering discipline — build datasets, pick metrics that mean something, design judges, gate CI, and measure quality in production.
+description: Treat evaluation as an engineering discipline — build datasets, pick metrics that mean something, design judges, gate CI, measure quality in production, and wire it up with the must-know tools (Ragas, DeepEval, LangSmith, Langfuse).
 slug: /12-evaluation-testing-and-observability
 ---
 
@@ -57,6 +57,10 @@ and what did it cost.
 7. [Tracing & Observability for LLM Apps](./07-tracing-and-observability.mdx) —
    spans, OpenTelemetry GenAI conventions, cost attribution, and turning a bad
    trace into a regression test.
+8. [Evaluation & Observability Tooling](./08-evaluation-tooling.mdx) — the
+   must-know tools mapped onto the concepts above: Ragas and DeepEval for
+   metrics, LangSmith and Langfuse for traces and datasets, plus Phoenix and
+   Braintrust, and a default stack.
 
 ## The Eval Loop
 
@@ -96,5 +100,6 @@ detect a provider silently changing a model under you.
 - [ ] A pull request in your repo runs an eval suite and can fail on an aggregate threshold.
 - [ ] You capture per-request traces with model, prompt version, tokens, and cost.
 - [ ] You have a habit — not a plan — for turning production failures into new cases.
+- [ ] You can name an eval framework (Ragas or DeepEval) and an observability platform (LangSmith or Langfuse) you would use, and justify the choice.
 
 Next: [13 · Production GenAI and LLMOps](../13-production-genai-and-llmops/index.mdx).

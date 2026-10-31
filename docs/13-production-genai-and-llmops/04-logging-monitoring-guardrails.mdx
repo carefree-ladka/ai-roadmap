@@ -355,7 +355,11 @@ on every request and expensive ones (LLM-based judges) selectively.
 You don't have to build everything by hand. Options include Pydantic for schema
 validation, moderation endpoints, safety classifiers such as Llama Guard,
 Guardrails AI, and NVIDIA NeMo Guardrails. Understand the underlying patterns
-first so you can judge what a library actually protects against.
+first so you can judge what a library actually protects against. The trained
+safety-classifier layer — Llama Guard, Prompt Guard, LlamaFirewall, and managed
+services like AWS Bedrock Guardrails and Azure AI Content Safety — plus how to
+evaluate a guard, is covered in
+[Safety Models & Managed Guardrails](./12-safety-models-and-guardrail-services.mdx).
 
 ### Test Your Guardrails
 

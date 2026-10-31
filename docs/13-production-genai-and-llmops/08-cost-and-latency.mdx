@@ -4,7 +4,7 @@ description: Token economics, a worked cost model at three traffic levels, the l
 sidebar_label: Cost & Latency
 ---
 
-import TOCInline from '@theme/TOCInline';
+import TOCInline from "@theme/TOCInline";
 
 # Cost & Latency Optimization
 
@@ -27,12 +27,12 @@ worth exploiting.
 
 Token economics has one asymmetry that drives everything:
 
-| | Input tokens | Output tokens |
-| --- | --- | --- |
-| Unit price | Baseline | Typically 3–5x input |
-| Generation | Parallel, one forward pass over the prompt | Serial, one pass per token |
-| Effect on latency | Small and sublinear | Large and linear |
-| Your control | Prompt and retrieval design | `max_tokens` and instructions |
+|                   | Input tokens                               | Output tokens                 |
+| ----------------- | ------------------------------------------ | ----------------------------- |
+| Unit price        | Baseline                                   | Typically 3–5x input          |
+| Generation        | Parallel, one forward pass over the prompt | Serial, one pass per token    |
+| Effect on latency | Small and sublinear                        | Large and linear              |
+| Your control      | Prompt and retrieval design                | `max_tokens` and instructions |
 
 A 400-token answer costs four times a 100-token answer and takes four times as
 long to produce, regardless of how clever your infrastructure is. Brevity is
@@ -53,15 +53,15 @@ your provider's current numbers in before quoting any of this.
 Assumptions: input `$0.50` per 1M tokens, output `$1.50` per 1M, embeddings
 `$0.02` per 1M, reranking `$1.00` per 1,000 queries.
 
-| Component | Per request | 10k / month | 100k / month | 1M / month |
-| --- | --- | --- | --- | --- |
-| Input tokens (2,500) | `$0.00125` | `$12.50` | `$125.00` | `$1,250.00` |
-| Output tokens (400) | `$0.00060` | `$6.00` | `$60.00` | `$600.00` |
-| Query embedding (30 tok) | `$0.0000006` | `$0.01` | `$0.06` | `$0.60` |
-| Reranking (20 candidates) | `$0.00100` | `$10.00` | `$100.00` | `$1,000.00` |
-| Vector store (hosted) | — | `$25.00` | `$70.00` | `$250.00` |
-| **Total** | | **`$53.51`** | **`$355.06`** | **`$3,100.60`** |
-| **Cost per request** | | `$0.0054` | `$0.0036` | `$0.0031` |
+| Component                 | Per request  | 10k / month  | 100k / month  | 1M / month      |
+| ------------------------- | ------------ | ------------ | ------------- | --------------- |
+| Input tokens (2,500)      | `$0.00125`   | `$12.50`     | `$125.00`     | `$1,250.00`     |
+| Output tokens (400)       | `$0.00060`   | `$6.00`      | `$60.00`      | `$600.00`       |
+| Query embedding (30 tok)  | `$0.0000006` | `$0.01`      | `$0.06`       | `$0.60`         |
+| Reranking (20 candidates) | `$0.00100`   | `$10.00`     | `$100.00`     | `$1,000.00`     |
+| Vector store (hosted)     | —            | `$25.00`     | `$70.00`      | `$250.00`       |
+| **Total**                 |              | **`$53.51`** | **`$355.06`** | **`$3,100.60`** |
+| **Cost per request**      |              | `$0.0054`    | `$0.0036`     | `$0.0031`       |
 
 Three things fall out of this table that people consistently guess wrong:
 
@@ -80,20 +80,20 @@ you can edit beats a benchmark you cannot.
 
 ## The Levers, Ranked
 
-| Lever | Effort | Typical saving | Latency effect | Risk |
-| --- | --- | --- | --- | --- |
-| Cut output length (`max_tokens`, "be brief") | Very low | 10–30% | Large improvement | Truncated answers if too aggressive |
-| Prompt caching | Low | 25–50% of input cost | Faster prefill | None, if ordering is stable |
-| Trim retrieved context (fewer, tighter chunks) | Low | 15–40% | Faster prefill | Recall loss if overdone |
-| Answer caching | Low | 2–20% | Huge on hits | Staleness |
-| Drop or downgrade the reranker | Low | Up to 30% | Faster | Measurable recall loss |
-| Smaller model for the whole route | Low | 60–90% | Faster | Quality loss, needs eval |
-| Model cascade | Medium | 40–80% | Worse p95 on escalation | Needs validatable output |
-| Shorter system prompt | Medium | 5–15% | Minor | Behaviour drift |
-| Batching (offline work only) | Medium | 30–50% on provider batch tiers | Much worse | Wrong for interactive |
-| Self-hosting | High | 50–80% at high volume | Depends on your ops | Real operational cost |
-| Quantization on self-hosted | Medium | 30–50% of GPU spend | Faster | Quality loss, needs eval |
-| Not calling the model at all | Low | 100% of those requests | Instant | Needs intent routing |
+| Lever                                          | Effort   | Typical saving                 | Latency effect          | Risk                                |
+| ---------------------------------------------- | -------- | ------------------------------ | ----------------------- | ----------------------------------- |
+| Cut output length (`max_tokens`, "be brief")   | Very low | 10–30%                         | Large improvement       | Truncated answers if too aggressive |
+| Prompt caching                                 | Low      | 25–50% of input cost           | Faster prefill          | None, if ordering is stable         |
+| Trim retrieved context (fewer, tighter chunks) | Low      | 15–40%                         | Faster prefill          | Recall loss if overdone             |
+| Answer caching                                 | Low      | 2–20%                          | Huge on hits            | Staleness                           |
+| Drop or downgrade the reranker                 | Low      | Up to 30%                      | Faster                  | Measurable recall loss              |
+| Smaller model for the whole route              | Low      | 60–90%                         | Faster                  | Quality loss, needs eval            |
+| Model cascade                                  | Medium   | 40–80%                         | Worse p95 on escalation | Needs validatable output            |
+| Shorter system prompt                          | Medium   | 5–15%                          | Minor                   | Behaviour drift                     |
+| Batching (offline work only)                   | Medium   | 30–50% on provider batch tiers | Much worse              | Wrong for interactive               |
+| Self-hosting                                   | High     | 50–80% at high volume          | Depends on your ops     | Real operational cost               |
+| Quantization on self-hosted                    | Medium   | 30–50% of GPU spend            | Faster                  | Quality loss, needs eval            |
+| Not calling the model at all                   | Low      | 100% of those requests         | Instant                 | Needs intent routing                |
 
 Work top-down. The first four items are a week of work combined and routinely
 take 40% off the bill with no quality review needed. Self-hosting is at the
@@ -111,11 +111,11 @@ commonly 75–90% off — and prefill gets faster.
 For the model above, with 600 system tokens plus roughly 400 tokens of stable
 few-shot examples cached at 90% off:
 
-| | Uncached | Cached prefix |
-| --- | --- | --- |
-| Billed input tokens | 2,500 | 1,500 + (1,000 × 0.1) = 1,600 |
-| Input cost per request | `$0.00125` | `$0.00080` |
-| Monthly at 1M requests | `$1,250` | `$800` |
+|                        | Uncached   | Cached prefix                 |
+| ---------------------- | ---------- | ----------------------------- |
+| Billed input tokens    | 2,500      | 1,500 + (1,000 × 0.1) = 1,600 |
+| Input cost per request | `$0.00125` | `$0.00080`                    |
+| Monthly at 1M requests | `$1,250`   | `$800`                        |
 
 A 36% cut to input cost for a reordering change and a discipline rule. There is
 no quality tradeoff, which makes it the best return per hour of work in this
@@ -130,6 +130,72 @@ hit rate is zero while your code looks correct. The ordering rules are in
 Verify it rather than assuming it. Providers report cached token counts in the
 usage object; put cache-hit rate on a dashboard, because a prompt edit six
 months from now will silently break it.
+
+## Answer & Semantic Caching
+
+Prompt caching discounts the _input_ of a call you still make. Answer caching
+skips the call entirely — the biggest possible win, because the cheapest request
+is the one that never reaches the model. There are two kinds, and the second one
+is a trap dressed as a feature.
+
+|                  | Exact-match cache              | Semantic cache                         |
+| ---------------- | ------------------------------ | -------------------------------------- |
+| Key              | Hash of the normalised request | Embedding of the query                 |
+| Hit when         | Request is byte-identical      | A _past_ query is similar enough       |
+| Correctness risk | None — it is the same request  | Real — "similar" is not "same"         |
+| Infra            | A hash and a key-value store   | An embedding call plus a vector search |
+| Where it shines  | FAQs, repeated identical calls | Paraphrase-heavy, high-volume Q&A      |
+
+**Exact-match caching** is unambiguous and should be on wherever staleness is
+acceptable. Normalise the request (trim, lowercase where safe, sort any
+unordered fields), hash it, and key the answer. A hit costs a key lookup and
+returns in single-digit milliseconds. The only question is invalidation, and the
+answer is to put everything that changes the answer _into the key_.
+
+**Semantic caching** returns a stored answer when a new query is close enough to
+a previous one in embedding space. The appeal is obvious — "how do I reset my
+password" and "forgot password, help" should hit the same answer. The danger is
+equally real: embedding similarity is not semantic equivalence, and the failure
+is silent. "What is the refund policy for EU customers?" and "What is the refund
+policy for US customers?" are near-neighbours and have _different_ answers.
+Return the cached one and you have served a confidently wrong answer that no
+error log will catch.
+
+```python
+async def semantic_lookup(query: str, *, threshold: float = 0.95) -> str | None:
+    vec = await embed(query)
+    hit = await cache_index.search(vec, k=1, filter=scope_key())  # tenant, model, corpus ver
+    # A HIGH threshold is the whole safety margin. Tune it down and you trade
+    # correctness for hit rate — usually a bad trade for anything factual.
+    if hit and hit.score >= threshold:
+        return hit.answer
+    return None
+```
+
+Rules that keep a semantic cache from hurting you:
+
+- **Set the threshold high and justify it with examples.** 0.95+ is a sane
+  starting point. Build a small set of near-miss pairs that _must not_ collide
+  (EU vs US, 2024 vs 2025, add vs remove) and confirm they stay below it.
+- **Scope the key, always.** Tenant, model, prompt version and corpus version
+  belong in the cache key or filter. A cross-tenant semantic hit is a data leak;
+  a stale-corpus hit is a wrong answer after you re-ingested.
+- **Never semantically cache anything personalised, time-sensitive, or
+  stateful.** "What's my balance", "what's the latest", anything with a name or
+  a date — exact-match only, or not at all.
+- **Expire on content change, not just on a timer.** A TTL bounds staleness; a
+  corpus-version in the key kills stale answers the moment you re-index.
+- **Measure hit rate _and_ a sampled quality check on hits.** A rising hit rate
+  that drops answer quality means the threshold is too low. Watch both.
+
+The honest place for semantic caching: high-volume, paraphrase-heavy,
+_non-personalised_ Q&A over a stable corpus, where a small rate of near-miss
+answers is tolerable and you have measured what that rate is. For a factual
+assistant where a wrong answer is worse than a slow one, prefer exact-match and
+spend the effort on shortening the call instead. The saving from answer caching
+is in the levers table above at 2–20% precisely because it depends entirely on
+how repetitive your traffic is — measure your real repeat rate before planning
+around it.
 
 ## Latency Budget
 
@@ -146,15 +212,15 @@ flowchart LR
     E --> F["Total: ~5670 ms"]
 ```
 
-| Stage | Budget | Share | Scales with |
-| --- | --- | --- | --- |
-| Network and gateway | 60 ms | 1% | Hops, TLS, region |
-| Query embedding | 40 ms | 1% | Model size |
-| Vector search | 60 ms | 1% | Index size, `top_k` |
-| Reranking | 180 ms | 3% | Candidate count |
-| Prefill | 300 ms | 5% | Input tokens |
-| Decode | 5,000 ms | 88% | **Output tokens** |
-| Serialisation | 30 ms | 1% | Response size |
+| Stage               | Budget   | Share | Scales with         |
+| ------------------- | -------- | ----- | ------------------- |
+| Network and gateway | 60 ms    | 1%    | Hops, TLS, region   |
+| Query embedding     | 40 ms    | 1%    | Model size          |
+| Vector search       | 60 ms    | 1%    | Index size, `top_k` |
+| Reranking           | 180 ms   | 3%    | Candidate count     |
+| Prefill             | 300 ms   | 5%    | Input tokens        |
+| Decode              | 5,000 ms | 88%   | **Output tokens**   |
+| Serialisation       | 30 ms    | 1%    | Response size       |
 
 Decode is 88% of the budget. That has a blunt consequence: **optimising
 retrieval is almost always wasted effort.** Shaving 100 ms off vector search is
@@ -164,10 +230,10 @@ tuning and ship a 400-token answer where 150 would do.
 You need **two targets, not one**, because they come from different stages and
 move independently:
 
-| Metric | What it measures | Driven by | Realistic p95 target |
-| --- | --- | --- | --- |
-| Time to first token | Retrieval plus prefill | Input tokens, retrieval depth | 800 ms |
-| Total response time | Everything | Output tokens, decode speed | 6 s |
+| Metric              | What it measures       | Driven by                     | Realistic p95 target |
+| ------------------- | ---------------------- | ----------------------------- | -------------------- |
+| Time to first token | Retrieval plus prefill | Input tokens, retrieval depth | 800 ms               |
+| Total response time | Everything             | Output tokens, decode speed   | 6 s                  |
 
 A single "latency" number hides the trade. Adding a reranker worsens TTFT but
 may shorten the answer and improve total time. Measure both or you cannot see
@@ -200,17 +266,17 @@ proxies to configure, and a harder time measuring "done".
 Batching trades per-request latency for hardware or price efficiency. Two
 different things wear the name:
 
-| Kind | What it is | Latency effect | Use for |
-| --- | --- | --- | --- |
-| **Continuous batching** | The serving engine interleaves concurrent requests | Mild, well-managed | Always on, interactive included |
-| **Request batching** | You collect N items and submit them together | Adds the collection window plus the whole batch time | Offline jobs only |
-| **Provider batch tier** | Submit a file, get results within hours, 50% off | Hours | Nightly and backfill work |
+| Kind                    | What it is                                         | Latency effect                                       | Use for                         |
+| ----------------------- | -------------------------------------------------- | ---------------------------------------------------- | ------------------------------- |
+| **Continuous batching** | The serving engine interleaves concurrent requests | Mild, well-managed                                   | Always on, interactive included |
+| **Request batching**    | You collect N items and submit them together       | Adds the collection window plus the whole batch time | Offline jobs only               |
+| **Provider batch tier** | Submit a file, get results within hours, 50% off   | Hours                                                | Nightly and backfill work       |
 
 Continuous batching is a property of the engine and you want it on; see
 [GPU serving engines](./02-gpu-serving-engines.mdx).
 
 Request batching for interactive traffic is the mistake. A 200 ms collection
-window plus a batch whose completion time is set by its *slowest* member means
+window plus a batch whose completion time is set by its _slowest_ member means
 every user waits for the worst request in the group. You converted a
 predictable p95 into an unpredictable one to save money you could have saved by
 shortening prompts.
@@ -224,13 +290,13 @@ corpus, bulk classification, nightly summarisation. Route those through
 Scale on the wrong signal and you will either overpay constantly or fall over
 under load.
 
-| Signal | Use for LLM serving? | Why |
-| --- | --- | --- |
-| CPU utilisation | **No** | The process is waiting on a GPU or a network call. CPU stays flat while latency triples. |
-| GPU utilisation | Weak | Already high under continuous batching; it saturates before latency does and gives no headroom warning. |
-| In-flight concurrency per replica | **Yes** | Directly maps to the engine's batch capacity. |
-| Queue depth and oldest-message age | **Yes** | Leading indicator: it rises before latency does. |
-| p95 latency | As a guardrail | Lagging — by the time it moves, users are affected. |
+| Signal                             | Use for LLM serving? | Why                                                                                                     |
+| ---------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------- |
+| CPU utilisation                    | **No**               | The process is waiting on a GPU or a network call. CPU stays flat while latency triples.                |
+| GPU utilisation                    | Weak                 | Already high under continuous batching; it saturates before latency does and gives no headroom warning. |
+| In-flight concurrency per replica  | **Yes**              | Directly maps to the engine's batch capacity.                                                           |
+| Queue depth and oldest-message age | **Yes**              | Leading indicator: it rises before latency does.                                                        |
+| p95 latency                        | As a guardrail       | Lagging — by the time it moves, users are affected.                                                     |
 
 Scale on concurrency per replica for synchronous paths and queue depth for
 async paths. Use latency only as a backstop alarm.
@@ -278,14 +344,14 @@ def replicas_needed(
 Worked through, for an 8B model on one GPU measuring 2,000 output tokens per
 second aggregate, a 400-token average answer, and 1M requests per month:
 
-| Step | Arithmetic | Result |
-| --- | --- | --- |
-| Capacity per replica | 2,000 ÷ 400 | 5.0 rps |
-| Usable at 70% | 5.0 × 0.70 | 3.5 rps |
-| Mean load | 1,000,000 ÷ 2,592,000 s | 0.39 rps |
-| Peak load at 5x | 0.39 × 5 | 1.93 rps |
-| Replicas for peak | ceil(1.93 ÷ 3.5) | 1 |
-| Replicas deployed | max(2, 1), for HA | **2** |
+| Step                 | Arithmetic              | Result   |
+| -------------------- | ----------------------- | -------- |
+| Capacity per replica | 2,000 ÷ 400             | 5.0 rps  |
+| Usable at 70%        | 5.0 × 0.70              | 3.5 rps  |
+| Mean load            | 1,000,000 ÷ 2,592,000 s | 0.39 rps |
+| Peak load at 5x      | 0.39 × 5                | 1.93 rps |
+| Replicas for peak    | ceil(1.93 ÷ 3.5)        | 1        |
+| Replicas deployed    | max(2, 1), for HA       | **2**    |
 
 Two numbers decide this, and both must be measured rather than assumed.
 `output_tokens_per_sec` is aggregate throughput at your real batch size, not
@@ -309,13 +375,13 @@ and `served_by` tier — see
 [Model Gateway & Fallbacks](./07-model-gateway-and-fallbacks.mdx) — then expose
 it back to the teams that spend it.
 
-| Report | Answers | Drives |
-| --- | --- | --- |
-| Cost per request, by route | Which feature is expensive | Prompt and retrieval work |
-| Monthly spend by team | Who to involve | Showback conversations |
-| Cost per tenant versus revenue | Which customers lose money | Pricing and plan limits |
-| Cost per request over time, by prompt version | Whether a change regressed | Release gating |
-| Token split, input versus output | Where to trim | Targeted optimisation |
+| Report                                        | Answers                    | Drives                    |
+| --------------------------------------------- | -------------------------- | ------------------------- |
+| Cost per request, by route                    | Which feature is expensive | Prompt and retrieval work |
+| Monthly spend by team                         | Who to involve             | Showback conversations    |
+| Cost per tenant versus revenue                | Which customers lose money | Pricing and plan limits   |
+| Cost per request over time, by prompt version | Whether a change regressed | Release gating            |
+| Token split, input versus output              | Where to trim              | Targeted optimisation     |
 
 **Showback** (reporting spend to each team) is usually enough; **chargeback**
 (billing them) adds accounting overhead for marginal extra behaviour change.
@@ -352,7 +418,7 @@ at once and you learn nothing.
 10. **Only now consider self-hosting**, with the arithmetic above and an honest
     estimate of the operational cost.
 
-Re-measure cost per request *and* eval scores after each step. A saving that
+Re-measure cost per request _and_ eval scores after each step. A saving that
 quietly cost 8% answer quality is not a saving, it is an unpriced trade.
 
 ## The Cheapest Call Is the One You Do Not Make

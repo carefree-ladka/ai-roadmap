@@ -1,6 +1,6 @@
 ---
 title: Production GenAI and LLMOps
-description: Turn the RAG prototype into an operable service — resilience, observability, guardrails, deployment, queues, a model gateway, cost control, security, model selection and governance.
+description: Turn the RAG prototype into an operable service — resilience, observability, guardrails, deployment, queues, a model gateway, cost control, security, safety models, model selection and governance.
 slug: /13-production-genai-and-llmops
 ---
 
@@ -61,12 +61,18 @@ What you add once the work is slow, the traffic is shared and the bill is real.
 8. [Cost & Latency Optimization](./08-cost-and-latency.mdx) — token economics, cost models, latency budgets, autoscaling signals, capacity arithmetic.
 9. [Security & Privacy](./09-security-and-privacy.mdx) — access control in retrieval, PII redaction, injection controls, insecure output handling, denial of wallet.
 
+Page 12, [Safety Models & Managed Guardrails](./12-safety-models-and-guardrail-services.mdx),
+is the companion to pages 4 and 9 — the trained-classifier layer (Llama Guard,
+LlamaFirewall, Bedrock/Azure guardrails) that screens inputs and outputs.
+
 ### Choosing & Defending
 
 The decisions you have to justify to someone else.
 
 10. [Model Selection & Benchmarking](./10-model-selection-and-benchmarking.mdx) — why leaderboards answer the wrong question, writing the requirement spec, running a bake-off on your own eval set, the cost/quality frontier, and the self-host break-even.
 11. [Responsible AI & Governance](./11-responsible-ai-and-governance.mdx) — risk tiering by use case, model cards and data sheets, per-slice fairness testing, auditability, kill switches, and the pre-deployment checklist.
+12. [Safety Models & Managed Guardrails](./12-safety-models-and-guardrail-services.mdx) — the safety-model layer that complements pages 4 and 9: Llama Guard, Prompt Guard and LlamaFirewall, managed services (AWS Bedrock Guardrails, Azure AI Content Safety, OpenAI Moderation), how to layer them, and how to evaluate a guard.
+13. [AWS Bedrock — Complete Guide](./13-aws-bedrock.mdx) — the managed multi-provider model platform: the Converse API, streaming, tool use, embeddings, managed RAG with Knowledge Bases, Agents and AgentCore, Guardrails, customization, inference options, and a FastAPI integration. Companion to the NVIDIA NIM guide (page 1).
 
 The per-service resilience basics — config, timeouts, retries, caching,
 connection reuse — live in
@@ -121,5 +127,7 @@ page.
       harness is in the repo so you can re-run it when a version changes.
 - [ ] Each AI feature has an owner, a model card, per-slice eval results and a
       kill switch that works without a deploy.
+- [ ] You layer safety models (Llama Guard/Prompt Guard/LlamaFirewall or a managed service) with rule guardrails and architectural controls, and you measure the guard's false-positive and false-negative rates on your own traffic.
+- [ ] You can call Amazon Bedrock through the Converse API — streaming, tool use, and managed RAG with Knowledge Bases — and say when Bedrock is the right platform and when it is not.
 
 Next: [14 · Fine-Tuning and Model Adaptation](../14-fine-tuning-and-model-adaptation/index.mdx).
