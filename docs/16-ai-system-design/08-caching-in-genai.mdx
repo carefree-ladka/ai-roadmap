@@ -1,0 +1,944 @@
+# Caching in Generative AI
+
+Caching is one of the highest-leverage optimizations in LLM applications, especially when you build with **FastAPI, LangChain, LangGraph, and RAG**.
+
+> **Core idea:** don't make the model do expensive work again if you've already done it.
+
+LLM calls are slow (seconds), costly (per token), and rate-limited. A good caching strategy can cut cost and latency dramatically while keeping answers consistent.
+
+---
+
+## Table of Contents
+
+1. [Why caching matters](#1-why-caching-matters)
+2. [Types of caching in GenAI](#2-types-of-caching-in-genai)
+3. [Exact-match cache](#3-exact-match-cache)
+4. [Semantic cache](#4-semantic-cache)
+5. [Embedding cache](#5-embedding-cache)
+6. [Prompt cache (provider-side)](#6-prompt-cache-provider-side)
+7. [LLM response cache in LangChain](#7-llm-response-cache-in-langchain)
+8. [Where caching fits in a RAG pipeline](#8-where-caching-fits-in-a-rag-pipeline)
+9. [Caching in LangGraph](#9-caching-in-langgraph)
+10. [Cache invalidation](#10-cache-invalidation)
+11. [Security and correctness](#11-security-and-correctness)
+12. [Cache stampede protection](#12-cache-stampede-protection)
+13. [Observability: measure your hit rate](#13-observability-measure-your-hit-rate)
+14. [Common pitfalls](#14-common-pitfalls)
+15. [Best-practice checklist](#15-best-practice-checklist)
+
+---
+
+## 1. Why caching matters
+
+| Problem | How caching helps |
+| --- | --- |
+| High latency (1 to 30 s per LLM call) | Cache hits return in milliseconds |
+| Token cost | Repeated work is never billed twice |
+| Rate limits | Fewer calls to the provider |
+| Inconsistent answers | Identical questions get identical answers |
+| Load spikes | Popular questions are served from memory |
+
+Caching is **not** free of risk. A wrong cache hit returns a wrong answer instantly, so correctness (keys, permissions, freshness) matters as much as speed.
+
+---
+
+## 2. Types of caching in GenAI
+
+| Type | What is matched | What is stored | Typical backend |
+| --- | --- | --- | --- |
+| **Exact-match cache** | Identical input string (hashed) | Final response | Redis, in-memory |
+| **Semantic cache** | Similar *meaning* of the query | Final response | Redis (vector), Qdrant, Chroma |
+| **Prompt cache** | Identical prompt *prefix* | Model's internal processed prefix state | Provider-side (Anthropic, OpenAI) |
+| **Embedding cache** | Identical text | Embedding vector | Redis, local file store |
+| **LLM response cache** | Identical prompt plus model params | Raw LLM output | LangChain cache, Redis, SQLite |
+
+Mental model, from cheapest and safest to most flexible and riskiest:
+
+```text
+Exact match  ->  Embedding cache  ->  Prompt cache  ->  Semantic cache
+(safest)                                                 (most savings, most risk)
+```
+
+---
+
+## 3. Exact-match cache
+
+Stores responses against the exact input. Ask the same question again and you get the stored answer without invoking the LLM.
+
+### 3.1 Basic version (FastAPI + Redis)
+
+```python
+from hashlib import sha256
+
+from fastapi import FastAPI
+from pydantic import BaseModel
+from redis import Redis
+
+app = FastAPI()
+
+redis_client = Redis(host="localhost", port=6379, decode_responses=True)
+
+
+class ChatRequest(BaseModel):
+    query: str
+
+
+@app.post("/chat")
+async def chat(req: ChatRequest):
+    cache_key = "llm:" + sha256(req.query.encode()).hexdigest()
+
+    cached = redis_client.get(cache_key)
+    if cached:
+        return {"answer": cached, "cached": True}
+
+    response = await call_llm(req.query)  # your LLM call
+
+    redis_client.setex(cache_key, 3600, response)  # TTL = 1 hour
+    return {"answer": response, "cached": False}
+```
+
+- `GET` checks whether a response exists.
+- `SETEX` stores the response with a 1 hour TTL.
+- The second identical request skips LLM inference.
+
+### 3.2 Production-grade key design
+
+The basic version has a subtle bug: the key contains **only the query**. If you change the model, the system prompt, or serve multiple tenants, you will return stale or wrong answers. Include everything that influences the output:
+
+```python
+import json
+import re
+from hashlib import sha256
+
+MODEL = "gpt-4o-mini"
+PROMPT_VERSION = "v3"
+
+
+def normalize(text: str) -> str:
+    """Light normalization: trim, collapse whitespace, lowercase."""
+    return re.sub(r"\s+", " ", text.strip()).lower()
+
+
+def build_cache_key(
+    *,
+    tenant_id: str,
+    query: str,
+    model: str = MODEL,
+    prompt_version: str = PROMPT_VERSION,
+    temperature: float = 0.0,
+    kb_version: str = "kb-1",
+) -> str:
+    payload = json.dumps(
+        {
+            "t": tenant_id,
+            "q": normalize(query),
+            "m": model,
+            "p": prompt_version,
+            "temp": temperature,
+            "kb": kb_version,
+        },
+        sort_keys=True,
+    )
+    return f"llm:{tenant_id}:" + sha256(payload.encode()).hexdigest()
+```
+
+### 3.3 Async Redis with JSON values
+
+Store metadata with the answer so you can debug and audit later:
+
+```python
+import json
+import time
+
+import redis.asyncio as aioredis
+from fastapi import Depends, FastAPI, Header
+from pydantic import BaseModel
+
+app = FastAPI()
+redis = aioredis.from_url("redis://localhost:6379", decode_responses=True)
+
+TTL_SECONDS = 3600
+
+
+class ChatRequest(BaseModel):
+    query: str
+
+
+@app.post("/chat")
+async def chat(req: ChatRequest, x_tenant_id: str = Header(...)):
+    key = build_cache_key(tenant_id=x_tenant_id, query=req.query)
+
+    raw = await redis.get(key)
+    if raw:
+        entry = json.loads(raw)
+        return {"answer": entry["answer"], "cached": True}
+
+    answer = await call_llm(req.query)
+
+    await redis.setex(
+        key,
+        TTL_SECONDS,
+        json.dumps({"answer": answer, "created_at": time.time(), "model": MODEL}),
+    )
+    return {"answer": answer, "cached": False}
+```
+
+### 3.4 When to use it
+
+Good fit: FAQ bots, deterministic tasks (`temperature=0`), classification, extraction, repeated dashboard queries.
+Poor fit: creative generation where users expect variety, or real-time data questions.
+
+---
+
+## 4. Semantic cache
+
+A semantic cache matches queries by **meaning**, not text:
+
+- "What is React?"
+- "Explain React to me."
+- "Can you tell me what React is?"
+
+All three can return the same cached answer.
+
+### 4.1 How it works
+
+```text
+User query
+   |
+   v
+Generate query embedding
+   |
+   v
+Search semantic cache (vector similarity)
+   |
+   +--> similarity >= threshold --> CACHE HIT  --> return cached answer
+   |
+   +--> similarity <  threshold --> CACHE MISS --> call LLM --> store (embedding, answer)
+```
+
+Typical stack:
+
+| Component | Options |
+| --- | --- |
+| Embedding model | `nomic-embed-text` (Ollama), OpenAI `text-embedding-3-small`, `bge-*` |
+| Vector store | Redis (RediSearch), Qdrant, Chroma |
+| LLM | GPT, Claude, Ollama models, etc. |
+| Similarity threshold | Decides when two queries are "the same" (tune it!) |
+
+### 4.2 Custom semantic cache with Qdrant
+
+```python
+import time
+import uuid
+
+from langchain_ollama import OllamaEmbeddings
+from qdrant_client import QdrantClient
+from qdrant_client.models import (
+    Distance,
+    FieldCondition,
+    Filter,
+    MatchValue,
+    PointStruct,
+    VectorParams,
+)
+
+COLLECTION = "semantic_cache"
+EMBED_DIM = 768  # nomic-embed-text
+THRESHOLD = 0.92  # cosine similarity; tune with real data
+
+embeddings = OllamaEmbeddings(model="nomic-embed-text")
+qdrant = QdrantClient(url="http://localhost:6333")
+
+if not qdrant.collection_exists(COLLECTION):
+    qdrant.create_collection(
+        COLLECTION,
+        vectors_config=VectorParams(size=EMBED_DIM, distance=Distance.COSINE),
+    )
+
+
+def semantic_lookup(query: str, tenant_id: str, kb_version: str):
+    vector = embeddings.embed_query(query)
+
+    result = qdrant.query_points(
+        collection_name=COLLECTION,
+        query=vector,
+        limit=1,
+        score_threshold=THRESHOLD,
+        query_filter=Filter(
+            must=[
+                FieldCondition(key="tenant_id", match=MatchValue(value=tenant_id)),
+                FieldCondition(key="kb_version", match=MatchValue(value=kb_version)),
+            ]
+        ),
+    )
+
+    if result.points:
+        hit = result.points[0]
+        return hit.payload["answer"], hit.score
+    return None, None
+
+
+def semantic_store(query: str, answer: str, tenant_id: str, kb_version: str):
+    vector = embeddings.embed_query(query)
+    qdrant.upsert(
+        collection_name=COLLECTION,
+        points=[
+            PointStruct(
+                id=str(uuid.uuid4()),
+                vector=vector,
+                payload={
+                    "query": query,
+                    "answer": answer,
+                    "tenant_id": tenant_id,
+                    "kb_version": kb_version,
+                    "created_at": time.time(),
+                },
+            )
+        ],
+    )
+```
+
+### 4.3 FastAPI endpoint using the semantic cache
+
+```python
+from fastapi import FastAPI, Header
+from pydantic import BaseModel
+
+app = FastAPI()
+KB_VERSION = "kb-1"
+
+
+class ChatRequest(BaseModel):
+    query: str
+
+
+@app.post("/chat")
+async def chat(req: ChatRequest, x_tenant_id: str = Header(...)):
+    answer, score = semantic_lookup(req.query, x_tenant_id, KB_VERSION)
+    if answer:
+        return {"answer": answer, "cached": True, "similarity": score}
+
+    answer = await call_llm(req.query)
+    semantic_store(req.query, answer, x_tenant_id, KB_VERSION)
+    return {"answer": answer, "cached": False}
+```
+
+### 4.4 Semantic cache with LangChain and Redis
+
+LangChain ships a ready-made integration:
+
+```python
+from langchain_community.cache import RedisSemanticCache
+from langchain_core.globals import set_llm_cache
+from langchain_ollama import OllamaEmbeddings
+
+set_llm_cache(
+    RedisSemanticCache(
+        redis_url="redis://localhost:6379",
+        embedding=OllamaEmbeddings(model="nomic-embed-text"),
+        score_threshold=0.1,  # NOTE: a distance, so smaller = stricter
+    )
+)
+```
+
+> **Heads up:** some integrations use a similarity score (higher = more similar), others a **distance** (lower = more similar). Always check which one your library uses before choosing a threshold.
+
+### 4.5 Choosing the similarity threshold
+
+| Threshold | Behavior | Risk |
+| --- | --- | --- |
+| Too low (loose) | Many hits | Wrong answers, e.g. "Delete my account" matching "Create my account" |
+| Too high (strict) | Few hits | Little benefit from caching |
+
+Practical approach:
+
+1. Collect a few hundred real query pairs.
+2. Label each pair as *same intent* or *different intent*.
+3. Plot similarity scores for both groups.
+4. Pick the threshold that gives near-zero false positives.
+
+Also consider adding a cheap **verification step** (a small model or rule check) for borderline scores, and never semantically cache queries that depend on entities (order IDs, dates, names) unless those are part of the key.
+
+---
+
+## 5. Embedding cache
+
+Embedding the same text repeatedly wastes money and time. This matters in two places: **ingestion** (re-indexing unchanged documents) and **query time** (popular queries).
+
+### 5.1 LangChain `CacheBackedEmbeddings`
+
+```python
+from langchain.embeddings import CacheBackedEmbeddings
+from langchain.storage import LocalFileStore
+from langchain_ollama import OllamaEmbeddings
+
+underlying = OllamaEmbeddings(model="nomic-embed-text")
+store = LocalFileStore("./embedding_cache/")
+
+cached_embedder = CacheBackedEmbeddings.from_bytes_store(
+    underlying,
+    store,
+    namespace=underlying.model,  # avoids collisions between models
+)
+
+# First call computes, later calls read from disk
+vectors = cached_embedder.embed_documents(["LangChain is a framework...", "RAG is..."])
+```
+
+### 5.2 Redis-backed embedding cache
+
+```python
+from langchain.embeddings import CacheBackedEmbeddings
+from langchain_community.storage import RedisStore
+from langchain_ollama import OllamaEmbeddings
+
+underlying = OllamaEmbeddings(model="nomic-embed-text")
+store = RedisStore(redis_url="redis://localhost:6379", ttl=None)
+
+cached_embedder = CacheBackedEmbeddings.from_bytes_store(
+    underlying, store, namespace=underlying.model
+)
+```
+
+### 5.3 Hand-rolled version
+
+```python
+import json
+from hashlib import sha256
+
+import redis.asyncio as aioredis
+
+redis = aioredis.from_url("redis://localhost:6379", decode_responses=True)
+EMBED_MODEL = "nomic-embed-text"
+
+
+async def embed_cached(text: str, embedder) -> list[float]:
+    key = f"emb:{EMBED_MODEL}:" + sha256(text.encode()).hexdigest()
+
+    raw = await redis.get(key)
+    if raw:
+        return json.loads(raw)
+
+    vector = await embedder.aembed_query(text)
+    await redis.set(key, json.dumps(vector))  # no TTL: embeddings are deterministic
+    return vector
+```
+
+Key rule: **include the model name in the key.** Vectors from different models are not interchangeable.
+
+---
+
+## 6. Prompt cache (provider-side)
+
+Prompt caching reuses the model's processing of a **repeated prompt prefix**: large system prompts, tool definitions, few-shot examples, or long documents. It reduces cost and time-to-first-token for the cached portion. Unlike the other caches, it is implemented by the **model provider**, not by you, and the output is still freshly generated.
+
+### 6.1 Anthropic (explicit `cache_control`)
+
+```python
+import anthropic
+
+client = anthropic.Anthropic()
+
+LONG_DOCUMENT = open("handbook.txt").read()  # must exceed the model's minimum cacheable length
+
+response = client.messages.create(
+    model="claude-sonnet-4-5",
+    max_tokens=500,
+    system=[
+        {"type": "text", "text": "You are a helpful HR assistant."},
+        {
+            "type": "text",
+            "text": LONG_DOCUMENT,
+            "cache_control": {"type": "ephemeral"},  # cache everything up to here
+        },
+    ],
+    messages=[{"role": "user", "content": "How many vacation days do I get?"}],
+)
+
+usage = response.usage
+print("cache write tokens:", usage.cache_creation_input_tokens)
+print("cache read tokens: ", usage.cache_read_input_tokens)
+```
+
+Notes:
+
+- Cache entries are short-lived (minutes) and refreshed on use; check the current docs for TTL options and minimum token counts per model.
+- Cache reads are billed at a reduced rate; cache writes may cost slightly more than normal input tokens.
+- Only an **exact prefix** matches. Any change earlier in the prompt invalidates everything after it.
+
+### 6.2 OpenAI (automatic)
+
+OpenAI caches long prompts automatically (above a minimum length) with no code change. You can verify it in the usage object:
+
+```python
+from openai import OpenAI
+
+client = OpenAI()
+
+resp = client.chat.completions.create(
+    model="gpt-4o-mini",
+    messages=[
+        {"role": "system", "content": LONG_SYSTEM_PROMPT},  # stable prefix first
+        {"role": "user", "content": user_question},          # variable part last
+    ],
+)
+
+print(resp.usage.prompt_tokens_details.cached_tokens)
+```
+
+### 6.3 Prompt design rules for cache friendliness
+
+```text
+[ stable ]  system instructions
+[ stable ]  tool definitions
+[ stable ]  few-shot examples
+[ stable ]  large reference document
+-------------------------------------  <- cache boundary
+[ variable ] chat history / user question
+```
+
+- Put **static content first**, dynamic content last.
+- Don't inject timestamps, request IDs, or random values at the top of the prompt.
+- Keep tool definitions in a stable order.
+
+---
+
+## 7. LLM response cache in LangChain
+
+LangChain has a global LLM cache that stores model outputs keyed by the prompt and model parameters.
+
+### 7.1 In-memory (dev only)
+
+```python
+from langchain_core.caches import InMemoryCache
+from langchain_core.globals import set_llm_cache
+from langchain_ollama import ChatOllama
+
+set_llm_cache(InMemoryCache())
+
+llm = ChatOllama(model="llama3.1", temperature=0)
+
+llm.invoke("What is LangChain?")  # slow: real call
+llm.invoke("What is LangChain?")  # fast: cache hit
+```
+
+### 7.2 Redis (shared across workers)
+
+```python
+from langchain_community.cache import RedisCache
+from langchain_core.globals import set_llm_cache
+from redis import Redis
+
+set_llm_cache(RedisCache(redis_=Redis(host="localhost", port=6379)))
+```
+
+### 7.3 SQLite (single-node persistence)
+
+```python
+from langchain_community.cache import SQLiteCache
+from langchain_core.globals import set_llm_cache
+
+set_llm_cache(SQLiteCache(database_path=".langchain.db"))
+```
+
+### 7.4 Skipping the cache for one call
+
+When you need a fresh response for a specific model instance, create it with caching disabled:
+
+```python
+fresh_llm = ChatOllama(model="llama3.1", cache=False)
+```
+
+> The in-memory cache disappears on restart and is not shared across Uvicorn/Gunicorn workers. Use Redis for anything beyond local development.
+
+---
+
+## 8. Where caching fits in a RAG pipeline
+
+You can cache at every stage. Each layer has a different key, TTL, and invalidation trigger.
+
+| Stage | What you cache | Key | Invalidate when |
+| --- | --- | --- | --- |
+| Document ingestion | Parsed and chunked documents | file hash | file changes |
+| Embedding generation | Text embeddings | model + text hash | embedding model changes |
+| Vector retrieval | Retrieved chunks | tenant + query hash + index version | documents are re-indexed |
+| Reranking | Reranked order | query + chunk IDs | retrieval results change |
+| LLM response | Generated answers | query + context hash + model + prompt version | any of those change |
+| Semantic cache | Similar questions and answers | embedding + tenant + kb version | knowledge base updates |
+| API layer | HTTP responses | URL + params + auth scope | upstream data changes |
+
+### 8.1 Architecture
+
+```text
+                    +----------------------+
+ User --> FastAPI --> API / exact cache ----+--> HIT --> response
+                    +----------+-----------+
+                               | MISS
+                               v
+                    +----------------------+
+                    |   Semantic cache     |--> HIT --> response
+                    +----------+-----------+
+                               | MISS
+                               v
+                    +----------------------+
+                    | Embedding (cached)   |
+                    +----------+-----------+
+                               v
+                    +----------------------+
+                    | Vector search        |
+                    | (retrieval cached)   |
+                    +----------+-----------+
+                               v
+                    +----------------------+
+                    | LLM (prompt cached)  |
+                    +----------+-----------+
+                               v
+                  store in semantic + exact cache
+```
+
+### 8.2 Caching ingestion with content hashes
+
+```python
+import json
+from hashlib import sha256
+from pathlib import Path
+
+from redis import Redis
+
+r = Redis(decode_responses=True)
+
+
+def file_hash(path: Path) -> str:
+    return sha256(path.read_bytes()).hexdigest()
+
+
+def ingest(path: Path, splitter, vectorstore):
+    h = file_hash(path)
+    marker = f"ingested:{path.name}"
+
+    if r.get(marker) == h:
+        print(f"skip {path.name}: unchanged")
+        return
+
+    chunks = splitter.split_text(path.read_text())
+    vectorstore.add_texts(chunks, metadatas=[{"source": path.name, "hash": h}] * len(chunks))
+    r.set(marker, h)
+    # Bump the knowledge-base version so dependent caches become stale
+    r.incr("kb_version")
+```
+
+### 8.3 Caching retrieval results
+
+```python
+import json
+from hashlib import sha256
+
+import redis.asyncio as aioredis
+
+redis = aioredis.from_url("redis://localhost:6379", decode_responses=True)
+
+
+async def retrieve_cached(query: str, tenant_id: str, retriever, ttl: int = 900):
+    kb_version = await redis.get("kb_version") or "0"
+    key = f"ret:{tenant_id}:{kb_version}:" + sha256(query.lower().encode()).hexdigest()
+
+    raw = await redis.get(key)
+    if raw:
+        return json.loads(raw)
+
+    docs = await retriever.ainvoke(query)
+    payload = [{"text": d.page_content, "metadata": d.metadata} for d in docs]
+
+    await redis.setex(key, ttl, json.dumps(payload))
+    return payload
+```
+
+Because `kb_version` is part of the key, bumping it instantly invalidates every retrieval entry without scanning or deleting anything.
+
+### 8.4 A full RAG endpoint with layered caching
+
+```python
+from fastapi import FastAPI, Header
+from pydantic import BaseModel
+
+app = FastAPI()
+
+
+class ChatRequest(BaseModel):
+    query: str
+
+
+@app.post("/rag")
+async def rag(req: ChatRequest, x_tenant_id: str = Header(...)):
+    kb_version = await redis.get("kb_version") or "0"
+
+    # 1) Exact-match cache
+    key = build_cache_key(tenant_id=x_tenant_id, query=req.query, kb_version=kb_version)
+    raw = await redis.get(key)
+    if raw:
+        return {"answer": raw, "layer": "exact"}
+
+    # 2) Semantic cache
+    answer, score = semantic_lookup(req.query, x_tenant_id, kb_version)
+    if answer:
+        return {"answer": answer, "layer": "semantic", "similarity": score}
+
+    # 3) Retrieval (cached) + generation (prompt-cached by the provider)
+    docs = await retrieve_cached(req.query, x_tenant_id, retriever)
+    context = "\n\n".join(d["text"] for d in docs)
+    answer = await generate_answer(req.query, context)
+
+    # 4) Populate caches
+    await redis.setex(key, 3600, answer)
+    semantic_store(req.query, answer, x_tenant_id, kb_version)
+
+    return {"answer": answer, "layer": "none"}
+```
+
+---
+
+## 9. Caching in LangGraph
+
+LangGraph supports **node-level caching**, so an expensive node (retrieval, a tool call, a summarization step) isn't re-run when its input hasn't changed.
+
+```python
+import time
+from typing_extensions import TypedDict
+
+from langgraph.cache.memory import InMemoryCache
+from langgraph.graph import END, START, StateGraph
+from langgraph.types import CachePolicy
+
+
+class State(TypedDict):
+    query: str
+    context: str
+    answer: str
+
+
+def retrieve(state: State):
+    time.sleep(2)  # pretend this is a slow vector search
+    return {"context": f"docs for: {state['query']}"}
+
+
+def generate(state: State):
+    return {"answer": f"Answer using {state['context']}"}
+
+
+builder = StateGraph(State)
+
+# Cache the expensive node for 2 minutes
+builder.add_node("retrieve", retrieve, cache_policy=CachePolicy(ttl=120))
+builder.add_node("generate", generate)
+
+builder.add_edge(START, "retrieve")
+builder.add_edge("retrieve", "generate")
+builder.add_edge("generate", END)
+
+graph = builder.compile(cache=InMemoryCache())
+
+graph.invoke({"query": "What is LangGraph?"})  # ~2 s
+graph.invoke({"query": "What is LangGraph?"})  # near-instant: retrieve is cached
+```
+
+Notes:
+
+- By default the node's cache key is derived from its input state. You can supply a custom `key_func` in `CachePolicy` to ignore volatile fields (e.g. timestamps).
+- For multi-worker deployments, use a shared cache backend (such as Redis) rather than `InMemoryCache`. Check the current LangGraph docs for the supported backends.
+- Don't confuse this with **checkpointing**, which saves graph state for resuming and memory, not for skipping repeated work.
+
+---
+
+## 10. Cache invalidation
+
+> There are only two hard things in computer science: cache invalidation and naming things.
+
+If source documents change, cached answers and retrieval results may become **outdated**. Plan invalidation from day one.
+
+### 10.1 Strategies
+
+| Strategy | How | Best for |
+| --- | --- | --- |
+| **TTL** | Entries expire after N seconds | Simple, tolerates slight staleness |
+| **Versioned keys** | Put `kb_version` / `prompt_version` / `model` in the key | Instant, safe bulk invalidation |
+| **Event-driven** | Delete or bump version when a document is updated | Strong freshness needs |
+| **Tag-based** | Track which keys depend on which documents, delete those | Fine-grained invalidation |
+| **Manual purge** | Admin endpoint to flush a tenant or namespace | Incident response |
+
+### 10.2 Versioned keys (recommended)
+
+```python
+async def current_versions() -> dict:
+    kb = await redis.get("kb_version") or "0"
+    return {"kb": kb, "prompt": PROMPT_VERSION, "model": MODEL}
+
+# Any change to these values produces new keys. Old entries simply age out via TTL.
+```
+
+### 10.3 Tag-based invalidation with Redis sets
+
+```python
+async def cache_answer(key: str, answer: str, source_doc_ids: list[str], ttl: int = 3600):
+    pipe = redis.pipeline()
+    pipe.setex(key, ttl, answer)
+    for doc_id in source_doc_ids:
+        pipe.sadd(f"doc_keys:{doc_id}", key)  # which cache keys depend on this doc
+        pipe.expire(f"doc_keys:{doc_id}", ttl)
+    await pipe.execute()
+
+
+async def invalidate_document(doc_id: str):
+    keys = await redis.smembers(f"doc_keys:{doc_id}")
+    if keys:
+        await redis.delete(*keys)
+    await redis.delete(f"doc_keys:{doc_id}")
+```
+
+### 10.4 Choosing TTLs
+
+| Data | Suggested TTL |
+| --- | --- |
+| Embeddings | None or very long (deterministic) |
+| Static FAQ answers | Hours to days |
+| RAG answers over frequently updated docs | Minutes to an hour |
+| Anything involving live data | Don't cache, or seconds |
+
+---
+
+## 11. Security and correctness
+
+A shared cache is a shared data surface. These are the mistakes that cause real incidents.
+
+1. **Tenant and user isolation.** Include `tenant_id` (and sometimes `user_id` or role) in the cache key or vector filter. Otherwise user A can receive an answer built from user B's private documents.
+2. **Permission-aware RAG.** If retrieval is filtered by access control, the answer depends on the user's permissions. Either put a permission fingerprint in the key or skip the shared cache.
+3. **Model and prompt versions.** A prompt change or model upgrade must not serve old outputs.
+4. **PII.** Don't cache responses containing sensitive data in shared stores, or encrypt them and set short TTLs.
+5. **Cache poisoning.** In a semantic cache, a malicious user could store a crafted answer that other users later match. Only cache answers from trusted generation paths, and consider cache scoping per tenant.
+6. **Non-deterministic or personalized queries.** "What's my balance?", "What's the date today?", and tool-using agent runs with side effects should bypass the cache.
+
+```python
+def is_cacheable(query: str, *, uses_tools: bool, contains_pii: bool) -> bool:
+    if uses_tools or contains_pii:
+        return False
+    volatile_markers = ("today", "now", "current", "latest", "my ")
+    return not any(m in query.lower() for m in volatile_markers)
+```
+
+---
+
+## 12. Cache stampede protection
+
+When a popular entry expires, hundreds of concurrent requests can all miss and call the LLM at once. Use a short lock so only one request regenerates the answer:
+
+```python
+import asyncio
+import json
+
+
+async def get_or_generate(key: str, generate, ttl: int = 3600, lock_ttl: int = 30):
+    raw = await redis.get(key)
+    if raw:
+        return json.loads(raw)
+
+    lock_key = f"lock:{key}"
+    got_lock = await redis.set(lock_key, "1", nx=True, ex=lock_ttl)
+
+    if got_lock:
+        try:
+            value = await generate()
+            await redis.setex(key, ttl, json.dumps(value))
+            return value
+        finally:
+            await redis.delete(lock_key)
+
+    # Someone else is generating: poll briefly for the result
+    for _ in range(40):
+        await asyncio.sleep(0.25)
+        raw = await redis.get(key)
+        if raw:
+            return json.loads(raw)
+
+    # Fallback: generate ourselves
+    return await generate()
+```
+
+Also add small random **jitter** to TTLs so many keys don't expire at the same instant:
+
+```python
+import random
+
+ttl = 3600 + random.randint(0, 300)
+```
+
+---
+
+## 13. Observability: measure your hit rate
+
+You can't tune what you don't measure. Track at minimum:
+
+- Hit rate per layer (exact, semantic, retrieval, embedding)
+- Latency on hit vs miss
+- Tokens and cost saved
+- Similarity score distribution on semantic hits
+- Cache size and eviction counts
+
+```python
+from prometheus_client import Counter, Histogram
+
+CACHE_REQUESTS = Counter("llm_cache_requests_total", "Cache lookups", ["layer", "result"])
+LATENCY = Histogram("llm_request_seconds", "Request latency", ["cached"])
+
+
+async def lookup_with_metrics(layer: str, key: str):
+    raw = await redis.get(key)
+    CACHE_REQUESTS.labels(layer=layer, result="hit" if raw else "miss").inc()
+    return raw
+```
+
+Log the similarity score and the matched cached query for every semantic hit. Reviewing these logs is the fastest way to find false positives and tune the threshold.
+
+---
+
+## 14. Common pitfalls
+
+| Pitfall | Consequence | Fix |
+| --- | --- | --- |
+| Key contains only the query | Wrong answers after model/prompt/tenant changes | Include tenant, model, prompt version, KB version |
+| Semantic threshold too loose | Confidently wrong answers | Calibrate on labeled pairs; start strict |
+| `InMemoryCache` in production | No sharing, lost on restart | Use Redis |
+| Caching high-temperature output | Users see the "same random" answer, or expect variety | Cache mainly at `temperature=0` |
+| Ignoring invalidation | Stale answers after document updates | Versioned keys plus TTL |
+| Dynamic data at the top of the prompt | Prompt cache never hits | Move static content first |
+| No stampede protection | LLM overload on expiry | Locks plus TTL jitter |
+| Caching errors or refusals | Failures get "stuck" | Only cache successful, validated responses |
+| Cross-tenant cache sharing | Data leak | Namespace everything by tenant |
+
+---
+
+## 15. Best-practice checklist
+
+- [ ] Start with **exact-match** caching, then add semantic caching where hit rates justify it
+- [ ] Put **tenant, model, prompt version, and KB version** in every key
+- [ ] Use **Redis** (or another shared store), not in-process memory, in production
+- [ ] Cache **embeddings** with the model name in the key
+- [ ] Structure prompts with **static prefix first** to benefit from provider prompt caching
+- [ ] Define an **invalidation plan** (TTL plus versioned keys, or event-driven)
+- [ ] Respect **permissions and PII**: never share cached answers across access boundaries
+- [ ] Skip caching for **live-data, personalized, or side-effecting** requests
+- [ ] Add **stampede protection** and TTL jitter for hot keys
+- [ ] **Measure** hit rate, latency, cost saved, and semantic false positives
+- [ ] Provide a **cache bypass** flag (for example `?no_cache=true`) for debugging and admins
+
+---
+
+### Summary
+
+| Cache | Saves | Risk | Start here? |
+| --- | --- | --- | --- |
+| Exact match | LLM call | Low | Yes |
+| Embedding | Embedding calls | Very low | Yes |
+| Prompt (provider) | Input token cost and latency | Very low | Yes |
+| Retrieval | Vector search | Medium (staleness) | After the basics |
+| Semantic | LLM call for paraphrases | Higher (false hits) | When you have traffic data |
+
+Build in that order, measure at every step, and treat correctness (keys, isolation, freshness) as a first-class requirement alongside speed.
