@@ -1,0 +1,803 @@
+# Pandas Roadmap
+
+To become interview-ready in Python, you don't need to master every Pandas feature. Focus on **data manipulation, filtering, aggregation, joins, and handling missing data**.
+
+Pandas is especially useful for **Python Developer, Data Analyst, AI/ML, and GenAI-related** roles.
+
+> **Level:** Beginner to Intermediate &nbsp;|&nbsp; **Focus:** Interview-ready
+
+---
+
+## Table of Contents
+
+1. [Pandas Fundamentals](#1-pandas-fundamentals)
+2. [Selecting and Filtering Data](#2-selecting-and-filtering-data)
+3. [Handling Missing and Duplicate Data](#3-handling-missing-and-duplicate-data)
+4. [Data Manipulation](#4-data-manipulation)
+5. [GroupBy and Aggregation](#5-groupby-and-aggregation)
+6. [Merging and Joining DataFrames](#6-merging-and-joining-dataframes)
+7. [Working with Dates and Strings](#7-working-with-dates-and-strings)
+8. [Advanced Topics](#8-advanced-topics-optional)
+9. [Interview Priority Checklist](#9-interview-priority-checklist)
+10. [Top 15 Pandas Interview Questions](#10-top-15-pandas-interview-questions)
+11. [Practical Interview Exercises](#11-practical-interview-exercises)
+12. [Quick Revision Cheat Sheet](#12-quick-revision-cheat-sheet)
+
+---
+
+## 1. Pandas Fundamentals
+
+### What is Pandas?
+
+**Pandas** is Python's main library for working with **tabular and labeled data**. It is built on top of NumPy and provides two core structures, the **Series** and the **DataFrame**, along with tools for cleaning, reshaping, aggregating, and joining data.
+
+### Pandas vs NumPy
+
+| Aspect | NumPy | Pandas |
+|---|---|---|
+| Core object | `ndarray` | `Series`, `DataFrame` |
+| Data types | One dtype per array | One dtype per column |
+| Labels | Integer positions only | Row index and column names |
+| Best for | Numerical / matrix computation | Tabular data analysis and cleaning |
+| Missing data | Limited (`np.nan` in floats) | First-class support (`NaN`, `NaT`, `pd.NA`) |
+
+### Series vs DataFrame
+
+- **Series**: a 1D labeled array (a single column).
+- **DataFrame**: a 2D labeled table (a collection of Series sharing the same index).
+
+```python
+import pandas as pd
+
+# Series
+s = pd.Series([10, 20, 30], index=["a", "b", "c"])
+print(s["b"])        # 20
+
+# DataFrame
+data = {
+    "name": ["John", "Alice", "Bob"],
+    "age": [25, 30, 28],
+    "salary": [50000, 70000, 60000],
+}
+df = pd.DataFrame(data)
+
+print(df)
+#     name  age  salary
+# 0   John   25   50000
+# 1  Alice   30   70000
+# 2    Bob   28   60000
+
+print(df.head())       # first 5 rows
+print(df.shape)        # (3, 3)
+print(df.columns)      # Index(['name', 'age', 'salary'], dtype='object')
+print(df.dtypes)       # dtype of each column
+df.info()              # prints a summary (returns None, so don't wrap in print)
+print(df.describe())   # count, mean, std, min, quartiles, max for numeric columns
+```
+
+### Reading and exporting data
+
+```python
+# Reading
+df = pd.read_csv("employees.csv")
+df = pd.read_json("employees.json")
+df = pd.read_excel("employees.xlsx")
+
+# Useful read_csv options
+df = pd.read_csv(
+    "employees.csv",
+    usecols=["name", "salary"],   # load only some columns
+    nrows=1000,                   # load only the first 1000 rows
+    parse_dates=["join_date"],    # parse dates while reading
+)
+
+# Exporting
+df.to_csv("out.csv", index=False)   # index=False avoids writing the index column
+df.to_json("out.json", orient="records")
+df.to_excel("out.xlsx", index=False)
+```
+
+---
+
+## 2. Selecting and Filtering Data
+
+> High interview priority.
+
+### Selecting columns
+
+```python
+df["name"]               # a Series
+df[["name", "salary"]]   # a DataFrame (note the double brackets)
+```
+
+### `loc[]` vs `iloc[]`
+
+| | `loc[]` | `iloc[]` |
+|---|---|---|
+| Based on | **Labels** | **Integer positions** |
+| Slice end | **Inclusive** | **Exclusive** |
+| Example | `df.loc[0:2]` returns 3 rows | `df.iloc[0:2]` returns 2 rows |
+
+```python
+df.iloc[0:2]                       # rows at positions 0 and 1
+df.loc[0:2, ["name", "salary"]]    # rows labeled 0, 1, 2 and two columns
+df.iloc[0, 2]                      # first row, third column -> 50000
+```
+
+### Conditional filtering
+
+A condition creates a boolean Series (mask), and indexing with it keeps the `True` rows.
+
+```python
+# Employees earning more than 50K
+df[df["salary"] > 50000]
+
+# Multiple conditions: wrap each in parentheses
+df[(df["age"] > 25) & (df["salary"] > 50000)]   # AND
+df[(df["age"] < 26) | (df["salary"] > 65000)]   # OR
+df[~(df["age"] > 25)]                           # NOT
+```
+
+> **Common mistake:** Using Python's `and` / `or` instead of `&` / `|`. This raises `ValueError: The truth value of a Series is ambiguous`.
+
+### `isin()`, `between()`, `query()`
+
+```python
+df[df["name"].isin(["John", "Bob"])]            # membership
+df[df["age"].between(26, 30)]                   # inclusive on both ends by default
+df.query("age > 25 and salary >= 60000")        # SQL-like string syntax
+
+min_salary = 55000
+df.query("salary > @min_salary")                # @ references a Python variable
+```
+
+---
+
+## 3. Handling Missing and Duplicate Data
+
+### Missing data
+
+| Method | Purpose |
+|---|---|
+| `isnull()` / `isna()` | Boolean mask of missing values |
+| `notnull()` | Opposite of `isnull()` |
+| `dropna()` | Remove rows/columns with missing values |
+| `fillna()` | Replace missing values |
+
+```python
+import numpy as np
+
+df = pd.DataFrame({
+    "name": ["John", "Alice", "Bob", "Eve"],
+    "salary": [50000, np.nan, 60000, np.nan],
+})
+
+# Find missing values
+df.isnull().sum()
+# name      0
+# salary    2
+
+# Drop rows with any missing value
+df.dropna()
+
+# Drop only if a specific column is missing
+df.dropna(subset=["salary"])
+
+# Fill missing salary
+df["salary"] = df["salary"].fillna(0)
+
+# Common fill strategies
+df["salary"] = df["salary"].fillna(df["salary"].mean())    # mean imputation
+df["salary"] = df["salary"].ffill()                        # forward fill
+```
+
+> **Tip:** Prefer `df["col"] = df["col"].fillna(...)` over `inplace=True`. It is clearer and avoids chained-assignment warnings.
+
+### Duplicate data
+
+```python
+df.duplicated()                    # boolean mask (first occurrence is False)
+df.duplicated(keep=False)          # mark ALL copies as duplicates
+df[df.duplicated(keep=False)]      # show every duplicated row
+
+df.drop_duplicates()                           # remove fully duplicated rows
+df.drop_duplicates(subset=["name"])            # based on selected columns
+df.drop_duplicates(subset=["name"], keep="last")
+```
+
+---
+
+## 4. Data Manipulation
+
+```python
+df = pd.DataFrame({
+    "name": ["John", "Alice", "Bob"],
+    "age": [25, 30, 28],
+    "salary": [50000, 70000, 60000],
+})
+```
+
+### Adding, renaming, and removing
+
+```python
+# Add a column
+df["bonus"] = df["salary"] * 0.10
+
+# assign() returns a new DataFrame (good for method chaining)
+df2 = df.assign(total=lambda d: d["salary"] + d["bonus"])
+
+# insert() places a column at a specific position
+df.insert(1, "country", "India")
+
+# rename
+df = df.rename(columns={"salary": "annual_salary"})
+
+# drop
+df = df.drop(columns=["country"])     # drop columns
+df = df.drop(index=[0])               # drop rows by label
+```
+
+### Type conversion and replacement
+
+```python
+df["age"] = df["age"].astype("float64")
+df["name"] = df["name"].replace("Bob", "Robert")
+df["age"] = df["age"].replace({25: 26, 30: 31})
+```
+
+### Sorting
+
+```python
+df.sort_values("annual_salary", ascending=False)
+df.sort_values(["age", "annual_salary"], ascending=[True, False])
+df.sort_index()
+```
+
+### `apply()` vs `map()`
+
+```python
+# Series.apply: any function, element by element
+df["annual_salary"].apply(lambda x: x * 1.10)
+
+# Series.map: element-wise, also accepts a dict or Series for lookups
+df["name"].map({"John": "J", "Alice": "A"})    # unmapped values become NaN
+
+# DataFrame.apply: applies a function along a column or row axis
+df[["age", "annual_salary"]].apply(lambda col: col.max() - col.min())   # per column
+df.apply(lambda row: row["age"] * 2, axis=1)                            # per row (slow)
+```
+
+> **Performance:** Vectorized operations (`df["a"] * 2`) beat `apply()`, which beats `iterrows()`. Use `apply` only when no vectorized alternative exists.
+
+### Unique values and counts
+
+```python
+df["name"].unique()       # array of distinct values
+df["name"].nunique()      # number of distinct values
+df["name"].value_counts() # frequency of each value
+df["name"].value_counts(normalize=True)   # as proportions
+```
+
+---
+
+## 5. GroupBy and Aggregation
+
+> Very high interview priority.
+
+### How `groupby()` works: split, apply, combine
+
+1. **Split** the data into groups by one or more keys.
+2. **Apply** a function to each group (aggregate, transform, or filter).
+3. **Combine** the results into a new object.
+
+```python
+emp = pd.DataFrame({
+    "name": ["John", "Alice", "Bob", "Eve", "Sam", "Tina"],
+    "department": ["IT", "HR", "IT", "HR", "Finance", "IT"],
+    "age": [25, 30, 28, 35, 40, 29],
+    "salary": [50000, 70000, 60000, 65000, 90000, 55000],
+})
+
+# Average salary by department
+emp.groupby("department")["salary"].mean()
+# department
+# Finance    90000.0
+# HR         67500.0
+# IT         55000.0
+
+# Other basic aggregations
+emp.groupby("department")["salary"].sum()
+emp.groupby("department")["salary"].count()
+emp.groupby("department")["salary"].agg(["min", "max"])
+```
+
+### Multiple aggregations with `agg()`
+
+```python
+emp.groupby("department").agg({
+    "salary": ["mean", "max", "min"],
+    "age": "mean",
+})
+
+# Named aggregation (cleaner column names)
+emp.groupby("department").agg(
+    avg_salary=("salary", "mean"),
+    max_salary=("salary", "max"),
+    headcount=("name", "count"),
+).reset_index()
+```
+
+### `transform()`
+
+`transform()` returns a result with the **same shape as the original**, so you can attach group-level values back to each row.
+
+```python
+emp["dept_avg"] = emp.groupby("department")["salary"].transform("mean")
+emp["above_avg"] = emp["salary"] > emp["dept_avg"]
+```
+
+### `agg()` vs `transform()`
+
+| | `agg()` | `transform()` |
+|---|---|---|
+| Output size | One row per group | Same number of rows as the input |
+| Typical use | Summary tables | Add group stats as a new column, normalize within groups |
+
+### Filtering groups
+
+```python
+# Keep only departments with more than 2 employees
+emp.groupby("department").filter(lambda g: len(g) > 2)
+```
+
+---
+
+## 6. Merging and Joining DataFrames
+
+```python
+employees = pd.DataFrame({
+    "id": [1, 2, 3, 4],
+    "name": ["John", "Alice", "Bob", "Eve"],
+})
+
+departments = pd.DataFrame({
+    "id": [1, 2, 3, 5],
+    "department": ["IT", "HR", "Finance", "Legal"],
+})
+
+result = pd.merge(employees, departments, on="id", how="inner")
+```
+
+### Types of joins
+
+| `how=` | Rows kept | Result for the data above |
+|---|---|---|
+| `inner` | Keys present in **both** | ids 1, 2, 3 |
+| `left` | All from left, matches from right | ids 1, 2, 3, 4 (Eve gets `NaN` department) |
+| `right` | All from right, matches from left | ids 1, 2, 3, 5 (id 5 gets `NaN` name) |
+| `outer` | All keys from both | ids 1, 2, 3, 4, 5 |
+
+```python
+pd.merge(employees, departments, on="id", how="left")
+pd.merge(employees, departments, on="id", how="outer", indicator=True)  # shows source of each row
+
+# Different key names
+pd.merge(a, b, left_on="emp_id", right_on="id")
+```
+
+### `concat()` and `join()`
+
+```python
+# concat: stack DataFrames
+pd.concat([df1, df2], axis=0, ignore_index=True)   # vertically (append rows)
+pd.concat([df1, df2], axis=1)                      # horizontally (align on index)
+
+# join: index-based merge, left join by default
+df1.join(df2, how="left", lsuffix="_l", rsuffix="_r")
+```
+
+| Function | Use when |
+|---|---|
+| `merge()` | Combining on **column values** (SQL-style join) |
+| `join()` | Combining on the **index** (shorthand for merge) |
+| `concat()` | Simply **stacking** along an axis |
+
+---
+
+## 7. Working with Dates and Strings
+
+### Dates
+
+```python
+df = pd.DataFrame({
+    "name": ["John", "Alice", "Bob"],
+    "date": ["2024-01-15", "2023-06-30", "2022-12-01"],
+})
+
+df["date"] = pd.to_datetime(df["date"])
+
+df["year"] = df["date"].dt.year
+df["month"] = df["date"].dt.month
+df["day"] = df["date"].dt.day
+df["weekday"] = df["date"].dt.day_name()
+
+# Date arithmetic and filtering
+df["days_since"] = (pd.Timestamp("2025-01-01") - df["date"]).dt.days
+df[df["date"] >= "2023-01-01"]
+
+# Handle bad formats
+pd.to_datetime(df["date"], errors="coerce")   # invalid -> NaT
+```
+
+### Strings
+
+All string methods live under the `.str` accessor and are vectorized (and skip missing values).
+
+```python
+df["name"] = df["name"].str.lower()
+df["name"].str.upper()
+df["name"].str.contains("jo")                 # boolean mask
+df["name"].str.contains("jo", case=False, na=False)
+df["name"].str.replace("o", "0", regex=False)
+df["name"].str.split(" ")                     # list per row
+df["name"].str.split(" ", expand=True)        # separate columns
+df["name"].str.strip()
+df["name"].str.len()
+```
+
+---
+
+## 8. Advanced Topics (Optional)
+
+> Optional for basic interviews, but good to recognize.
+
+### `pivot_table()`
+
+```python
+emp.pivot_table(
+    values="salary",
+    index="department",
+    columns=None,
+    aggfunc="mean",
+)
+```
+
+### `melt()` (wide to long)
+
+```python
+wide = pd.DataFrame({"name": ["A", "B"], "math": [90, 80], "sci": [85, 95]})
+long = wide.melt(id_vars="name", var_name="subject", value_name="score")
+```
+
+### `crosstab()`, `cut()` / `qcut()`, `explode()`
+
+```python
+pd.crosstab(emp["department"], emp["age"] > 29)       # frequency table
+
+pd.cut(emp["age"], bins=[0, 25, 35, 100], labels=["young", "mid", "senior"])   # fixed bins
+pd.qcut(emp["salary"], q=3, labels=["low", "mid", "high"])                     # quantile bins
+
+pd.DataFrame({"id": [1, 2], "tags": [["a", "b"], ["c"]]}).explode("tags")
+```
+
+### Window functions: `rolling()`, `rank()`, `shift()`, `resample()`
+
+```python
+s = pd.Series([10, 20, 30, 40, 50])
+
+s.rolling(window=3).mean()      # [NaN, NaN, 20, 30, 40]
+s.shift(1)                      # [NaN, 10, 20, 30, 40]  -> previous value
+s.pct_change()                  # percentage change from previous
+s.rank(ascending=False)         # ranking
+
+# Time-series resampling (needs a DatetimeIndex)
+ts = pd.Series(range(6), index=pd.date_range("2024-01-01", periods=6, freq="D"))
+ts.resample("2D").sum()
+```
+
+### Performance: vectorization vs `apply()`
+
+```python
+# Slow: row-wise apply
+df["total"] = df.apply(lambda r: r["a"] + r["b"], axis=1)
+
+# Fast: vectorized
+df["total"] = df["a"] + df["b"]
+
+# Conditional logic, vectorized
+df["grade"] = np.where(df["score"] >= 50, "pass", "fail")
+```
+
+---
+
+## 9. Interview Priority Checklist
+
+Use this list to track your preparation (27 topics).
+
+### Fundamentals
+- [ ] Series vs DataFrame
+- [ ] Create DataFrame
+- [ ] Read CSV / JSON
+- [ ] `head()`, `info()`, `describe()`
+
+### Selection and filtering
+- [ ] `loc` vs `iloc`
+- [ ] Conditional filtering
+- [ ] `isin()` and `between()`
+- [ ] Selecting multiple columns
+
+### Data cleaning
+- [ ] `isnull()` and `fillna()`
+- [ ] `dropna()`
+- [ ] `drop_duplicates()`
+- [ ] `astype()` and `replace()`
+
+### Manipulation
+- [ ] `sort_values()`
+- [ ] `apply()` vs `map()`
+- [ ] `value_counts()`
+- [ ] Adding and removing columns
+
+### Aggregation
+- [ ] `groupby()`
+- [ ] `agg()`
+- [ ] `transform()`
+- [ ] Multiple aggregations
+
+### Combining data
+- [ ] `merge()`
+- [ ] Inner vs Left join
+- [ ] `concat()`
+- [ ] `join()`
+
+### Dates and strings
+- [ ] `to_datetime()`
+- [ ] `dt` accessor
+- [ ] `str` accessor
+
+---
+
+## 10. Top 15 Pandas Interview Questions
+
+<details>
+<summary><strong>1. What is the difference between Series and DataFrame?</strong></summary>
+
+A Series is a 1D labeled array holding one dtype. A DataFrame is a 2D table of labeled columns, where each column is a Series and columns can have different dtypes.
+
+</details>
+
+<details>
+<summary><strong>2. What is the difference between <code>loc</code> and <code>iloc</code>?</strong></summary>
+
+`loc` selects by **label** and its slice end is **inclusive**. `iloc` selects by **integer position** and its slice end is **exclusive**. See [Section 2](#2-selecting-and-filtering-data).
+
+</details>
+
+<details>
+<summary><strong>3. How do you handle missing values?</strong></summary>
+
+First detect them with `df.isnull().sum()`. Then choose a strategy: drop (`dropna`), fill with a constant, mean/median/mode (`fillna`), propagate (`ffill`/`bfill`), or interpolate (`interpolate()`). The right choice depends on how much data is missing and why.
+
+</details>
+
+<details>
+<summary><strong>4. What is the difference between <code>dropna()</code> and <code>fillna()</code>?</strong></summary>
+
+`dropna()` **removes** rows (or columns) containing missing values, which shrinks the data. `fillna()` **replaces** them with a value, preserving the row count.
+
+</details>
+
+<details>
+<summary><strong>5. What is the difference between <code>merge()</code> and <code>concat()</code>?</strong></summary>
+
+`merge()` combines DataFrames **by matching key values** (like SQL joins). `concat()` simply **stacks** DataFrames along an axis, aligning on the index or columns, with no key matching.
+
+</details>
+
+<details>
+<summary><strong>6. Explain different types of joins.</strong></summary>
+
+**Inner** keeps only matching keys. **Left** keeps all left rows. **Right** keeps all right rows. **Outer** keeps all rows from both. Unmatched cells are filled with `NaN`. See [Section 6](#6-merging-and-joining-dataframes).
+
+</details>
+
+<details>
+<summary><strong>7. What is <code>groupby()</code>?</strong></summary>
+
+It implements **split-apply-combine**: split rows into groups by key(s), apply an aggregation/transformation/filter per group, then combine the results.
+
+```python
+df.groupby("department")["salary"].mean()
+```
+
+</details>
+
+<details>
+<summary><strong>8. Difference between <code>apply()</code>, <code>map()</code>, and vectorization?</strong></summary>
+
+- **Vectorization** (`df["a"] * 2`): operates on whole columns in optimized code. Fastest.
+- **`map()`**: element-wise on a Series, ideal for dict/lookup substitution.
+- **`apply()`**: runs an arbitrary Python function per element, per column, or per row (`axis=1`). Flexible but slower.
+
+Prefer vectorization, then built-in methods, then `apply()`.
+
+</details>
+
+<details>
+<summary><strong>9. How do you remove duplicate rows?</strong></summary>
+
+```python
+df.drop_duplicates()                              # all columns
+df.drop_duplicates(subset=["email"], keep="first")
+```
+
+</details>
+
+<details>
+<summary><strong>10. How do you find unique values in a column?</strong></summary>
+
+`df["col"].unique()` returns the distinct values, `df["col"].nunique()` counts them, and `df["col"].value_counts()` gives frequencies.
+
+</details>
+
+<details>
+<summary><strong>11. How do you sort a DataFrame?</strong></summary>
+
+```python
+df.sort_values("salary", ascending=False)
+df.sort_values(["department", "salary"], ascending=[True, False])
+df.sort_index()
+```
+
+</details>
+
+<details>
+<summary><strong>12. What is <code>pivot_table()</code>?</strong></summary>
+
+It summarizes data into a spreadsheet-style table by choosing row keys (`index`), column keys (`columns`), the values to aggregate, and an `aggfunc`. It is essentially a `groupby` followed by an unstack, and it handles duplicate entries by aggregating them (unlike `pivot()`, which raises an error).
+
+```python
+df.pivot_table(values="salary", index="department", columns="gender", aggfunc="mean")
+```
+
+</details>
+
+<details>
+<summary><strong>13. How do you filter rows based on multiple conditions?</strong></summary>
+
+Combine boolean masks with `&`, `|`, `~`, putting each condition in parentheses, or use `query()`.
+
+```python
+df[(df["age"] > 25) & (df["salary"] > 50000)]
+df.query("age > 25 and salary > 50000")
+```
+
+</details>
+
+<details>
+<summary><strong>14. What is the difference between <code>agg()</code> and <code>transform()</code>?</strong></summary>
+
+`agg()` **reduces** each group to a summary (one row per group). `transform()` returns a result **aligned to the original rows** (same length), so it can be assigned back as a new column.
+
+</details>
+
+<details>
+<summary><strong>15. How do you optimize Pandas performance?</strong></summary>
+
+- Use **vectorized** operations instead of `apply(axis=1)` or `iterrows()`.
+- Load only needed data: `usecols`, `nrows`, or `chunksize` with `read_csv`.
+- Use smaller dtypes: `astype("category")` for low-cardinality strings, `int32`/`float32` where precision allows, `pd.to_numeric(..., downcast=...)`.
+- Prefer built-in `groupby`/`merge` over Python loops.
+- Check memory with `df.memory_usage(deep=True)`.
+- Use Parquet instead of CSV for storage, and consider Polars or Dask for very large data.
+
+</details>
+
+---
+
+## 11. Practical Interview Exercises
+
+Try these **without looking at the solutions**.
+
+| # | Problem | Concept |
+|---|---|---|
+| 1 | Find employees earning more than 60K | Filtering |
+| 2 | Find the highest salary | Aggregation |
+| 3 | Find average salary per department | GroupBy |
+| 4 | Find the top 3 highest-paid employees | Sorting |
+| 5 | Find duplicate employee records | Duplicates |
+| 6 | Replace missing salaries with department average | Missing data |
+| 7 | Join employee and department tables | Merge |
+| 8 | Find departments with more than 5 employees | GroupBy + filter |
+| 9 | Calculate salary rank within each department | Rank |
+| 10 | Find employees earning above their department average | Transform |
+
+### Sample data
+
+```python
+import pandas as pd
+import numpy as np
+
+df = pd.DataFrame({
+    "id": [1, 2, 3, 4, 5, 6, 6],
+    "name": ["John", "Alice", "Bob", "Eve", "Sam", "Tina", "Tina"],
+    "department": ["IT", "HR", "IT", "HR", "Finance", "IT", "IT"],
+    "salary": [50000, 70000, 60000, np.nan, 90000, 55000, 55000],
+})
+
+dept_info = pd.DataFrame({
+    "department": ["IT", "HR", "Finance"],
+    "location": ["Pune", "Delhi", "Mumbai"],
+})
+```
+
+### Solutions
+
+```python
+# 1. Employees earning more than 60K
+df[df["salary"] > 60000]
+
+# 2. Highest salary
+df["salary"].max()
+
+# 3. Average salary per department
+df.groupby("department")["salary"].mean()
+
+# 4. Top 3 highest-paid employees
+df.nlargest(3, "salary")
+# or: df.sort_values("salary", ascending=False).head(3)
+
+# 5. Duplicate employee records (show all copies)
+df[df.duplicated(keep=False)]
+
+# 6. Replace missing salaries with department average
+df["salary"] = df["salary"].fillna(
+    df.groupby("department")["salary"].transform("mean")
+)
+
+# 7. Join employee and department tables
+pd.merge(df, dept_info, on="department", how="left")
+
+# 8. Departments with more than 5 employees
+counts = df.groupby("department")["id"].count()
+counts[counts > 5].index.tolist()
+# or: df.groupby("department").filter(lambda g: len(g) > 5)
+
+# 9. Salary rank within each department (highest = rank 1)
+df["dept_rank"] = df.groupby("department")["salary"].rank(
+    ascending=False, method="dense"
+)
+
+# 10. Employees earning above their department average
+dept_avg = df.groupby("department")["salary"].transform("mean")
+df[df["salary"] > dept_avg]
+```
+
+> **Note:** For #5, run the duplicate check before cleaning, and consider `drop_duplicates()` before computing aggregates so repeated records don't skew results.
+
+---
+
+## 12. Quick Revision Cheat Sheet
+
+| Topic | Remember |
+|---|---|
+| Structures | Series is 1D, DataFrame is 2D |
+| Selection | `loc` is label-based (end inclusive), `iloc` is position-based (end exclusive) |
+| Filtering | `&`, `|`, `~` with parentheses; never `and` / `or` |
+| Missing data | `isnull().sum()`, `dropna()`, `fillna()` |
+| Duplicates | `duplicated()`, `drop_duplicates(subset=..., keep=...)` |
+| GroupBy | Split, apply, combine |
+| `agg` vs `transform` | `agg` reduces, `transform` keeps the original shape |
+| Joins | `merge` (keys), `join` (index), `concat` (stack) |
+| Dates / strings | `pd.to_datetime`, `.dt`, `.str` |
+| Speed | Vectorize first, avoid `apply(axis=1)` and `iterrows()` |
+
+### Suggested study order
+
+1. Fundamentals, `loc`/`iloc`, and filtering
+2. Missing and duplicate data
+3. **GroupBy and aggregation** (spend the most time here)
+4. Merging and joining
+5. Dates, strings, and basic manipulation
+6. Advanced topics (pivot, melt, window functions)
+7. Solve the 10 exercises, then review the 15 interview questions

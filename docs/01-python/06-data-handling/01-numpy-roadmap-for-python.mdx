@@ -1,0 +1,679 @@
+# NumPy Roadmap
+
+If your goal is to learn NumPy for **Python, Data Science, and AI/ML interviews**, you don't need to master the whole library. Focus on **arrays, indexing, broadcasting, vectorization, mathematical operations**, and a handful of practical problems.
+
+> **Level:** Beginner to Intermediate &nbsp;|&nbsp; **Focus:** Interview-ready
+
+---
+
+## Table of Contents
+
+1. [NumPy Fundamentals](#1-numpy-fundamentals)
+2. [Array Properties and Data Types](#2-array-properties-and-data-types)
+3. [Indexing and Slicing](#3-indexing-and-slicing)
+4. [Array Manipulation](#4-array-manipulation)
+5. [Mathematical and Statistical Operations](#5-mathematical-and-statistical-operations)
+6. [Broadcasting](#6-broadcasting)
+7. [Vectorization](#7-vectorization)
+8. [Random Numbers and Linear Algebra](#8-random-numbers-and-linear-algebra)
+9. [Interview Coding Practice](#9-interview-coding-practice)
+10. [Most Frequently Asked Interview Questions](#10-most-frequently-asked-interview-questions)
+11. [Quick Revision Cheat Sheet](#11-quick-revision-cheat-sheet)
+
+---
+
+## 1. NumPy Fundamentals
+
+### What is NumPy?
+
+**NumPy** (Numerical Python) is the core library for numerical computing in Python. Its central object is the **`ndarray`**: a fixed-type, N-dimensional, contiguous block of memory. Almost every data science library (Pandas, SciPy, scikit-learn, TensorFlow, PyTorch) is built on or interoperates with it.
+
+### Why NumPy instead of Python lists?
+
+| Aspect | Python list | NumPy array |
+|---|---|---|
+| Element types | Mixed allowed | Single dtype (homogeneous) |
+| Memory | Stores pointers to objects | Contiguous raw values |
+| Speed | Slow (interpreted loops) | Fast (compiled C loops) |
+| Math operations | Manual loops needed | Element-wise by default |
+| Multi-dimensional | Nested lists | Native N-D support |
+
+**Why is it faster?**
+
+1. Contiguous memory improves CPU cache usage.
+2. A single data type removes per-element type checks.
+3. Operations run in pre-compiled C code (vectorization).
+
+### Installing and importing
+
+```bash
+pip install numpy
+```
+
+```python
+import numpy as np
+```
+
+### Creating arrays
+
+| Function | Purpose |
+|---|---|
+| `np.array()` | Build an array from a list or tuple |
+| `np.zeros()` | Array filled with 0 |
+| `np.ones()` | Array filled with 1 |
+| `np.empty()` | Allocated array with **uninitialized** values |
+| `np.arange()` | Evenly spaced values by **step size** |
+| `np.linspace()` | Evenly spaced values by **number of points** |
+
+```python
+import numpy as np
+
+arr = np.array([10, 20, 30, 40])
+print(arr)         # [10 20 30 40]
+print(type(arr))   # <class 'numpy.ndarray'>
+print(arr.dtype)   # int64
+print(arr.shape)   # (4,)
+print(arr.ndim)    # 1
+print(arr.size)    # 4
+```
+
+```python
+np.zeros((2, 3))        # 2x3 matrix of zeros
+np.ones((2, 2))         # 2x2 matrix of ones
+np.empty((2, 2))        # garbage values, fastest allocation
+np.arange(0, 10, 2)     # [0 2 4 6 8]       -> step = 2, stop excluded
+np.linspace(0, 1, 5)    # [0. 0.25 0.5 0.75 1.]  -> 5 points, stop included
+```
+
+### Interview questions
+
+<details>
+<summary><strong>Difference between <code>arange()</code> and <code>linspace()</code>?</strong></summary>
+
+`arange(start, stop, step)` takes a **step size** and excludes `stop`. `linspace(start, stop, num)` takes the **number of points** and includes `stop` by default. Prefer `linspace` for floats, since `arange` with float steps can produce unexpected lengths due to rounding.
+
+</details>
+
+<details>
+<summary><strong>Difference between <code>zeros()</code> and <code>empty()</code>?</strong></summary>
+
+`zeros()` initializes every element to 0. `empty()` only allocates memory and leaves whatever values were there, so it is slightly faster but unsafe to read before you fill it.
+
+</details>
+
+---
+
+## 2. Array Properties and Data Types
+
+| Property | Purpose |
+|---|---|
+| `ndim` | Number of dimensions |
+| `shape` | Size along each dimension |
+| `size` | Total number of elements |
+| `dtype` | Data type of elements |
+| `itemsize` | Bytes per element |
+| `nbytes` | Total memory (`size * itemsize`) |
+
+```python
+arr = np.array([[1, 2, 3], [4, 5, 6]])
+
+print(arr.ndim)       # 2
+print(arr.shape)      # (2, 3)
+print(arr.size)       # 6
+print(arr.dtype)      # int64
+print(arr.itemsize)   # 8
+print(arr.nbytes)     # 48
+```
+
+### Type conversion with `astype()`
+
+`astype()` returns a **new array** with the converted type.
+
+```python
+a = np.array([1.7, 2.2, 3.9])
+b = a.astype(int)
+print(b)          # [1 2 3]  -> truncates, does not round
+
+c = np.array([1, 2, 3], dtype=np.float32)
+print(c.dtype)    # float32
+```
+
+> **Tip:** Integer and float arrays can behave differently. `np.array([1, 2, 3.0])` becomes a float array because NumPy **upcasts** to a common type.
+
+---
+
+## 3. Indexing and Slicing
+
+> Very important for interviews.
+
+### 1D indexing and slicing
+
+```python
+arr = np.array([10, 20, 30, 40, 50])
+
+print(arr[0])        # 10
+print(arr[-1])       # 50
+print(arr[1:4])      # [20 30 40]
+print(arr[::2])      # [10 30 50]
+print(arr[::-1])     # [50 40 30 20 10]
+```
+
+### 2D indexing
+
+```python
+matrix = np.array([
+    [1, 2, 3],
+    [4, 5, 6],
+    [7, 8, 9],
+])
+
+print(matrix[0, 1])    # 2           -> row 0, col 1
+print(matrix[:, 1])    # [2 5 8]     -> entire column 1
+print(matrix[1, :])    # [4 5 6]     -> entire row 1
+print(matrix[:2, 1:])  # [[2 3] [5 6]]
+```
+
+### Boolean indexing
+
+A boolean mask selects the elements where the condition is `True`.
+
+```python
+arr = np.array([10, 20, 30, 40, 50])
+
+mask = arr > 25
+print(mask)          # [False False  True  True  True]
+print(arr[mask])     # [30 40 50]
+print(arr[arr > 25]) # same, in one line
+
+# Combine conditions with & and | (use parentheses)
+print(arr[(arr > 15) & (arr < 45)])   # [20 30 40]
+```
+
+### Fancy indexing
+
+Pass a list or array of indices to pick arbitrary elements.
+
+```python
+arr = np.array([10, 20, 30, 40, 50])
+print(arr[[0, 2, 4]])      # [10 30 50]
+
+matrix[[0, 2], [1, 2]]     # picks (0,1) and (2,2) -> [2 9]
+```
+
+> **Key point:** Basic slicing returns a **view**. Boolean and fancy indexing return a **copy**.
+
+---
+
+## 4. Array Manipulation
+
+| Function | What it does |
+|---|---|
+| `reshape()` | Change shape without changing data |
+| `flatten()` | Return a **copy** flattened to 1D |
+| `ravel()` | Return a flattened **view** when possible |
+| `transpose()` / `.T` | Swap axes |
+| `concatenate()` | Join along an existing axis |
+| `vstack()` / `hstack()` | Stack vertically / horizontally |
+| `split()` | Split into sub-arrays |
+| `expand_dims()` | Add a new axis of size 1 |
+| `squeeze()` | Remove axes of size 1 |
+
+```python
+arr = np.array([1, 2, 3, 4, 5, 6])
+matrix = arr.reshape(2, 3)
+
+print(matrix)
+# [[1 2 3]
+#  [4 5 6]]
+
+print(matrix.T)
+# [[1 4]
+#  [2 5]
+#  [3 6]]
+
+print(matrix.flatten())   # [1 2 3 4 5 6]
+print(arr.reshape(3, -1)) # -1 lets NumPy infer the dimension -> (3, 2)
+```
+
+### Joining and splitting
+
+```python
+a = np.array([1, 2, 3])
+b = np.array([4, 5, 6])
+
+np.concatenate([a, b])   # [1 2 3 4 5 6]
+np.vstack([a, b])        # [[1 2 3] [4 5 6]]  -> shape (2, 3)
+np.hstack([a, b])        # [1 2 3 4 5 6]      -> shape (6,)
+
+np.split(np.arange(6), 3)   # [array([0, 1]), array([2, 3]), array([4, 5])]
+```
+
+### Adding and removing axes
+
+```python
+x = np.array([1, 2, 3])            # shape (3,)
+y = np.expand_dims(x, axis=0)      # shape (1, 3)
+z = np.expand_dims(x, axis=1)      # shape (3, 1)
+print(np.squeeze(y).shape)         # (3,)
+```
+
+---
+
+## 5. Mathematical and Statistical Operations
+
+```python
+arr = np.array([10, 20, 30, 40, 50])
+
+print(np.sum(arr))     # 150
+print(np.mean(arr))    # 30.0
+print(np.median(arr))  # 30.0
+print(np.std(arr))     # 14.142135623730951
+print(np.var(arr))     # 200.0
+print(np.min(arr))     # 10
+print(np.max(arr))     # 50
+print(np.argmax(arr))  # 4  -> index of max
+print(np.argmin(arr))  # 0  -> index of min
+```
+
+### `axis=0` vs `axis=1`
+
+- `axis=0` operates **down the rows** and gives one result per **column**.
+- `axis=1` operates **across the columns** and gives one result per **row**.
+
+```python
+m = np.array([[1, 2, 3],
+              [4, 5, 6]])
+
+print(m.sum(axis=0))   # [5 7 9]   -> column sums
+print(m.sum(axis=1))   # [ 6 15]   -> row sums
+print(m.mean(axis=0))  # [2.5 3.5 4.5]
+```
+
+### More essentials
+
+```python
+arr = np.array([3, 1, 2, 3, 1])
+
+np.cumsum(arr)                   # [ 3  4  6  9 10]
+np.sort(arr)                     # [1 1 2 3 3]
+np.unique(arr)                   # [1 2 3]
+np.unique(arr, return_counts=True)  # (array([1, 2, 3]), array([2, 1, 2]))
+
+# Conditional operations
+np.where(arr > 2, "big", "small")   # ['big' 'small' 'small' 'big' 'small']
+np.where(arr > 2)                   # (array([0, 3]),) -> indices
+
+# Rounding
+x = np.array([1.234, 2.567, 3.5])
+np.round(x, 1)   # [1.2 2.6 3.5]
+np.floor(x)      # [1. 2. 3.]
+np.ceil(x)       # [2. 3. 4.]
+```
+
+---
+
+## 6. Broadcasting
+
+> Very important.
+
+**Broadcasting** lets NumPy perform operations on arrays of **different shapes** without physically copying data to match them.
+
+```python
+arr = np.array([10, 20, 30])
+print(arr + 5)    # [15 25 35]  -> the scalar 5 is "stretched"
+```
+
+### 2D example
+
+```python
+matrix = np.array([[1, 2, 3],
+                   [4, 5, 6]])     # shape (2, 3)
+arr = np.array([10, 20, 30])       # shape (3,)
+
+print(matrix + arr)
+# [[11 22 33]
+#  [14 25 36]]
+```
+
+### Broadcasting rules
+
+Compare shapes **from the rightmost dimension to the left**. Two dimensions are compatible if:
+
+1. They are **equal**, or
+2. One of them is **1** (it gets stretched), or
+3. One of them is **missing** (treated as 1).
+
+```text
+(2, 3)  +  (3,)    ->  (2, 3)   OK
+(3, 1)  +  (1, 4)  ->  (3, 4)   OK
+(2, 3)  +  (2,)    ->  ERROR
+```
+
+### Shape mismatch error
+
+```python
+a = np.ones((2, 3))
+b = np.ones(2)
+a + b
+# ValueError: operands could not be broadcast together with shapes (2,3) (2,)
+
+# Fix: give b a column shape
+a + b[:, np.newaxis]   # (2,3) + (2,1) -> works
+```
+
+---
+
+## 7. Vectorization
+
+> One of the most important NumPy concepts.
+
+**Vectorization** means replacing explicit Python loops with array operations that run in compiled C code.
+
+```python
+# Without NumPy
+numbers = [1, 2, 3, 4]
+result = []
+for n in numbers:
+    result.append(n * 2)
+
+# With NumPy
+arr = np.array(numbers)
+result = arr * 2          # [2 4 6 8]
+```
+
+### Performance comparison
+
+```python
+import time
+
+size = 1_000_000
+lst = list(range(size))
+arr = np.arange(size)
+
+start = time.time()
+_ = [x * 2 for x in lst]
+print("List :", time.time() - start)
+
+start = time.time()
+_ = arr * 2
+print("NumPy:", time.time() - start)     # typically 10-100x faster
+```
+
+### Why it matters in ML
+
+- Datasets contain millions of rows, and loops would be far too slow.
+- Matrix operations map directly onto optimized BLAS/LAPACK routines (and GPUs in other frameworks).
+- Code becomes shorter and closer to the underlying math.
+
+---
+
+## 8. Random Numbers and Linear Algebra
+
+### Random operations
+
+```python
+np.random.seed(42)                    # reproducible results
+
+np.random.rand(3)                     # 3 floats uniform in [0, 1)
+np.random.randint(1, 100, size=5)     # 5 ints in [1, 100)
+np.random.randn(3, 3)                 # 3x3 from standard normal
+```
+
+> **Modern style:** `rng = np.random.default_rng(42)` followed by `rng.random(3)` or `rng.integers(1, 100, 5)` is the recommended newer API.
+
+### Linear algebra
+
+```python
+a = np.array([[1, 2], [3, 4]])
+b = np.array([[5, 6], [7, 8]])
+
+print(np.dot(a, b))
+# [[19 22]
+#  [43 50]]
+
+print(a @ b)              # same result, preferred syntax
+print(a.T)                # transpose
+print(np.linalg.inv(a))
+# [[-2.   1. ]
+#  [ 1.5 -0.5]]
+
+print(np.linalg.det(a))   # -2.0 (approximately)
+
+eigenvalues, eigenvectors = np.linalg.eig(a)
+print(eigenvalues)        # approx [-0.372  5.372]
+```
+
+### Concepts to understand at a basic level
+
+| Concept | Idea |
+|---|---|
+| Matrix multiplication | Row-by-column dot products; inner dimensions must match |
+| Transpose | Flip rows and columns |
+| Inverse | `A @ inv(A) = I`; exists only if `det(A)` is not 0 |
+| Determinant | Scalar describing how a matrix scales area/volume |
+| Eigenvalues | Scalars `λ` where `A v = λ v` for some non-zero vector `v` |
+
+---
+
+## 9. Interview Coding Practice
+
+| # | Problem | Difficulty |
+|---|---|---|
+| 1 | Find the maximum and minimum in an array | Easy |
+| 2 | Find unique elements | Easy |
+| 3 | Reverse a NumPy array | Easy |
+| 4 | Find elements greater than a threshold | Easy |
+| 5 | Replace negative values with zero | Easy |
+| 6 | Calculate row-wise and column-wise sums | Medium |
+| 7 | Normalize an array | Medium |
+| 8 | Find duplicate elements | Medium |
+| 9 | Reshape a 1D array into a 2D matrix | Easy |
+| 10 | Perform matrix multiplication | Medium |
+
+### Solutions
+
+```python
+import numpy as np
+
+# 1. Max and min
+arr = np.array([4, 9, 1, 7])
+print(arr.max(), arr.min())                  # 9 1
+
+# 2. Unique elements
+arr = np.array([1, 2, 2, 3, 3, 3])
+print(np.unique(arr))                        # [1 2 3]
+
+# 3. Reverse
+print(arr[::-1])                             # [3 3 3 2 2 1]
+
+# 4. Greater than threshold
+arr = np.array([5, 12, 8, 20])
+print(arr[arr > 10])                         # [12 20]
+
+# 5. Replace negatives with zero
+arr = np.array([-3, 4, -1, 7])
+print(np.where(arr < 0, 0, arr))             # [0 4 0 7]
+# or in place: arr[arr < 0] = 0
+
+# 6. Row-wise and column-wise sums
+m = np.array([[1, 2, 3], [4, 5, 6]])
+print(m.sum(axis=1), m.sum(axis=0))          # [ 6 15] [5 7 9]
+
+# 7. Normalize
+arr = np.array([10, 20, 30, 40, 50])
+min_max = (arr - arr.min()) / (arr.max() - arr.min())   # scale to [0, 1]
+z_score = (arr - arr.mean()) / arr.std()                # mean 0, std 1
+print(min_max)                               # [0.   0.25 0.5  0.75 1.  ]
+
+# 8. Duplicate elements
+arr = np.array([1, 2, 2, 3, 3, 3, 4])
+values, counts = np.unique(arr, return_counts=True)
+print(values[counts > 1])                    # [2 3]
+
+# 9. Reshape 1D -> 2D
+print(np.arange(1, 7).reshape(2, 3))
+
+# 10. Matrix multiplication
+a = np.array([[1, 2], [3, 4]])
+b = np.array([[5, 6], [7, 8]])
+print(a @ b)
+```
+
+---
+
+## 10. Most Frequently Asked Interview Questions
+
+<details>
+<summary><strong>1. NumPy array vs Python list?</strong></summary>
+
+NumPy arrays are homogeneous, stored contiguously, and support fast vectorized math. Lists are heterogeneous, store object pointers, and need loops for element-wise work.
+
+</details>
+
+<details>
+<summary><strong>2. Difference between <code>copy()</code> and <code>view()</code>?</strong></summary>
+
+A **view** shares memory with the original, so changes to one affect the other. A **copy** owns separate memory.
+
+```python
+a = np.array([1, 2, 3])
+v = a.view()
+c = a.copy()
+v[0] = 99
+print(a)   # [99  2  3]  -> changed through the view
+print(c)   # [1 2 3]     -> unaffected
+```
+
+Check with `v.base is a` (True for a view).
+
+</details>
+
+<details>
+<summary><strong>3. What is broadcasting?</strong></summary>
+
+The mechanism that lets arrays of different but compatible shapes be combined element-wise by virtually stretching size-1 or missing dimensions. See [Section 6](#6-broadcasting).
+
+</details>
+
+<details>
+<summary><strong>4. What is vectorization?</strong></summary>
+
+Performing operations on whole arrays at once in compiled code instead of looping in Python. See [Section 7](#7-vectorization).
+
+</details>
+
+<details>
+<summary><strong>5. Difference between <code>reshape()</code> and <code>resize()</code>?</strong></summary>
+
+`reshape()` returns an array with a new shape and requires the total number of elements to stay the same. `arr.resize()` changes the array **in place** and can change its size (padding with zeros). The function `np.resize()` returns a new array and **repeats** the data to fill the new size.
+
+```python
+a = np.array([1, 2, 3, 4])
+a.reshape(2, 2)         # OK
+a.reshape(3, 2)         # ValueError
+np.resize(a, (3, 2))    # [[1 2] [3 4] [1 2]]
+```
+
+</details>
+
+<details>
+<summary><strong>6. Difference between <code>flatten()</code> and <code>ravel()</code>?</strong></summary>
+
+`flatten()` always returns a **copy**. `ravel()` returns a **view** whenever possible (faster, and writing to it can change the original).
+
+</details>
+
+<details>
+<summary><strong>7. Difference between <code>vstack()</code> and <code>hstack()</code>?</strong></summary>
+
+`vstack` stacks arrays **vertically** (along axis 0, adding rows). `hstack` stacks **horizontally** (along axis 1 for 2D, adding columns). Shapes must match along the non-stacking axis.
+
+</details>
+
+<details>
+<summary><strong>8. What do <code>axis=0</code> and <code>axis=1</code> mean?</strong></summary>
+
+`axis=0` runs along rows (top to bottom), producing a result per column. `axis=1` runs along columns (left to right), producing a result per row.
+
+</details>
+
+<details>
+<summary><strong>9. How does Boolean indexing work?</strong></summary>
+
+A condition creates a boolean mask of the same shape. Using that mask as an index returns only the elements where it is `True`, as a 1D **copy**.
+
+```python
+arr[arr % 2 == 0]
+```
+
+</details>
+
+<details>
+<summary><strong>10. How do you handle NaN values?</strong></summary>
+
+```python
+arr = np.array([1.0, np.nan, 3.0, np.nan, 5.0])
+
+np.isnan(arr)                     # [False True False True False]
+arr[~np.isnan(arr)]               # drop NaN -> [1. 3. 5.]
+np.nanmean(arr)                   # 3.0 -> NaN-aware stats
+np.nan_to_num(arr, nan=0.0)       # replace NaN with 0
+arr[np.isnan(arr)] = np.nanmean(arr)   # impute with mean
+```
+
+Note that `np.nan == np.nan` is `False`, so always use `np.isnan()`.
+
+</details>
+
+<details>
+<summary><strong>11. Difference between <code>dot()</code> and <code>multiply()</code>?</strong></summary>
+
+`np.multiply(a, b)` (or `a * b`) is **element-wise** multiplication. `np.dot(a, b)` (or `a @ b`) is **matrix multiplication** (or the inner product for 1D arrays).
+
+```python
+a = np.array([[1, 2], [3, 4]])
+b = np.array([[5, 6], [7, 8]])
+a * b        # [[ 5 12] [21 32]]
+a @ b        # [[19 22] [43 50]]
+```
+
+</details>
+
+<details>
+<summary><strong>12. How do you calculate standard deviation?</strong></summary>
+
+```python
+arr = np.array([10, 20, 30, 40, 50])
+np.std(arr)           # population std (ddof=0) -> 14.14
+np.std(arr, ddof=1)   # sample std              -> 15.81
+```
+
+By default, NumPy divides by `N` (population). Use `ddof=1` for the sample standard deviation.
+
+</details>
+
+---
+
+## 11. Quick Revision Cheat Sheet
+
+| Topic | Remember |
+|---|---|
+| Creation | `array`, `zeros`, `ones`, `arange` (step), `linspace` (count) |
+| Properties | `shape`, `ndim`, `size`, `dtype`, `itemsize`, `nbytes` |
+| Slicing | Returns a **view**; boolean and fancy indexing return a **copy** |
+| Reshape | `-1` infers a dimension; total size must match |
+| Axis | `axis=0` is per column, `axis=1` is per row |
+| Broadcasting | Compare shapes right to left: equal, 1, or missing |
+| Vectorization | No Python loops, use array operations |
+| Multiplication | `*` is element-wise, `@` is matrix |
+| NaN | Use `np.isnan`, `np.nanmean`, `np.nan_to_num` |
+| Std | `ddof=0` population, `ddof=1` sample |
+
+### Suggested study order
+
+1. Fundamentals, properties, and data types
+2. Indexing and slicing (spend extra time here)
+3. Manipulation and statistics
+4. Broadcasting and vectorization
+5. Linear algebra and random numbers
+6. Solve the 10 practice problems, then review the 12 interview questions

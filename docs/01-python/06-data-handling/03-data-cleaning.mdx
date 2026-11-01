@@ -1,0 +1,745 @@
+# Data Cleaning in Pandas + JSONL
+
+Data cleaning is a core Pandas skill, especially when working with **real-world datasets, APIs, LLM datasets, RAG pipelines, and machine learning**. This guide goes from interview basics to practical coding.
+
+> **Level:** Beginner to Intermediate &nbsp;|&nbsp; **Focus:** Interview + practical GenAI data work
+
+---
+
+## Table of Contents
+
+1. [What Is Data Cleaning?](#1-what-is-data-cleaning)
+2. [Handling Missing Values](#2-handling-missing-values)
+3. [Removing Duplicate Records](#3-removing-duplicate-records)
+4. [Cleaning Strings](#4-cleaning-strings)
+5. [Handling Incorrect Data](#5-handling-incorrect-data)
+6. [Correcting Data Types](#6-correcting-data-types)
+7. [JSONL (JSON Lines)](#7-jsonl-json-lines)
+8. [Reading and Writing JSONL with Pandas](#8-reading-and-writing-jsonl-with-pandas)
+9. [Cleaning a JSONL Dataset (End to End)](#9-cleaning-a-jsonl-dataset-end-to-end)
+10. [JSON vs JSONL vs CSV](#10-json-vs-jsonl-vs-csv)
+11. [Interview Questions](#11-interview-questions)
+12. [Quick Revision Cheat Sheet](#12-quick-revision-cheat-sheet)
+
+---
+
+## 1. What Is Data Cleaning?
+
+**Data cleaning** means identifying and fixing problems in raw data **before** using it for analysis, training, or retrieval. Bad input produces bad models, bad embeddings, and bad answers ("garbage in, garbage out").
+
+### Common problems
+
+| Problem | Example |
+|---|---|
+| Missing values | `NaN`, `None`, `null`, empty strings |
+| Duplicate records | The same row appears twice |
+| Incorrect data types | Numbers stored as strings |
+| Extra whitespace | `" John "` |
+| Inconsistent capitalization | `"ALICE"`, `"alice"`, `"Alice"` |
+| Invalid values | Age of `-5` |
+| Incorrect date formats | `"01/02/2024"` vs `"2024-02-01"` |
+| Malformed JSON records | A truncated or broken line in a JSONL file |
+
+### Raw data used in this guide
+
+```python
+import pandas as pd
+
+data = {
+    "name": [" John ", "ALICE", None, "Bob", "Bob"],
+    "age": [25, 30, None, -5, -5],
+    "salary": [50000, None, 70000, 40000, 40000],
+}
+
+df = pd.DataFrame(data)
+print(df)
+#      name   age   salary
+# 0   John   25.0  50000.0
+# 1   ALICE  30.0      NaN
+# 2    None   NaN  70000.0
+# 3     Bob  -5.0  40000.0
+# 4     Bob  -5.0  40000.0
+```
+
+> A column containing `None` or `NaN` is stored as `float64` (for numbers) or `object` (for text), which is why `age` shows as `25.0`.
+
+### Typical cleaning workflow
+
+1. **Inspect**: `df.info()`, `df.describe()`, `df.isnull().sum()`
+2. **Fix structure**: column names, data types
+3. **Clean values**: strings, invalid values, outliers
+4. **Handle missing data**
+5. **Remove duplicates**
+6. **Validate and save**
+
+---
+
+## 2. Handling Missing Values
+
+> Interview essential.
+
+```python
+# Count missing values per column
+df.isnull().sum()
+# name      1
+# age       1
+# salary    1
+
+# Check whether any missing value exists in each column
+df.isnull().any()
+
+# Check across the whole DataFrame
+df.isnull().any().any()      # True
+
+# Percentage missing per column
+df.isnull().mean() * 100
+
+# Remove rows with missing values
+df.dropna()
+
+# Fill missing values
+df["salary"] = df["salary"].fillna(0)
+
+# Fill with column average
+df["age"] = df["age"].fillna(df["age"].mean())
+
+# Fill with most frequent value
+df["name"] = df["name"].fillna(df["name"].mode()[0])
+```
+
+> **Note:** `mode()` returns a Series (there can be ties), so use `mode()[0]` to take the first value.
+
+### More `dropna()` and `fillna()` options
+
+```python
+df.dropna(subset=["salary"])     # drop only if salary is missing
+df.dropna(thresh=2)              # keep rows with at least 2 non-null values
+df.dropna(axis=1)                # drop columns containing missing values
+
+df["salary"].ffill()             # forward fill (copy the previous value)
+df["salary"].bfill()             # backward fill
+df["salary"].interpolate()       # linear interpolation (numeric / time series)
+df.fillna({"age": 0, "name": "unknown"})   # different value per column
+```
+
+### Important interview question: mean, median, or mode?
+
+| Statistic | Use for | Why |
+|---|---|---|
+| **Mean** | Numerical data that is roughly normally distributed | Uses every value, but is sensitive to outliers |
+| **Median** | Numerical data with **outliers or skew** (salary, price) | Robust to extreme values |
+| **Mode** | **Categorical** data (city, department) | The mean does not exist for categories |
+
+> **Tip:** Missing values are not always random. Sometimes "missing" itself carries information. In ML you can add an indicator column first: `df["salary_missing"] = df["salary"].isnull()`.
+
+---
+
+## 3. Removing Duplicate Records
+
+```python
+# Identify duplicates (the first occurrence is marked False)
+df.duplicated()
+
+# Count duplicates
+df.duplicated().sum()
+
+# Remove duplicates
+df = df.drop_duplicates()
+
+# Remove duplicates based on a specific column
+df = df.drop_duplicates(subset=["name"])
+```
+
+### Controlling which copy is kept
+
+```python
+df.drop_duplicates(subset=["name"], keep="first")   # default
+df.drop_duplicates(subset=["name"], keep="last")
+df.drop_duplicates(subset=["name"], keep=False)     # drop ALL copies
+
+df[df.duplicated(keep=False)]                       # inspect every duplicated row
+df.drop_duplicates(ignore_index=True)               # reset the index afterward
+```
+
+> **Tip:** Clean strings (strip, lowercase) **before** checking duplicates. Otherwise `" John "` and `"john"` are treated as different values.
+
+---
+
+## 4. Cleaning Strings
+
+```python
+df["name"] = (
+    df["name"]
+    .str.strip()
+    .str.lower()
+)
+```
+
+### Useful string methods
+
+| Method | Purpose |
+|---|---|
+| `str.strip()` | Remove leading/trailing whitespace |
+| `str.lower()` | Lowercase |
+| `str.upper()` | Uppercase |
+| `str.title()` | Title Case |
+| `str.replace()` | Replace text |
+| `str.contains()` | Search text (returns a boolean mask) |
+| `str.len()` | Get string length |
+
+### More practical patterns
+
+```python
+# Collapse multiple internal spaces into one
+df["name"] = df["name"].str.replace(r"\s+", " ", regex=True)
+
+# Remove non-alphanumeric characters
+df["code"] = df["code"].str.replace(r"[^A-Za-z0-9]", "", regex=True)
+
+# Filter rows safely when the column has NaN
+df[df["name"].str.contains("jo", case=False, na=False)]
+
+# Treat empty strings as missing
+df["name"] = df["name"].replace("", pd.NA)
+```
+
+> `.str` methods skip missing values and return `NaN` for them, so cleaning does not crash on `None`.
+
+---
+
+## 5. Handling Incorrect Data
+
+Suppose employee `age` contains negative values.
+
+```python
+# Identify invalid ages
+df[df["age"] < 0]
+
+# Replace invalid values with NaN
+df.loc[df["age"] < 0, "age"] = None
+
+# Fill missing ages with median
+df["age"] = df["age"].fillna(df["age"].median())
+```
+
+### Enforcing valid ranges
+
+```python
+df = df[df["age"].between(18, 100)]
+```
+
+> **Careful:** `between()` returns `False` for `NaN`, so this filter also **drops rows with missing ages**. Fill (or deliberately keep) missing values first if you don't want that.
+
+Alternative using `clip()` or `where()`:
+
+```python
+df["age"] = df["age"].clip(lower=18, upper=100)       # cap values into the range
+df["age"] = df["age"].where(df["age"].between(18, 100))   # out-of-range -> NaN
+```
+
+### Handling outliers
+
+Common interview question: *"How do you handle outliers?"* First **detect**, then decide whether to **remove, cap, or keep** them (outliers can be real).
+
+**IQR method**
+
+```python
+q1 = df["salary"].quantile(0.25)
+q3 = df["salary"].quantile(0.75)
+iqr = q3 - q1
+
+lower = q1 - 1.5 * iqr
+upper = q3 + 1.5 * iqr
+
+outliers = df[(df["salary"] < lower) | (df["salary"] > upper)]
+df_no_outliers = df[df["salary"].between(lower, upper)]
+
+# Or cap instead of removing (winsorizing)
+df["salary"] = df["salary"].clip(lower, upper)
+```
+
+**Z-score method** (works best for roughly normal data)
+
+```python
+z = (df["salary"] - df["salary"].mean()) / df["salary"].std()
+df_clean = df[z.abs() <= 3]
+```
+
+---
+
+## 6. Correcting Data Types
+
+```python
+# Convert to a nullable integer
+df["age"] = df["age"].astype("Int64")
+
+# Convert to datetime
+df["date"] = pd.to_datetime(df["date"], errors="coerce")
+
+# Convert numeric strings
+df["salary"] = pd.to_numeric(
+    df["salary"],
+    errors="coerce",
+)
+```
+
+`errors="coerce"` converts invalid values into missing values (`NaN` / `NaT`) **instead of raising an exception**.
+
+```python
+s = pd.Series(["100", "250", "abc", "40.5"])
+
+pd.to_numeric(s, errors="coerce")
+# 0    100.0
+# 1    250.0
+# 2      NaN
+# 3     40.5
+
+pd.to_numeric(s)    # ValueError: Unable to parse string "abc"
+```
+
+| `errors=` | Behavior |
+|---|---|
+| `"raise"` (default) | Raise an exception on bad values |
+| `"coerce"` | Turn bad values into `NaN` / `NaT` |
+
+### Why `Int64` (capital I)?
+
+Plain NumPy `int64` cannot hold missing values. Pandas' **nullable** `Int64` can:
+
+```python
+pd.Series([1, None, 3]).astype("Int64")
+# 0       1
+# 1    <NA>
+# 2       3
+```
+
+> The values must be whole numbers. Converting `27.5` to `Int64` raises an error, so round first if needed (`df["age"].round().astype("Int64")`).
+
+### Other useful conversions
+
+```python
+df["department"] = df["department"].astype("category")   # saves memory for repeated labels
+df["active"] = df["active"].astype("bool")
+df["date"] = pd.to_datetime(df["date"], format="%d/%m/%Y", errors="coerce")  # explicit format
+```
+
+---
+
+## 7. JSONL (JSON Lines)
+
+> Important for AI / GenAI.
+
+**JSONL** stands for **JSON Lines**. It stores **multiple JSON objects, one per line**. Unlike a normal JSON array, it does **not** wrap records in `[]` and has no commas between records.
+
+**Normal JSON**
+
+```json
+[
+  {"name": "John", "age": 25},
+  {"name": "Alice", "age": 30},
+  {"name": "Bob", "age": 28}
+]
+```
+
+**JSONL**
+
+```json
+{"name": "John", "age": 25}
+{"name": "Alice", "age": 30}
+{"name": "Bob", "age": 28}
+```
+
+Each line is an **independent JSON document**.
+
+### Why is JSONL useful?
+
+- **LLM training datasets**
+- **Fine-tuning datasets**
+- **RAG document ingestion**
+- **Chat conversation datasets**
+- **Large-scale data processing**
+- **Streaming data pipelines**
+
+Reasons it works so well:
+
+1. You can **append** a record without rewriting the file.
+2. You can process it **line by line** without loading everything into memory.
+3. One **corrupt line** doesn't break the whole file.
+4. It is easy to split, shuffle, and parallelize.
+
+### Example: LLM instruction dataset
+
+```json
+{"instruction": "What is Python?", "response": "Python is a programming language."}
+{"instruction": "What is RAG?", "response": "RAG stands for Retrieval-Augmented Generation."}
+{"instruction": "What is an LLM?", "response": "An LLM is a Large Language Model."}
+```
+
+### Example: chat-format dataset (nested data)
+
+```json
+{"messages": [{"role": "user", "content": "Hi"}, {"role": "assistant", "content": "Hello! How can I help?"}]}
+{"messages": [{"role": "user", "content": "What is RAG?"}, {"role": "assistant", "content": "Retrieval-Augmented Generation."}]}
+```
+
+---
+
+## 8. Reading and Writing JSONL with Pandas
+
+> This is particularly important.
+
+### Reading
+
+```python
+import pandas as pd
+
+df = pd.read_json(
+    "employees.jsonl",
+    lines=True,
+)
+
+print(df)
+```
+
+Notice **`lines=True`**. It tells Pandas that each line is a separate JSON record. Without it, Pandas tries to parse the whole file as a single JSON document and fails (typically with a `ValueError` such as *Trailing data*).
+
+### Writing
+
+```python
+df.to_json(
+    "output.jsonl",
+    orient="records",
+    lines=True,
+)
+```
+
+This produces **one JSON object per line**. Note that `lines=True` requires `orient="records"`.
+
+```python
+# Keep non-English characters readable instead of \uXXXX escapes
+df.to_json("output.jsonl", orient="records", lines=True, force_ascii=False)
+```
+
+### Reading a large JSONL file in chunks
+
+Use `chunksize` with `lines=True` to get an iterator instead of loading everything at once.
+
+```python
+chunks = pd.read_json("big.jsonl", lines=True, chunksize=100_000)
+
+for chunk in chunks:
+    chunk = chunk.dropna(subset=["text"])
+    chunk.to_json("cleaned.jsonl", orient="records", lines=True, mode="a")
+```
+
+> `mode="a"` (append) in `to_json` is supported for line-delimited output (`lines=True`) in recent Pandas versions. If your version doesn't support it, open the output file yourself and write each chunk's `to_json(...)` result.
+
+### Reading from a string (for tests and examples)
+
+```python
+from io import StringIO
+
+raw = '{"name": "John", "age": 25}\n{"name": "Alice", "age": 30}\n'
+df = pd.read_json(StringIO(raw), lines=True)
+```
+
+### Handling malformed JSONL records
+
+If even one line is invalid JSON, `read_json` raises an error. For untrusted data, parse **line by line** and keep the bad lines aside:
+
+```python
+import json
+import pandas as pd
+
+good, bad = [], []
+
+with open("employees.jsonl", "r", encoding="utf-8") as f:
+    for line_no, line in enumerate(f, start=1):
+        line = line.strip()
+        if not line:                 # skip blank lines
+            continue
+        try:
+            good.append(json.loads(line))
+        except json.JSONDecodeError as e:
+            bad.append((line_no, line, str(e)))
+
+df = pd.DataFrame(good)
+print(f"Loaded {len(good)} records, skipped {len(bad)} malformed lines")
+```
+
+Writing the rejects to a separate file (a "dead-letter" file) lets you inspect and repair them later instead of silently losing data.
+
+### Streaming without Pandas (lowest memory)
+
+```python
+import json
+
+def read_jsonl(path):
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            if line.strip():
+                yield json.loads(line)
+
+for record in read_jsonl("big.jsonl"):
+    ...  # process one record at a time
+```
+
+---
+
+## 9. Cleaning a JSONL Dataset (End to End)
+
+Imagine you receive this dataset (`employees.jsonl`):
+
+```json
+{"name": " John ", "age": 25, "salary": 50000}
+{"name": "ALICE", "age": null, "salary": 60000}
+{"name": "Bob", "age": 30, "salary": null}
+{"name": " John ", "age": 25, "salary": 50000}
+```
+
+Clean it:
+
+```python
+import pandas as pd
+
+df = pd.read_json("employees.jsonl", lines=True)
+
+# Clean names
+df["name"] = df["name"].str.strip().str.title()
+
+# Handle missing values
+df["age"] = df["age"].fillna(df["age"].median())
+df["salary"] = df["salary"].fillna(df["salary"].median())
+
+# Remove duplicates
+df = df.drop_duplicates()
+
+# Save cleaned dataset
+df.to_json(
+    "cleaned_employees.jsonl",
+    orient="records",
+    lines=True,
+)
+
+print(df)
+```
+
+Result:
+
+```text
+    name   age   salary
+0   John  25.0  50000.0
+1  Alice  25.0  60000.0
+2    Bob  30.0  50000.0
+```
+
+Saved `cleaned_employees.jsonl`:
+
+```json
+{"name":"John","age":25.0,"salary":50000.0}
+{"name":"Alice","age":25.0,"salary":60000.0}
+{"name":"Bob","age":30.0,"salary":50000.0}
+```
+
+> **Order matters.** Here the duplicate `John` row was counted twice when computing the medians. In practice, a safer order is: clean strings, **drop duplicates**, then fill missing values, so duplicates don't skew the statistics.
+
+### A reusable cleaning function
+
+```python
+import pandas as pd
+
+def clean_employees(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+
+    # 1. Strings
+    df["name"] = df["name"].str.strip().str.title()
+    df["name"] = df["name"].replace("", pd.NA)
+
+    # 2. Types
+    df["age"] = pd.to_numeric(df["age"], errors="coerce")
+    df["salary"] = pd.to_numeric(df["salary"], errors="coerce")
+
+    # 3. Invalid values -> NaN
+    df.loc[~df["age"].between(18, 100), "age"] = None
+
+    # 4. Duplicates
+    df = df.drop_duplicates().reset_index(drop=True)
+
+    # 5. Missing values
+    df = df.dropna(subset=["name"])                 # name is required
+    df["age"] = df["age"].fillna(df["age"].median())
+    df["salary"] = df["salary"].fillna(df["salary"].median())
+
+    return df
+
+cleaned = clean_employees(pd.read_json("employees.jsonl", lines=True))
+cleaned.to_json("cleaned_employees.jsonl", orient="records", lines=True)
+```
+
+### Cleaning text for LLM / RAG datasets
+
+```python
+df = pd.read_json("docs.jsonl", lines=True)
+
+df["text"] = (
+    df["text"]
+    .str.replace(r"\s+", " ", regex=True)   # normalize whitespace
+    .str.strip()
+)
+
+df = df[df["text"].str.len() > 20]           # drop near-empty documents
+df = df.drop_duplicates(subset=["text"])     # avoid duplicate chunks in the index
+df["n_chars"] = df["text"].str.len()
+
+df.to_json("docs_clean.jsonl", orient="records", lines=True, force_ascii=False)
+```
+
+Duplicate or empty chunks waste embedding cost and pollute retrieval results in a RAG pipeline.
+
+---
+
+## 10. JSON vs JSONL vs CSV
+
+| Feature | JSON | JSONL | CSV |
+|---|---|---|---|
+| Structure | Objects / arrays | One JSON object per line | Rows and columns |
+| Nested data | Yes | Yes | Limited |
+| Streaming | Less convenient | Excellent | Possible |
+| Human readable | Yes | Yes | Yes |
+| Append a record | Must rewrite the array | Just add a line | Add a line |
+| Corrupt record impact | Whole file may fail | Only that line | Usually that row |
+| LLM datasets | Common | **Very common** | Sometimes |
+
+**Rule of thumb:** use **CSV** for flat tabular data, **JSON** for configs and API responses, and **JSONL** for large or growing record-based datasets, especially for LLM fine-tuning and RAG ingestion.
+
+---
+
+## 11. Interview Questions
+
+<details>
+<summary><strong>1. What is data cleaning?</strong></summary>
+
+The process of detecting and fixing problems in raw data, such as missing values, duplicates, wrong types, inconsistent formatting, invalid values, and outliers, so the data is accurate and consistent before analysis or model training.
+
+</details>
+
+<details>
+<summary><strong>2. What is the difference between <code>isna()</code> and <code>notna()</code>?</strong></summary>
+
+`isna()` (alias `isnull()`) returns `True` for missing values. `notna()` (alias `notnull()`) returns `True` for non-missing values. They are exact opposites.
+
+```python
+df["age"].isna().sum()      # how many missing
+df[df["age"].notna()]       # rows where age exists
+```
+
+</details>
+
+<details>
+<summary><strong>3. Difference between <code>dropna()</code> and <code>fillna()</code>?</strong></summary>
+
+`dropna()` **removes** rows or columns with missing data (less data, no assumptions). `fillna()` **replaces** missing values (keeps data, but introduces assumptions). Choose based on how much data is missing and how important those rows are.
+
+</details>
+
+<details>
+<summary><strong>4. How do you remove duplicates?</strong></summary>
+
+```python
+df.duplicated().sum()                          # count them
+df = df.drop_duplicates()                      # full-row duplicates
+df = df.drop_duplicates(subset=["email"], keep="last")
+```
+
+Normalize strings (strip, lowercase) first so near-identical values match.
+
+</details>
+
+<details>
+<summary><strong>5. How do you handle outliers?</strong></summary>
+
+Detect them with the **IQR rule** (outside Q1 - 1.5×IQR to Q3 + 1.5×IQR), **z-score** (absolute value above about 3), or visual tools (box plots, histograms). Then **remove**, **cap** (`clip`), **transform** (log), or **keep** them if they are genuine. See [Section 5](#5-handling-incorrect-data).
+
+</details>
+
+<details>
+<summary><strong>6. What is <code>errors="coerce"</code>?</strong></summary>
+
+An option in `pd.to_numeric()` and `pd.to_datetime()` that converts unparseable values to `NaN` / `NaT` instead of raising an exception. It's useful for dirty data, but check how many values became missing afterward:
+
+```python
+before = df["salary"].isna().sum()
+df["salary"] = pd.to_numeric(df["salary"], errors="coerce")
+print(df["salary"].isna().sum() - before, "values failed to parse")
+```
+
+</details>
+
+<details>
+<summary><strong>7. What is the difference between JSON and JSONL?</strong></summary>
+
+JSON usually stores records inside one array or object (the whole file is one document). JSONL stores **one complete JSON object per line**, with no surrounding brackets or commas. JSONL is easier to stream, append to, and split, which is why it dominates LLM and big-data workflows.
+
+</details>
+
+<details>
+<summary><strong>8. What does <code>lines=True</code> do in Pandas?</strong></summary>
+
+It tells `read_json()` to treat each line as a separate JSON record (JSON Lines input), and tells `to_json()` to write one record per line (it requires `orient="records"`). Without it, Pandas expects a single JSON document.
+
+</details>
+
+<details>
+<summary><strong>9. How do you read a large JSONL file?</strong></summary>
+
+- Use `pd.read_json(path, lines=True, chunksize=N)` and process each chunk.
+- Or stream line by line with a generator and `json.loads()`.
+- Load only the needed fields, use smaller dtypes, and write results incrementally.
+
+</details>
+
+<details>
+<summary><strong>10. How do you handle malformed JSONL records?</strong></summary>
+
+Read the file line by line, wrap `json.loads()` in `try/except json.JSONDecodeError`, collect the valid records, and log or save the invalid lines (with line numbers) to a separate file for review. Also skip blank lines and consider validating required fields or a schema afterward.
+
+</details>
+
+---
+
+## 12. Quick Revision Cheat Sheet
+
+| Task | Code |
+|---|---|
+| Count missing | `df.isnull().sum()` |
+| Drop missing | `df.dropna(subset=[...])` |
+| Fill missing | `df["c"].fillna(value)` |
+| Count duplicates | `df.duplicated().sum()` |
+| Drop duplicates | `df.drop_duplicates(subset=[...])` |
+| Clean strings | `.str.strip().str.lower()` |
+| Fix invalid | `df.loc[cond, "col"] = None` |
+| Keep range | `df["c"].between(a, b)` |
+| To number | `pd.to_numeric(s, errors="coerce")` |
+| To date | `pd.to_datetime(s, errors="coerce")` |
+| Read JSONL | `pd.read_json(path, lines=True)` |
+| Write JSONL | `df.to_json(path, orient="records", lines=True)` |
+| Bad JSONL lines | `try: json.loads(line)` per line |
+
+### Which fill value?
+
+| Data | Use |
+|---|---|
+| Normal numeric | Mean |
+| Skewed or with outliers | Median |
+| Categorical | Mode |
+| Time series | `ffill` / `interpolate` |
+
+### Suggested study order
+
+1. Missing values, then duplicates
+2. String cleaning and invalid values
+3. Data types and `errors="coerce"`
+4. JSONL concepts and `lines=True`
+5. Clean a small JSONL file end to end
+6. Practice malformed-record handling and chunked reading
+7. Review the 10 interview questions
