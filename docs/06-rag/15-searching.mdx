@@ -1,0 +1,751 @@
+# Searching in RAG
+
+If you're learning GenAI, this is one of the most important topics to master. Understanding different search strategies helps you build production-grade RAG applications and answer senior-level GenAI interview questions.
+
+> **Key idea:** RAG is not just about converting documents into embeddings and searching using vector similarity. There are multiple retrieval strategies, and choosing the right one depends on your data and use case.
+
+**This guide covers:**
+
+1. How searching works in RAG
+2. All important search/retrieval techniques
+3. When to use each technique
+4. Hybrid search and reranking
+5. Advanced retrieval strategies
+6. A practical implementation roadmap using Python, LlamaIndex and Chroma
+7. Interview questions
+
+---
+
+## Table of Contents
+
+**Foundations**
+
+- [1. The RAG search pipeline](#1-the-rag-search-pipeline)
+- [2. Types of searching in RAG](#2-types-of-searching-in-rag)
+
+**Core retrieval techniques**
+
+- [3. Keyword search (sparse retrieval)](#3-keyword-search-sparse-retrieval)
+- [4. Semantic search (dense retrieval)](#4-semantic-search-dense-retrieval)
+- [5. BM25 search](#5-bm25-search)
+- [6. Hybrid search](#6-hybrid-search)
+- [7. Metadata filtering](#7-metadata-filtering)
+- [8. Reranking](#8-reranking)
+
+**Query optimization**
+
+- [9. Multi-query retrieval](#9-multi-query-retrieval)
+- [10. Query expansion](#10-query-expansion)
+- [11. HyDE (Hypothetical Document Embeddings)](#11-hyde-hypothetical-document-embeddings)
+
+**Advanced retrieval**
+
+- [12. Parent-child retrieval (small-to-big)](#12-parent-child-retrieval-small-to-big)
+- [13. Self-query retrieval](#13-self-query-retrieval)
+- [14. MMR (Maximal Marginal Relevance)](#14-mmr-maximal-marginal-relevance)
+- [15. Contextual retrieval](#15-contextual-retrieval)
+- [16. Other advanced techniques](#16-other-advanced-techniques)
+
+**Putting it into practice**
+
+- [17. Which technique should you use?](#17-which-technique-should-you-use)
+- [18. Practical learning roadmap](#18-practical-learning-roadmap)
+- [19. Hands-on project](#19-hands-on-project)
+- [20. Evaluating search quality](#20-evaluating-search-quality)
+- [21. Interview questions](#21-interview-questions)
+- [22. Best resources](#22-best-resources)
+
+---
+
+## 1. The RAG search pipeline
+
+A typical RAG application works in two phases.
+
+**Document ingestion**
+
+1. Load documents (PDF, DOCX, CSV, websites).
+2. Split documents into chunks.
+3. Generate embeddings for each chunk.
+4. Store embeddings and metadata in a vector database.
+
+**User query**
+
+1. User asks a question.
+2. Convert the query into an embedding (for vector retrieval).
+3. Search for relevant chunks.
+4. Rank or rerank retrieved results.
+5. Pass relevant context to the LLM.
+6. Generate an answer.
+
+This guide focuses on steps 2 to 4 of the user query pipeline: **retrieval and search**.
+
+---
+
+## 2. Types of searching in RAG
+
+Here is the learning map.
+
+| Category | Techniques |
+| --- | --- |
+| **Traditional search** | Keyword search, full-text search, BM25 |
+| **Semantic search** | Dense vector search, similarity search, metadata filtering |
+| **Combined search** | Hybrid search, Reciprocal Rank Fusion (RRF) |
+| **Advanced retrieval** | Reranking, multi-query retrieval, query expansion, HyDE, parent-child retrieval, self-query retrieval, contextual retrieval, multi-vector retrieval |
+
+---
+
+## 3. Keyword search (sparse retrieval)
+
+Imagine your company has 10,000 PDF documents and you ask:
+
+> "Find documents mentioning employee ID EMP12345."
+
+A keyword-based search looks for matching terms. It doesn't necessarily understand the meaning of the sentence.
+
+**Popular algorithms and technologies:**
+
+- TF-IDF
+- BM25
+- Elasticsearch
+- OpenSearch
+- PostgreSQL full-text search
+
+```python
+query = "employee ID EMP12345"
+results = keyword_search(query)
+```
+
+**When to use:**
+
+- Searching employee IDs
+- Searching invoice numbers
+- Searching product codes
+- Searching exact technical terms
+- Legal documents where exact phrases matter
+
+**Limitation:** It may fail when the query uses different words from the document.
+
+---
+
+## 4. Semantic search (dense retrieval)
+
+This is the most common retrieval technique in modern RAG applications. Instead of searching for matching words, it searches for matching **meanings**.
+
+**Example**
+
+- Document: "Employees can request leave through the HR portal."
+- Query: "How can I apply for vacation?"
+
+The words are different, but the meaning is similar, so semantic search can retrieve the relevant document.
+
+**How it works**
+
+1. Convert documents into embeddings.
+2. Store embeddings in a vector database.
+3. Convert the user query into an embedding.
+4. Calculate similarity between query and document vectors.
+5. Return the most similar documents.
+
+```python
+query_embedding = embedding_model.embed_query(
+    "How can I apply for vacation?"
+)
+
+results = vector_db.similarity_search_by_vector(
+    query_embedding,
+    k=5
+)
+```
+
+**Common similarity measures**
+
+| Metric | Purpose |
+| --- | --- |
+| Cosine similarity | Measures vector direction similarity |
+| Dot product | Measures vector product |
+| Euclidean distance | Measures vector distance |
+
+**When to use:**
+
+- FAQ chatbots
+- Knowledge-base search
+- Customer support bots
+- Searching semantically similar content
+- Natural-language questions
+
+**Limitation:** Semantic search can miss exact IDs, codes, and keywords.
+
+---
+
+## 5. BM25 search
+
+BM25 is an improved keyword-based ranking algorithm. It considers:
+
+- How frequently a query term appears in a document
+- How rare the term is across documents
+- Document length
+
+**Example:** For the query `React useEffect cleanup`, BM25 can rank documents containing these exact technical terms higher.
+
+**When to use:**
+
+- Code documentation
+- Technical documentation
+- Product catalogues
+- Exact keyword-oriented queries
+
+**Remember:**
+
+- BM25 = **sparse** retrieval
+- Vector similarity = **dense** retrieval
+
+---
+
+## 6. Hybrid search
+
+> **Very important for production RAG.**
+
+Hybrid search combines:
+
+- Keyword search (BM25)
+- Semantic search (vector similarity)
+
+**Why?** Suppose the user asks: "How to fix error ERR_CONNECTION_RESET in React?"
+
+- Vector search might understand the meaning of the problem.
+- BM25 might find the exact error code.
+
+Combining both gives you better retrieval coverage.
+
+```python
+vector_results = vector_search(query)
+keyword_results = bm25_search(query)
+
+results = reciprocal_rank_fusion(
+    vector_results,
+    keyword_results
+)
+```
+
+**When to use:**
+
+- Enterprise knowledge bases
+- Technical documentation
+- Large document collections
+- Customer support
+- Mixed structured and unstructured content
+
+**Recommendation:** Learn hybrid search thoroughly after understanding BM25 and vector search.
+
+---
+
+## 7. Metadata filtering
+
+Sometimes you don't want to search the entire vector database. Imagine 100,000 documents spread across HR, finance, engineering, and legal. A user asks:
+
+> "Show me engineering documents about React."
+
+You can filter documents using metadata.
+
+```json
+{
+  "page_content": "React development guidelines...",
+  "metadata": {
+    "department": "engineering",
+    "technology": "react",
+    "year": 2026
+  }
+}
+```
+
+```python
+results = vector_db.similarity_search(
+    "React development guidelines",
+    k=5,
+    filter={"department": "engineering"}
+)
+```
+
+**When to use:**
+
+- Multi-tenant applications
+- Enterprise document search
+- Date-based searches
+- Department-based access
+- Filtering by document type
+
+> **Security note:** Metadata filtering is also useful for security. A user should only retrieve documents they are authorized to access. Apply access-control filters on the server, not merely through an LLM-generated filter.
+
+---
+
+## 8. Reranking
+
+> **Must learn for production RAG.**
+
+Suppose vector search returns 10 documents, but the order isn't necessarily perfect. The first document might be somewhat relevant, while the seventh contains the exact answer. Reranking solves this.
+
+**How it works**
+
+1. Initial retrieval fetches 10 to 50 candidate chunks.
+2. A reranker evaluates the relevance of each chunk against the original query.
+3. It produces a new ranking.
+4. You select the top 3 to 5 chunks for the LLM.
+
+**Reranking approaches**
+
+| Technique | Explanation |
+| --- | --- |
+| Cross-encoder | Scores query and document together |
+| LLM reranking | LLM judges document relevance |
+| ColBERT | Uses token-level late interaction |
+| MMR | Balances relevance and diversity |
+
+**Example using LlamaIndex**
+
+```python
+from llama_index.core.postprocessor import SentenceTransformerRerank
+
+reranker = SentenceTransformerRerank(
+    model="cross-encoder/ms-marco-MiniLM-L6-v2",
+    top_n=3
+)
+```
+
+**When to use:**
+
+- Large document collections
+- High-accuracy RAG
+- Legal and financial knowledge bases
+- When initial retrieval returns relevant but poorly ordered results
+
+**Remember:**
+
+- Retriever = finds candidate documents
+- Reranker = improves their ordering
+
+*Source: LlamaIndex Reranking documentation.*
+
+---
+
+## 9. Multi-query retrieval
+
+**Problem:** Users don't always ask questions using the same terminology as your documents.
+
+User asks: "How do I improve application performance?"
+
+You can generate multiple variations:
+
+1. How to optimize application performance?
+2. Techniques for improving application speed.
+3. How to reduce frontend application latency?
+4. Application performance optimization best practices.
+
+Search using all these queries and combine the results.
+
+```python
+queries = [
+    "How to improve application performance?",
+    "How to optimize application speed?",
+    "How to reduce application latency?"
+]
+
+all_results = []
+for query in queries:
+    results = vector_search(query)
+    all_results.extend(results)
+```
+
+> You should deduplicate and fuse the results rather than simply appending them.
+
+**When to use:**
+
+- Broad user questions
+- Different terminology
+- Incomplete queries
+- Knowledge bases with varied vocabulary
+
+---
+
+## 10. Query expansion
+
+Query expansion is closely related to multi-query retrieval. The objective is to enrich the original query with additional terms.
+
+- **Original:** `React performance`
+- **Expanded:** `React performance, memoization, useMemo, useCallback, React.memo, code splitting, lazy loading`
+
+This can improve retrieval recall.
+
+**Difference from multi-query:**
+
+- **Query expansion:** adds related terms or concepts.
+- **Multi-query:** generates multiple separate queries and searches independently.
+
+---
+
+## 11. HyDE (Hypothetical Document Embeddings)
+
+> **Advanced concept.**
+
+Normally:
+
+```text
+User query → Embedding → Vector search
+```
+
+With HyDE:
+
+```text
+User query → LLM generates hypothetical answer → Embed that document → Vector search
+```
+
+**Example:** For the query "How does React handle state updates?", the LLM generates a hypothetical document explaining React state updates. You embed that hypothetical document and search for similar actual documents.
+
+**Why does this help?** A short question and the actual explanatory document can have very different wording and structure. HyDE attempts to bridge that gap.
+
+**When to use:**
+
+- Complex natural-language questions
+- Questions that don't resemble document wording
+- Research-oriented knowledge bases
+- When ordinary semantic retrieval has poor recall
+
+> **Important:** The hypothetical answer is only a search aid. Never treat it as factual grounding. The final answer must use retrieved source documents.
+
+---
+
+## 12. Parent-child retrieval (small-to-big)
+
+Imagine a 100-page PDF split into small chunks (Introduction, Architecture, Database, Security). Small chunks are easier to search, but sometimes lack sufficient context. Parent-child retrieval solves this.
+
+**How it works**
+
+1. Split documents into larger **parent** chunks.
+2. Split each parent into smaller **child** chunks.
+3. Embed and index the child chunks.
+4. Search child chunks.
+5. Return their corresponding parent chunks to the LLM.
+
+**When to use:**
+
+- Large PDFs
+- Technical documentation
+- Books and research papers
+- Documents with interconnected explanations
+
+---
+
+## 13. Self-query retrieval
+
+Particularly useful when your documents have rich metadata.
+
+User asks: "Find finance reports from 2025 related to revenue."
+
+An LLM translates this into:
+
+```json
+{
+  "query": "revenue",
+  "filters": {
+    "department": "finance",
+    "year": 2025
+  }
+}
+```
+
+Your retrieval system then performs semantic search with metadata filters.
+
+**When to use:**
+
+- Large enterprise document repositories
+- Search involving dates, categories, authors, departments
+- Natural-language filtering
+
+> **Note:** Validate generated filters against an allowed schema and enforce authorization independently.
+
+---
+
+## 14. MMR (Maximal Marginal Relevance)
+
+Imagine vector search returns:
+
+1. React performance optimization
+2. React performance optimization techniques
+3. React performance optimization examples
+4. Next.js server-side rendering
+5. Database optimization
+
+The first three are very similar. MMR balances two things:
+
+- Relevance to the user's query
+- Diversity among retrieved documents
+
+This avoids returning five nearly identical chunks.
+
+**When to use:**
+
+- Research assistants
+- Knowledge discovery
+- Broad questions
+- When multiple perspectives are important
+
+---
+
+## 15. Contextual retrieval
+
+Traditional chunking can lose important information. Suppose a chunk says:
+
+> "Revenue increased by 15%."
+
+But it doesn't mention which company or financial year. Contextual retrieval enriches each chunk with relevant document-level context **before indexing**:
+
+> "Acme Corp's FY2025 financial report: Revenue increased by 15%."
+
+This gives the embedding model additional context.
+
+**When to use:**
+
+- Large enterprise documents
+- Financial reports
+- Legal documents
+- Documents where section context matters
+
+---
+
+## 16. Other advanced techniques
+
+| Technique | What it solves | When to use |
+| --- | --- | --- |
+| Recursive retrieval | Retrieves related nodes or objects iteratively | Hierarchical documents |
+| Auto-merging retrieval | Combines relevant child nodes into larger parent context | Long documents |
+| Router retrieval | Chooses the appropriate retriever or data source | Multiple knowledge bases |
+| Graph RAG | Retrieves relationships between entities | Complex interconnected data |
+| Agentic retrieval | Plans, executes and refines searches | Complex multi-step questions |
+| Multi-vector retrieval | Represents one document with multiple vectors | Multimodal or complex documents |
+| Late interaction | Fine-grained query-document matching | Technical or precision-heavy search |
+
+> These are not all interchangeable search algorithms. Some are orchestration strategies, some are indexing strategies, and some are post-retrieval techniques.
+
+See LlamaIndex *Advanced Retrieval Strategies* and *Retriever Modules*.
+
+---
+
+## 17. Which technique should you use?
+
+This is the most important decision-making table.
+
+| Your use case | Recommended approach |
+| --- | --- |
+| Simple FAQ chatbot | Semantic search |
+| Search exact invoice IDs | BM25 / keyword |
+| Technical documentation | Hybrid search |
+| Enterprise knowledge base | Hybrid + reranking |
+| Large PDF documents | Parent-child + reranking |
+| Multiple departments | Metadata filtering + hybrid |
+| Broad questions | Multi-query + fusion |
+| Complex questions | Query decomposition |
+| Research assistant | Hybrid + MMR + reranking |
+| Relationship-based questions | Graph RAG |
+| Multiple databases | Router retrieval |
+| Complex agent workflows | Agentic retrieval |
+
+**Recommended default production architecture**
+
+```text
+User Query
+    │
+    ▼
+Query Understanding / Rewriting
+    │
+    ├──────────────┬───────────────┐
+    ▼              ▼
+  BM25         Vector Search
+(keyword)       (semantic)
+    │              │
+    └──────┬───────┘
+           ▼
+     Fusion (RRF)
+           │
+           ▼
+       Reranking
+           │
+           ▼
+  Top relevant chunks
+           │
+           ▼
+LLM → Grounded Answer
+```
+
+> This is a good starting architecture, not a universal requirement. Start simple and add complexity when evaluation shows a retrieval problem.
+
+---
+
+## 18. Practical learning roadmap
+
+Learn in 6 stages rather than trying all retrieval techniques at once.
+
+### Stage 1: Fundamentals
+
+*Start here.*
+
+- Embeddings and vector similarity
+- Cosine similarity
+- Top-K retrieval
+- Dense vector search
+- Metadata filtering
+
+**Build:** PDF semantic search application.
+
+### Stage 2: Traditional retrieval
+
+- TF-IDF
+- BM25
+- Inverted indexes
+- Sparse vs dense retrieval
+- Keyword search
+
+**Build:** Search technical documentation using BM25.
+
+### Stage 3: Production retrieval
+
+*High priority.*
+
+- Hybrid search
+- Reciprocal Rank Fusion
+- Reranking
+- Cross-encoders
+- MMR
+
+**Build:** Hybrid RAG with reranking.
+
+### Stage 4: Query optimization
+
+- Query rewriting
+- Query expansion
+- Multi-query retrieval
+- Query decomposition
+- HyDE
+
+**Build:** Intelligent question-answering system.
+
+### Stage 5: Advanced retrieval
+
+- Parent-child retrieval
+- Self-query retrieval
+- Contextual retrieval
+- Recursive retrieval
+- Graph RAG
+- Router retrieval
+
+**Build:** Enterprise knowledge assistant.
+
+### Stage 6: Evaluation and optimization
+
+- Recall@K
+- Precision@K
+- MRR
+- NDCG
+- Retrieval latency
+- Faithfulness
+- Context relevance
+
+**Build:** Benchmark different retrieval strategies on the same dataset.
+
+---
+
+## 19. Hands-on project
+
+**Project: Build an advanced RAG application**
+
+Suggested stack (FastAPI, Ollama, Chroma, LlamaIndex):
+
+| Component | Role |
+| --- | --- |
+| Python + FastAPI | Backend and APIs |
+| LlamaIndex | Document processing and retrieval orchestration |
+| ChromaDB | Vector storage and semantic search |
+| Ollama | Local embedding and LLM models |
+| Hugging Face | Embedding and reranking models |
+
+**Build these features incrementally**
+
+| Phase | Feature |
+| --- | --- |
+| 1 | PDF upload and chunking |
+| 2 | Embedding generation |
+| 3 | Chroma vector search |
+| 4 | BM25 retrieval |
+| 5 | Hybrid search + RRF |
+| 6 | Cross-encoder reranking |
+| 7 | Multi-query retrieval |
+| 8 | Parent-child retrieval |
+| 9 | Retrieval evaluation dashboard |
+
+> **Implementation detail:** Chroma gives you vector retrieval. For BM25, you can use LlamaIndex's `BM25Retriever` alongside Chroma and combine the results using a fusion retriever. You don't have to replace your vector database.
+
+---
+
+## 20. Evaluating search quality
+
+Knowing retrieval techniques isn't enough. You should understand how to measure whether they actually improve results.
+
+| Metric | What it measures |
+| --- | --- |
+| Precision@K | How many retrieved documents are relevant? |
+| Recall@K | How many relevant documents were retrieved? |
+| MRR | How early does the first relevant result appear? |
+| NDCG | How good is the overall ranking? |
+| Faithfulness | Is the generated answer supported by retrieved context? |
+| Context relevance | Is the retrieved context relevant to the query? |
+
+**Worked example**
+
+You have 100 relevant documents in your dataset. Your search returns 10 documents, of which 8 are relevant.
+
+```text
+Precision@10 = 8 / 10 = 0.8
+```
+
+If only 5 of the 100 relevant documents were retrieved:
+
+```text
+Recall@10 = 5 / 100 = 0.05
+```
+
+This shows why precision and recall measure different things.
+
+---
+
+## 21. Interview questions
+
+Questions to prepare for senior GenAI / full-stack interviews:
+
+1. What is the difference between sparse and dense retrieval?
+2. How does BM25 work?
+3. How is semantic search different from keyword search?
+4. What is hybrid search?
+5. What is Reciprocal Rank Fusion?
+6. Why do we need reranking?
+7. What is the difference between a bi-encoder and a cross-encoder?
+8. What is HyDE?
+9. What is multi-query retrieval?
+10. What is parent-child retrieval?
+11. What is MMR?
+12. What is metadata filtering?
+13. What is Graph RAG?
+14. How would you improve a RAG system returning irrelevant documents?
+15. How do you evaluate retrieval quality?
+16. How would you design enterprise RAG for millions of documents?
+
+---
+
+## 22. Best resources
+
+Worth bookmarking:
+
+1. **LlamaIndex: Advanced Retrieval Strategies.** Advanced concepts and architecture.
+2. **LlamaIndex: Retriever Modules.** Different retrievers and implementations.
+3. **LlamaIndex: Reranking.** Reranking implementation.
+4. **Microsoft: RAG Information Retrieval.** Query transformation, hybrid retrieval and advanced retrieval.
+5. **Microsoft: Hybrid Search.** BM25, vector retrieval and RRF.
+
+---
