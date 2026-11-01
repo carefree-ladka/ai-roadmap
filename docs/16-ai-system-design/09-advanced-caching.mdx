@@ -1,0 +1,1261 @@
+# Advanced Caching in Generative AI
+
+Caching in GenAI goes well beyond semantic caching and LLM response caching. If you are preparing for **Senior GenAI / AI Engineer** roles, you should think about caching across the **entire lifecycle** of an AI application: inside the model, at the provider, in your agent, and in your backend.
+
+> This is the companion to the basics guide (exact-match, semantic, embedding, and LLM response caches). Here we focus on the deeper and more interview-relevant topics.
+
+---
+
+## Table of Contents
+
+1. [The caching landscape](#1-the-caching-landscape)
+2. [KV cache](#2-kv-cache)
+3. [Prompt, prefix, and context caching](#3-prompt-prefix-and-context-caching)
+4. [Conversation cache](#4-conversation-cache)
+5. [Tool result caching](#5-tool-result-caching)
+6. [Agent plan and workflow caching](#6-agent-plan-and-workflow-caching)
+7. [Negative caching](#7-negative-caching)
+8. [Multi-level caching](#8-multi-level-caching)
+9. [Model cache](#9-model-cache)
+10. [Cache invalidation](#10-cache-invalidation)
+11. [Cache stampede](#11-cache-stampede)
+12. [Security considerations](#12-security-considerations)
+13. [Putting it together: a cached agent](#13-putting-it-together-a-cached-agent)
+14. [Interview learning priorities](#14-interview-learning-priorities)
+15. [Likely interview questions](#15-likely-interview-questions)
+
+---
+
+## 1. The caching landscape
+
+| Technique | What it caches | Why it matters | Where it lives |
+| --- | --- | --- | --- |
+| **KV cache** | Attention key/value tensors | Faster token generation | Inside the inference engine (GPU) |
+| **Prefix cache** | Reusable prompt prefixes | Avoids recomputing shared context | Inference engine or provider |
+| **Context cache** | Previously processed large context | Reduces repeated context processing | Provider |
+| **Conversation cache** | Chat history and state | Avoids refetching conversation data | Your backend (Redis, DB) |
+| **Tool result cache** | API and tool responses | Avoids repeated tool execution | Your backend |
+| **Retrieval cache** | Retrieved RAG chunks | Cuts vector search latency | Your backend |
+| **Query cache** | Normalized query results | Avoids repeated retrieval | Your backend |
+| **Embedding cache** | Vector embeddings | Saves embedding computation | Your backend |
+| **Model cache** | Loaded model weights | Avoids repeated model loading | Inference server |
+| **Multi-level cache** | L1 / L2 / L3 layers | Performance at scale | Your backend |
+
+A useful way to split these: **inference-level** caches (KV, prefix, context, model) are handled by the model runtime or provider, while **application-level** caches (conversation, tool, retrieval, query, embedding, multi-level) are what you build in FastAPI, LangChain, and LangGraph.
+
+---
+
+## 2. KV cache
+
+This is one of the most important concepts, and it is **different from Redis or application-level caching**. It happens inside the transformer during inference.
+
+### 2.1 The problem
+
+An LLM generates text **one token at a time** (autoregressive generation):
+
+```text
+Prompt: "How does an LLM work?"
+
+step 1:  ... work?            -> predicts "An"
+step 2:  ... work? An         -> predicts "LLM"
+step 3:  ... work? An LLM     -> predicts "predicts"
+step 4:  ... work? An LLM predicts -> predicts "the"
+...
+```
+
+In every attention layer, each token produces a **Query (Q)**, a **Key (K)**, and a **Value (V)** vector. To generate token *t*, the new token's query attends to the keys and values of **all previous tokens**.
+
+Without caching, every generation step would recompute K and V for the **entire** sequence again. With a KV cache, you compute K and V for each token **once**, store them, and only compute K and V for the newest token.
+
+```text
+Without KV cache:   step n recomputes K,V for tokens 1..n      -> cost grows quadratically overall
+With KV cache:      step n computes K,V for token n only,
+                    reads tokens 1..n-1 from the cache          -> cost per step grows linearly
+```
+
+### 2.2 Two phases of inference
+
+| Phase | What happens | Bound by |
+| --- | --- | --- |
+| **Prefill** | Process the whole prompt in parallel, filling the KV cache | Compute |
+| **Decode** | Generate tokens one by one, reading and appending to the KV cache | Memory bandwidth |
+
+This is why **time-to-first-token (TTFT)** depends on prompt length (prefill), while **tokens per second** depends on memory bandwidth and KV cache size (decode). Prefix and prompt caching, covered next, skip most of the prefill work.
+
+### 2.3 A toy implementation
+
+```python
+import numpy as np
+
+d = 8  # head dimension
+rng = np.random.default_rng(0)
+Wq, Wk, Wv = (rng.normal(size=(d, d)) for _ in range(3))
+
+
+def softmax(x):
+    e = np.exp(x - x.max())
+    return e / e.sum()
+
+
+class AttentionWithKVCache:
+    def __init__(self):
+        self.k_cache = []  # one K vector per past token
+        self.v_cache = []  # one V vector per past token
+
+    def step(self, x_t: np.ndarray) -> np.ndarray:
+        """x_t is the embedding of ONLY the newest token."""
+        q = x_t @ Wq
+        self.k_cache.append(x_t @ Wk)  # compute K,V once, then reuse forever
+        self.v_cache.append(x_t @ Wv)
+
+        K = np.stack(self.k_cache)  # (t, d)
+        V = np.stack(self.v_cache)  # (t, d)
+
+        scores = K @ q / np.sqrt(d)  # attend to all previous tokens
+        weights = softmax(scores)
+        return weights @ V
+
+
+attn = AttentionWithKVCache()
+for token_embedding in rng.normal(size=(5, d)):
+    out = attn.step(token_embedding)
+```
+
+Only the newest token is projected each step. Everything older is read from `k_cache` and `v_cache`.
+
+### 2.4 KV cache in Hugging Face Transformers
+
+KV caching is on by default in `generate()`. You can see the difference by turning it off:
+
+```python
+import time
+
+import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+name = "gpt2"
+tok = AutoTokenizer.from_pretrained(name)
+model = AutoModelForCausalLM.from_pretrained(name)
+
+inputs = tok("How does an LLM work?", return_tensors="pt")
+
+
+def run(use_cache: bool) -> float:
+    start = time.time()
+    with torch.no_grad():
+        model.generate(**inputs, max_new_tokens=200, use_cache=use_cache, do_sample=False)
+    return time.time() - start
+
+
+print("with KV cache:   ", run(True))
+print("without KV cache:", run(False))  # noticeably slower as length grows
+```
+
+### 2.5 How big is the KV cache?
+
+The KV cache consumes **GPU memory** and grows with **context length** and **batch size**:
+
+```text
+KV bytes = 2 (K and V) x layers x kv_heads x head_dim x seq_len x batch x bytes_per_value
+```
+
+Worked example for a Llama-3-8B-class model (32 layers, 8 KV heads with grouped-query attention, head dim 128, fp16 = 2 bytes):
+
+```python
+def kv_cache_bytes(layers, kv_heads, head_dim, seq_len, batch, bytes_per_value=2):
+    return 2 * layers * kv_heads * head_dim * seq_len * batch * bytes_per_value
+
+
+per_token = kv_cache_bytes(32, 8, 128, seq_len=1, batch=1)
+print(per_token / 1024, "KiB per token")          # 128 KiB
+
+ctx_8k = kv_cache_bytes(32, 8, 128, seq_len=8192, batch=1)
+print(ctx_8k / 1024**3, "GiB for one 8k request")  # 1 GiB
+
+batch_32 = kv_cache_bytes(32, 8, 128, seq_len=8192, batch=32)
+print(batch_32 / 1024**3, "GiB for 32 concurrent 8k requests")  # 32 GiB
+```
+
+That is why long contexts and high concurrency are memory problems, not just compute problems.
+
+### 2.6 Techniques that manage KV cache memory
+
+| Technique | Idea |
+| --- | --- |
+| **Grouped-query / multi-query attention** | Share K/V heads across query heads, shrinking the cache |
+| **PagedAttention (vLLM)** | Store the cache in fixed-size blocks like OS virtual memory, reducing fragmentation |
+| **KV cache quantization** | Store K/V in 8-bit or lower precision |
+| **Sliding-window attention** | Keep only the most recent N tokens' K/V |
+| **Prefix sharing** | Reuse blocks across requests with the same prefix (next section) |
+| **Offloading** | Move cold cache blocks to CPU memory or disk |
+
+> **Interview framing:** the KV cache trades **memory for compute**. It makes decoding fast but makes GPU memory the bottleneck for long contexts and large batches.
+
+---
+
+## 3. Prompt, prefix, and context caching
+
+Suppose your application has this system prompt:
+
+```text
+You are a senior software engineer.
+You help users with Java, Python and React.
+Always provide production-ready code.
+```
+
+Every user sends a different question, but the system prompt is identical.
+
+```text
+        System Prompt (shared)
+               |
+       +-------+--------+
+       |       |        |
+    User A   User B   User C
+    "React"  "Java"   "Python"
+```
+
+Without prefix caching, the model **re-runs prefill** over the shared prefix for every request. With prefix caching, a compatible system reuses the **KV cache already computed for that prefix**, so only the new suffix needs prefill.
+
+> **Note:** prompt caching is generally provider- and model-specific. It usually requires an **exact prefix match**, a minimum prefix length, and compatible cache conditions (such as TTL). Anything that changes earlier in the prompt invalidates the cache after that point.
+
+### 3.1 Prefix caching in a self-hosted engine (vLLM)
+
+```python
+from vllm import LLM, SamplingParams
+
+llm = LLM(model="meta-llama/Llama-3.1-8B-Instruct", enable_prefix_caching=True)
+
+SYSTEM = (
+    "You are a senior software engineer. You help users with Java, Python and React. "
+    "Always provide production-ready code.\n\n"
+)
+
+params = SamplingParams(temperature=0, max_tokens=200)
+
+outputs = llm.generate(
+    [SYSTEM + "Explain React.", SYSTEM + "Explain Java.", SYSTEM + "Explain Python."],
+    params,
+)
+# The shared SYSTEM prefix is prefilled once; its KV blocks are reused.
+```
+
+Recent vLLM versions may enable prefix caching by default. Other engines such as SGLang (RadixAttention) implement the same idea with a radix tree over prefixes.
+
+### 3.2 Explicit prompt caching with Anthropic
+
+```python
+import anthropic
+
+client = anthropic.Anthropic()
+
+response = client.messages.create(
+    model="claude-sonnet-4-5",
+    max_tokens=500,
+    system=[
+        {
+            "type": "text",
+            "text": SYSTEM_PROMPT_AND_REFERENCE_DOCS,
+            "cache_control": {"type": "ephemeral"},  # cache everything up to this block
+        }
+    ],
+    messages=[{"role": "user", "content": "Explain React."}],
+)
+
+print(response.usage.cache_creation_input_tokens)  # tokens written to cache (first call)
+print(response.usage.cache_read_input_tokens)      # tokens served from cache (later calls)
+```
+
+### 3.3 Automatic prompt caching with OpenAI
+
+No code change is required. Long, stable prefixes are cached automatically. Verify with the usage object:
+
+```python
+resp = client.chat.completions.create(
+    model="gpt-4o-mini",
+    messages=[
+        {"role": "system", "content": LONG_STABLE_SYSTEM_PROMPT},  # stable first
+        {"role": "user", "content": question},                      # variable last
+    ],
+)
+print(resp.usage.prompt_tokens_details.cached_tokens)
+```
+
+### 3.4 Context caching (explicit, long-lived)
+
+Context caching targets the case where you load a **large document, codebase, or video once** and ask many questions about it. For example, with Google's Gemini API:
+
+```python
+from google import genai
+from google.genai import types
+
+client = genai.Client()
+
+cache = client.caches.create(
+    model="gemini-2.5-flash",
+    config=types.CreateCachedContentConfig(
+        system_instruction="You answer questions about the attached handbook.",
+        contents=[HANDBOOK_AS_CONTENT],
+        ttl="3600s",
+    ),
+)
+
+resp = client.models.generate_content(
+    model="gemini-2.5-flash",
+    contents="How many vacation days do new hires get?",
+    config=types.GenerateContentConfig(cached_content=cache.name),
+)
+```
+
+> Verify exact class names, model names, minimum sizes, and pricing in the provider's current docs. These APIs evolve quickly.
+
+### 3.5 Designing prompts for cache hits
+
+```text
+[ stable ]   system instructions
+[ stable ]   tool definitions (fixed order)
+[ stable ]   few-shot examples
+[ stable ]   large reference document
+------------------------------------------- cache boundary
+[ variable ] conversation history
+[ variable ] user question
+```
+
+Rules:
+
+- Put **static content first**, dynamic content last.
+- Never put timestamps, request IDs, or user names at the top of the prompt.
+- Keep tool definitions and few-shot examples in a **deterministic order**.
+- Append to conversation history rather than rewriting earlier turns, so each turn's prefix still matches.
+
+### 3.6 Prefix cache vs semantic cache
+
+| | Prefix / prompt cache | Semantic cache |
+| --- | --- | --- |
+| What is reused | Internal computation (KV) of a prefix | A finished answer |
+| Does the model still generate? | **Yes**, fresh output every time | No |
+| Match type | Exact prefix | Similar meaning |
+| Risk of wrong answer | Essentially none | Real (false positives) |
+| Who implements it | Provider or inference engine | You |
+
+---
+
+## 4. Conversation cache
+
+Chat applications need conversation history on every turn. Fetching it from a database each time adds latency. A conversation cache keeps recent history and state in a fast store.
+
+### 4.1 Redis-backed history with trimming
+
+```python
+import json
+
+import redis.asyncio as aioredis
+
+redis = aioredis.from_url("redis://localhost:6379", decode_responses=True)
+
+MAX_MESSAGES = 40
+HISTORY_TTL = 60 * 60 * 24  # 24 h of inactivity
+
+
+def history_key(tenant_id: str, session_id: str) -> str:
+    return f"conv:{tenant_id}:{session_id}"
+
+
+async def append_message(tenant_id: str, session_id: str, role: str, content: str):
+    key = history_key(tenant_id, session_id)
+    pipe = redis.pipeline()
+    pipe.rpush(key, json.dumps({"role": role, "content": content}))
+    pipe.ltrim(key, -MAX_MESSAGES, -1)  # keep only the latest N
+    pipe.expire(key, HISTORY_TTL)       # sliding TTL
+    await pipe.execute()
+
+
+async def get_history(tenant_id: str, session_id: str) -> list[dict]:
+    items = await redis.lrange(history_key(tenant_id, session_id), 0, -1)
+    return [json.loads(i) for i in items]
+```
+
+### 4.2 Write-through to a durable store
+
+Redis is a cache, not your system of record. Persist to a database too:
+
+```python
+async def save_turn(tenant_id, session_id, user_msg, ai_msg, db):
+    # 1) durable store first
+    await db.execute(
+        "INSERT INTO messages (tenant_id, session_id, role, content) VALUES ($1,$2,$3,$4), ($1,$2,$5,$6)",
+        tenant_id, session_id, "user", user_msg, "assistant", ai_msg,
+    )
+    # 2) then the cache
+    await append_message(tenant_id, session_id, "user", user_msg)
+    await append_message(tenant_id, session_id, "assistant", ai_msg)
+
+
+async def load_history(tenant_id, session_id, db):
+    cached = await get_history(tenant_id, session_id)
+    if cached:
+        return cached
+    rows = await db.fetch(
+        "SELECT role, content FROM messages WHERE tenant_id=$1 AND session_id=$2 ORDER BY id DESC LIMIT $3",
+        tenant_id, session_id, MAX_MESSAGES,
+    )
+    history = [dict(r) for r in reversed(rows)]
+    for m in history:  # rehydrate the cache
+        await append_message(tenant_id, session_id, m["role"], m["content"])
+    return history
+```
+
+### 4.3 LangGraph checkpointers
+
+In LangGraph, conversation state is persisted through **checkpointers** (in-memory, SQLite, Postgres, Redis). They serve as both memory and a cache of graph state per `thread_id`:
+
+```python
+from langgraph.checkpoint.memory import InMemorySaver
+
+graph = builder.compile(checkpointer=InMemorySaver())  # use a Postgres/Redis saver in production
+
+config = {"configurable": {"thread_id": "tenantA:session42"}}
+graph.invoke({"messages": [("user", "Hi")]}, config)
+graph.invoke({"messages": [("user", "What did I just say?")]}, config)  # state restored
+```
+
+> Keep the **stable prefix** intact when you trim history, otherwise you destroy prompt-cache hits. Summarize old turns into one block rather than editing the middle.
+
+---
+
+## 5. Tool result caching
+
+Especially useful in **ReAct agents and LangGraph workflows**. Imagine an agent with a weather tool:
+
+1. User A asks: "What is the weather in Delhi?" The agent calls the weather API.
+2. User B asks the same thing a minute later.
+3. Instead of calling the API again, return the cached result.
+
+This reduces API costs, tool execution time, and external API traffic.
+
+### 5.1 Basic tool cache
+
+```python
+import json
+
+import redis.asyncio as aioredis
+from langchain_core.tools import tool
+
+redis = aioredis.from_url("redis://localhost:6379", decode_responses=True)
+
+
+@tool
+async def get_weather(city: str) -> str:
+    """Get the current weather for a city."""
+    cache_key = f"tool:weather:{city.strip().lower()}"
+
+    cached = await redis.get(cache_key)
+    if cached:
+        return cached
+
+    result = await weather_api(city)  # your real API call
+
+    await redis.setex(cache_key, 300, result)  # short TTL: weather changes
+    return result
+```
+
+Remember: **use short TTLs for information that changes.**
+
+### 5.2 A reusable decorator
+
+Instead of repeating cache code in every tool:
+
+```python
+import functools
+import json
+from hashlib import sha256
+
+
+def cached_tool(namespace: str, ttl: int, *, tenant_scoped: bool = False):
+    def decorator(fn):
+        @functools.wraps(fn)
+        async def wrapper(*args, tenant_id: str = "global", **kwargs):
+            args_hash = sha256(
+                json.dumps([args, kwargs], sort_keys=True, default=str).encode()
+            ).hexdigest()
+            scope = tenant_id if tenant_scoped else "shared"
+            key = f"tool:{namespace}:{scope}:{args_hash}"
+
+            raw = await redis.get(key)
+            if raw is not None:
+                return json.loads(raw)
+
+            result = await fn(*args, **kwargs)
+            await redis.setex(key, ttl, json.dumps(result, default=str))
+            return result
+
+        return wrapper
+
+    return decorator
+
+
+@cached_tool("exchange_rate", ttl=60)
+async def get_exchange_rate(base: str, quote: str) -> dict:
+    return await fx_api(base, quote)
+
+
+@cached_tool("crm_lookup", ttl=120, tenant_scoped=True)
+async def crm_lookup(customer_id: str) -> dict:
+    return await crm_api(customer_id)
+```
+
+### 5.3 Which tools are safe to cache?
+
+| Tool type | Cache? | TTL guideline |
+| --- | --- | --- |
+| Pure functions, lookups, documentation search | Yes | Long |
+| Slowly changing public data (exchange rates, weather) | Yes | Seconds to minutes |
+| User-specific reads (profile, orders) | Yes, **scoped per user/tenant** | Short |
+| Writes and side effects (send email, create order, payment) | **Never** | n/a |
+| Non-deterministic or time-sensitive (stock tick, "now") | Usually no | Seconds, or skip |
+
+Classifying tools as **read-only** vs **side-effecting** and caching only the former is a good design rule to state in interviews.
+
+### 5.4 LangGraph node-level caching
+
+```python
+from langgraph.cache.memory import InMemoryCache
+from langgraph.types import CachePolicy
+
+builder.add_node("search_docs", search_docs_node, cache_policy=CachePolicy(ttl=300))
+graph = builder.compile(cache=InMemoryCache())  # use a shared backend in production
+```
+
+The node is skipped when its input state matches a cached entry. Supply a custom `key_func` to ignore volatile fields.
+
+---
+
+## 6. Agent plan and workflow caching
+
+Imagine a coding agent (like Kiro or similar tools). A user asks:
+
+> "Create a FastAPI CRUD application with PostgreSQL."
+
+The agent performs:
+
+1. Understand requirements
+2. Create project structure
+3. Generate models
+4. Generate APIs
+5. Generate database configuration
+6. Write tests
+
+If the agent keeps repeating the same **planning** work for similar requests, you can cache reusable workflow results (plans, task decompositions, intermediate artifacts).
+
+```text
+User Request
+     |
+     v
+Agent Planner
+     |
+     v
+Check Cached Plan
+     |
+   HIT / MISS
+     |            \
+     v             v
+Execute Workflow   Generate Plan -> Validate -> Store
+     |
+     v
+Store Reusable Results
+```
+
+Useful for coding agents, multi-agent systems, repeated workflows, and reusable task decomposition.
+
+### 6.1 Plan cache with a validity fingerprint
+
+The danger is **reusing a plan that is no longer valid**. Capture everything the plan depends on in a fingerprint:
+
+```python
+import json
+from hashlib import sha256
+
+
+def plan_fingerprint(
+    *,
+    request: str,
+    repo_tree_hash: str,
+    requirements_hash: str,
+    permissions: list[str],
+    planner_prompt_version: str,
+    model: str,
+) -> str:
+    payload = json.dumps(
+        {
+            "req": " ".join(request.lower().split()),
+            "repo": repo_tree_hash,
+            "reqs": requirements_hash,
+            "perm": sorted(permissions),
+            "pv": planner_prompt_version,
+            "model": model,
+        },
+        sort_keys=True,
+    )
+    return "plan:" + sha256(payload.encode()).hexdigest()
+
+
+async def get_or_create_plan(ctx, planner):
+    key = plan_fingerprint(**ctx)
+
+    raw = await redis.get(key)
+    if raw:
+        plan = json.loads(raw)
+        if await plan_still_valid(plan, ctx):  # cheap sanity check
+            return plan
+
+    plan = await planner.create_plan(ctx["request"])
+    await redis.setex(key, 6 * 3600, json.dumps(plan))
+    return plan
+```
+
+### 6.2 Step-level caching (more granular)
+
+Rather than caching the whole plan, cache **individual step results** keyed by their inputs. This allows partial reuse when only some inputs changed:
+
+```python
+async def run_step(step_name: str, inputs: dict, fn, ttl: int = 3600):
+    key = f"step:{step_name}:" + sha256(json.dumps(inputs, sort_keys=True).encode()).hexdigest()
+    raw = await redis.get(key)
+    if raw:
+        return json.loads(raw)
+    out = await fn(inputs)
+    await redis.setex(key, ttl, json.dumps(out))
+    return out
+
+
+models_code = await run_step("generate_models", {"schema": schema_hash, "orm": "sqlalchemy"}, gen_models)
+```
+
+> Be careful: **don't blindly reuse plans** when repository files, requirements, or permissions have changed. That is exactly what the fingerprint guards against.
+
+---
+
+## 7. Negative caching
+
+An interesting and under-used technique: **cache unsuccessful results too.**
+
+A user asks "Find documentation for XYZ framework." Retrieval finds nothing. Without negative caching, every identical query repeats the whole failed search. Instead, briefly cache:
+
+```json
+{
+  "query": "XYZ framework",
+  "result": null,
+  "status": "not_found"
+}
+```
+
+Useful for failed API requests, missing documents, empty retrieval results, and repeated invalid queries.
+
+### 7.1 Implementation
+
+The key detail is distinguishing **"cached miss"** from **"not in cache"**, so use a sentinel value:
+
+```python
+import json
+
+NOT_FOUND = {"status": "not_found"}
+POSITIVE_TTL = 3600
+NEGATIVE_TTL = 60  # short! it may exist later
+
+
+async def search_docs_cached(query: str, retriever, tenant_id: str):
+    key = f"ret:{tenant_id}:" + sha256(query.lower().encode()).hexdigest()
+
+    raw = await redis.get(key)
+    if raw is not None:
+        entry = json.loads(raw)
+        if entry == NOT_FOUND:
+            return []  # cached negative result: skip the expensive search
+        return entry["docs"]
+
+    docs = await retriever.ainvoke(query)
+
+    if docs:
+        await redis.setex(key, POSITIVE_TTL, json.dumps({"docs": serialize(docs)}))
+    else:
+        await redis.setex(key, NEGATIVE_TTL, json.dumps(NOT_FOUND))
+
+    return docs
+```
+
+### 7.2 Rules for negative caching
+
+- Use a **much shorter TTL** than positive entries. Something unavailable now may become available later (a document gets ingested, an API recovers).
+- Distinguish **"not found"** (valid empty result) from **errors** (timeouts, 5xx). Don't cache transient errors for long, if at all. A brief error cache (a few seconds) can protect a failing dependency from a retry storm.
+- **Invalidate negatives on ingestion.** When a new document is added, bump the knowledge-base version so cached "not found" results don't hide it.
+
+---
+
+## 8. Multi-level caching
+
+Production GenAI applications often use several cache layers, each trading speed against size and sharing.
+
+| Layer | Technology | Purpose |
+| --- | --- | --- |
+| **L1** | In-memory dict / LRU (per process) | Extremely fast local cache |
+| **L2** | Redis | Shared distributed cache |
+| **L3** | Vector database | Semantic similarity cache |
+| **Persistent** | Database / object storage | Longer-term stored results |
+
+```text
+User Query
+    |
+    v
+L1: in-memory cache  --HIT--> return
+    | MISS
+    v
+L2: Redis cache      --HIT--> return (and populate L1)
+    | MISS
+    v
+L3: semantic cache   --HIT--> return (and populate L2, L1)
+    | MISS
+    v
+LLM API / Ollama --> store in L3, L2, L1
+```
+
+The first successful lookup returns the result, and lower layers are **back-filled** on a hit from a deeper layer.
+
+### 8.1 Implementation
+
+```python
+import json
+import time
+from hashlib import sha256
+
+from cachetools import TTLCache
+
+l1 = TTLCache(maxsize=2000, ttl=30)  # tiny TTL: protects against staleness across workers
+
+
+def exact_key(tenant_id: str, query: str, versions: dict) -> str:
+    payload = json.dumps({"t": tenant_id, "q": " ".join(query.lower().split()), **versions}, sort_keys=True)
+    return "resp:" + sha256(payload.encode()).hexdigest()
+
+
+async def multilevel_get(tenant_id: str, query: str, versions: dict):
+    key = exact_key(tenant_id, query, versions)
+
+    # L1
+    if key in l1:
+        return l1[key], "L1"
+
+    # L2
+    raw = await redis.get(key)
+    if raw:
+        answer = json.loads(raw)["answer"]
+        l1[key] = answer  # back-fill L1
+        return answer, "L2"
+
+    # L3 (semantic)
+    answer, score = semantic_lookup(query, tenant_id, versions["kb"])
+    if answer:
+        await redis.setex(key, 3600, json.dumps({"answer": answer}))  # back-fill L2
+        l1[key] = answer                                               # back-fill L1
+        return answer, "L3"
+
+    return None, "MISS"
+
+
+async def multilevel_put(tenant_id: str, query: str, versions: dict, answer: str):
+    key = exact_key(tenant_id, query, versions)
+    l1[key] = answer
+    await redis.setex(key, 3600, json.dumps({"answer": answer}))
+    semantic_store(query, answer, tenant_id, versions["kb"])
+```
+
+### 8.2 Design considerations
+
+- **L1 is per process.** With N workers you have N separate L1 caches, so keep its TTL very short and don't rely on it for correctness-critical invalidation.
+- **Invalidation is harder with more layers.** Versioned keys (KV version in the key) invalidate every layer at once without coordination.
+- **Back-fill on deeper hits**, but don't back-fill lower-confidence semantic matches into exact-match layers without care, since this can turn a fuzzy match into a permanent exact one. Consider storing the semantic hit only in L1 with a short TTL.
+- **Measure per-layer hit rates.** A layer that rarely hits is cost without benefit.
+
+---
+
+## 9. Model cache
+
+Loading model weights is slow (seconds to minutes) and memory-heavy. A **model cache** keeps loaded weights resident so requests don't pay load cost.
+
+### 9.1 Load once at startup (FastAPI lifespan)
+
+```python
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, Request
+from sentence_transformers import SentenceTransformer
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    app.state.embedder = SentenceTransformer("BAAI/bge-small-en-v1.5")  # loaded ONCE
+    yield
+    del app.state.embedder
+
+
+app = FastAPI(lifespan=lifespan)
+
+
+@app.post("/embed")
+async def embed(req: Request, text: str):
+    vec = req.app.state.embedder.encode(text)
+    return {"dim": len(vec)}
+```
+
+### 9.2 Lazy singleton with `lru_cache`
+
+```python
+from functools import lru_cache
+
+from transformers import pipeline
+
+
+@lru_cache(maxsize=2)  # keep at most 2 models in memory
+def get_pipeline(task: str, model_name: str):
+    return pipeline(task, model=model_name)
+
+
+summarizer = get_pipeline("summarization", "facebook/bart-large-cnn")
+```
+
+### 9.3 Keeping models warm with Ollama
+
+Ollama unloads idle models after a few minutes by default. Control this with `keep_alive`:
+
+```python
+import ollama
+
+# Keep the model loaded for 1 hour after the last request
+ollama.generate(model="llama3.1", prompt="warm up", keep_alive="1h")
+
+# Keep it loaded indefinitely
+ollama.generate(model="llama3.1", prompt="warm up", keep_alive=-1)
+```
+
+> Pitfall: with multiple Gunicorn/Uvicorn workers, each worker loads its **own copy** of the model. For large models, serve the model from a dedicated inference server (vLLM, TGI, Triton, Ollama) and call it over HTTP, so there is one resident copy.
+
+---
+
+## 10. Cache invalidation
+
+One of the biggest challenges in system design.
+
+Imagine your RAG application stores:
+
+```text
+Question: What is the company's leave policy?
+Answer:   20 days annually.
+```
+
+HR then updates the policy to 25 days. Your cache still returns **20 days**. That is **stale data**.
+
+### 10.1 Strategies
+
+| Strategy | Explanation | Best for |
+| --- | --- | --- |
+| **TTL** | Expire after a fixed time | Simple, tolerates some staleness |
+| **Event-based invalidation** | Invalidate when source data changes | Enterprise RAG |
+| **Versioning** | Cache keyed by document / model / prompt version | Enterprise RAG, bulk invalidation |
+| **Manual invalidation** | Explicitly delete entries | Incident response |
+| **Stale-while-revalidate** | Serve old data briefly while refreshing in the background | Latency-sensitive endpoints |
+
+For enterprise RAG, **event-based invalidation and versioning** are especially useful.
+
+### 10.2 Event-based invalidation
+
+```python
+async def on_document_updated(doc_id: str):
+    # 1) Delete answers that were built from this document
+    keys = await redis.smembers(f"doc_keys:{doc_id}")
+    if keys:
+        await redis.delete(*keys)
+    await redis.delete(f"doc_keys:{doc_id}")
+
+    # 2) Bump the knowledge-base version so retrieval, semantic, and negative caches go stale
+    await redis.incr("kb_version")
+
+
+async def cache_answer(key: str, answer: str, source_doc_ids: list[str], ttl: int = 3600):
+    pipe = redis.pipeline()
+    pipe.setex(key, ttl, answer)
+    for doc_id in source_doc_ids:
+        pipe.sadd(f"doc_keys:{doc_id}", key)  # remember the dependency
+        pipe.expire(f"doc_keys:{doc_id}", ttl)
+    await pipe.execute()
+```
+
+### 10.3 Versioning
+
+```python
+async def current_versions() -> dict:
+    return {
+        "kb": await redis.get("kb_version") or "0",
+        "prompt": "v7",
+        "model": "gpt-4o-mini",
+    }
+# Include these in every cache key. Changing any of them makes old entries unreachable.
+```
+
+### 10.4 Stale-while-revalidate
+
+Serve the stale value immediately, and refresh in the background so the next caller gets fresh data:
+
+```python
+import asyncio
+import json
+import time
+
+FRESH_FOR = 300       # seconds considered fresh
+STALE_FOR = 3600      # seconds a stale value may still be served
+
+
+async def swr_get(key: str, generate):
+    raw = await redis.get(key)
+
+    if raw:
+        entry = json.loads(raw)
+        age = time.time() - entry["created_at"]
+
+        if age <= FRESH_FOR:
+            return entry["value"]
+
+        # stale but servable: return now, refresh in the background
+        asyncio.create_task(refresh(key, generate))
+        return entry["value"]
+
+    value = await generate()
+    await store(key, value)
+    return value
+
+
+async def store(key: str, value):
+    # physical TTL = fresh + stale window
+    await redis.setex(key, FRESH_FOR + STALE_FOR, json.dumps({"value": value, "created_at": time.time()}))
+
+
+async def refresh(key: str, generate):
+    lock = await redis.set(f"lock:{key}", "1", nx=True, ex=30)
+    if not lock:
+        return  # someone else is already refreshing
+    try:
+        await store(key, await generate())
+    finally:
+        await redis.delete(f"lock:{key}")
+```
+
+Note: in a real service, keep a reference to background tasks (or use a task queue) so they aren't garbage-collected mid-flight.
+
+---
+
+## 11. Cache stampede
+
+An important **distributed-systems interview topic**.
+
+A popular cached response expires. At that exact moment, 1,000 users request it. All 1,000 see a cache miss and all call the LLM. This is expensive, slow, and can trigger provider rate limits (and then failures).
+
+```text
+t=0   key expires
+t=0+  1000 requests -> MISS -> 1000 LLM calls  (stampede)
+```
+
+### 11.1 Solutions
+
+| Solution | How it helps |
+| --- | --- |
+| **Distributed lock** | One request regenerates, others wait or serve stale |
+| **Request coalescing (single-flight)** | Concurrent identical requests share one in-flight call |
+| **TTL jitter** | Spread expirations so keys don't expire together |
+| **Background refresh** | Refresh before expiry (see stale-while-revalidate) |
+| **Prewarming** | Populate popular entries ahead of time |
+
+### 11.2 In-process single-flight (request coalescing)
+
+Within one worker, share one in-flight future among identical requests:
+
+```python
+import asyncio
+
+_inflight: dict[str, asyncio.Future] = {}
+
+
+async def single_flight(key: str, generate):
+    if key in _inflight:
+        return await _inflight[key]  # piggyback on the call already in progress
+
+    fut = asyncio.get_running_loop().create_future()
+    _inflight[key] = fut
+    try:
+        result = await generate()
+        fut.set_result(result)
+        return result
+    except Exception as e:
+        fut.set_exception(e)
+        raise
+    finally:
+        del _inflight[key]
+```
+
+### 11.3 Cross-process lock with Redis
+
+Single-flight only coalesces inside one process. Across multiple workers or pods, use a distributed lock:
+
+```python
+import asyncio
+import json
+import uuid
+
+RELEASE_LUA = """
+if redis.call('get', KEYS[1]) == ARGV[1] then
+    return redis.call('del', KEYS[1])
+else
+    return 0
+end
+"""
+
+
+async def get_or_generate(key: str, generate, ttl: int = 3600, lock_ttl: int = 30):
+    raw = await redis.get(key)
+    if raw:
+        return json.loads(raw)
+
+    lock_key = f"lock:{key}"
+    token = str(uuid.uuid4())
+    got = await redis.set(lock_key, token, nx=True, ex=lock_ttl)
+
+    if got:
+        try:
+            value = await generate()
+            await redis.setex(key, ttl + jitter(), json.dumps(value))
+            return value
+        finally:
+            await redis.eval(RELEASE_LUA, 1, lock_key, token)  # only release OUR lock
+
+    # lost the race: wait briefly for the winner's result
+    for _ in range(40):
+        await asyncio.sleep(0.25)
+        raw = await redis.get(key)
+        if raw:
+            return json.loads(raw)
+
+    return await generate()  # fallback if the winner failed or was slow
+```
+
+The token plus Lua script ensures you never delete a lock that expired and was re-acquired by someone else.
+
+### 11.4 TTL jitter and prewarming
+
+```python
+import random
+
+
+def jitter(max_extra: int = 300) -> int:
+    return random.randint(0, max_extra)
+
+
+async def prewarm(popular_queries: list[str], tenant_id: str, versions: dict):
+    for q in popular_queries:
+        key = exact_key(tenant_id, q, versions)
+        if not await redis.exists(key):
+            answer = await call_llm(q)
+            await redis.setex(key, 3600 + jitter(), json.dumps({"answer": answer}))
+```
+
+This is a great bridge between GenAI engineering and classic backend system design.
+
+---
+
+## 12. Security considerations
+
+Particularly important for production applications.
+
+Suppose two users use your company chatbot:
+
+- **User A** asks about salary information.
+- **User B** asks the same question.
+
+You must **not** accidentally return User A's private cached response to User B.
+
+### 12.1 Rules
+
+1. **Include tenant and user permissions in cache keys** where appropriate.
+2. **Never share private RAG results** across unauthorized users.
+3. **Include model and prompt versions** in cache keys.
+4. **Avoid caching sensitive information** unnecessarily.
+5. **Invalidate cached responses** when permissions or source documents change.
+
+### 12.2 Permission-aware cache keys
+
+If retrieval is filtered by access control, the answer depends on **which documents the caller may see**. Fingerprint the caller's effective permissions:
+
+```python
+import json
+from hashlib import sha256
+
+
+def permission_fingerprint(user_roles: list[str], acl_groups: list[str]) -> str:
+    payload = json.dumps({"roles": sorted(user_roles), "groups": sorted(acl_groups)})
+    return sha256(payload.encode()).hexdigest()[:16]
+
+
+def secure_cache_key(*, tenant_id, user_roles, acl_groups, query, versions) -> str:
+    payload = json.dumps(
+        {
+            "t": tenant_id,
+            "perm": permission_fingerprint(user_roles, acl_groups),
+            "q": " ".join(query.lower().split()),
+            **versions,
+        },
+        sort_keys=True,
+    )
+    return f"resp:{tenant_id}:" + sha256(payload.encode()).hexdigest()
+```
+
+Two users with the **same effective permissions** can share an entry (good hit rate), while users with different access never do.
+
+### 12.3 What to avoid caching
+
+```python
+def should_cache(query: str, *, uses_user_specific_data: bool, contains_pii: bool, has_side_effects: bool) -> bool:
+    if has_side_effects or contains_pii:
+        return False
+    if uses_user_specific_data:
+        return False  # or cache with a user-scoped key and a short TTL instead
+    return True
+```
+
+### 12.4 Semantic cache specifics
+
+- Apply **tenant and permission filters** to the vector search itself, not just the key.
+- Beware **cache poisoning**: only store answers from trusted generation paths, and scope the cache per tenant so one user can't plant answers for others.
+- Don't semantically match queries that hinge on specific entities (IDs, dates, amounts) unless those entities are part of the match.
+- Encrypt sensitive cache contents at rest, and keep TTLs short for them.
+
+---
+
+## 13. Putting it together: a cached agent
+
+A condensed view of how these layers combine in one FastAPI plus LangGraph request:
+
+```python
+from fastapi import FastAPI, Header
+from pydantic import BaseModel
+
+app = FastAPI()
+
+
+class ChatRequest(BaseModel):
+    query: str
+    session_id: str
+
+
+@app.post("/agent")
+async def agent_endpoint(
+    req: ChatRequest,
+    x_tenant_id: str = Header(...),
+    x_user_roles: str = Header(""),
+):
+    roles = [r for r in x_user_roles.split(",") if r]
+    versions = await current_versions()
+
+    # 1) Multi-level response cache (L1 -> L2 -> L3), permission-aware key
+    key = secure_cache_key(
+        tenant_id=x_tenant_id, user_roles=roles, acl_groups=[], query=req.query, versions=versions
+    )
+    hit = await l1_l2_lookup(key)
+    if hit:
+        return {"answer": hit, "cached": True}
+
+    # 2) Single-flight + stampede protection around the expensive path
+    async def run_agent():
+        history = await load_history(x_tenant_id, req.session_id, db)        # conversation cache
+        docs = await search_docs_cached(req.query, retriever, x_tenant_id)   # retrieval + negative cache
+        # tools inside the graph use @cached_tool for read-only calls
+        # the LLM call benefits from provider prompt/prefix caching (stable prefix first)
+        result = await graph.ainvoke(
+            {"messages": history + [("user", req.query)], "docs": docs},
+            {"configurable": {"thread_id": f"{x_tenant_id}:{req.session_id}"}},
+        )
+        return result["messages"][-1].content
+
+    answer = await get_or_generate(key, run_agent, ttl=3600)
+
+    await save_turn(x_tenant_id, req.session_id, req.query, answer, db)
+    return {"answer": answer, "cached": False}
+```
+
+Layers in play: KV cache and prefix cache (inside the model/provider), conversation cache, retrieval cache with negative caching, tool result cache, multi-level response cache, versioned keys for invalidation, locks for stampede protection, and permission-aware keys for security.
+
+---
+
+## 14. Interview learning priorities
+
+| Priority | Concept |
+| --- | --- |
+| **Must know** | Exact-match caching |
+| **Must know** | Semantic caching |
+| **Must know** | KV caching |
+| **Must know** | Prompt caching |
+| **Must know** | Cache invalidation |
+| Advanced | Embedding caching |
+| Advanced | Tool result caching |
+| Advanced | Multi-level caching |
+| Advanced | Cache stampede |
+| Advanced | Agent workflow caching |
+
+Suggested study path:
+
+1. Implement **exact-match** caching with Redis and proper key design.
+2. Add **semantic caching** and tune the threshold on real query pairs.
+3. Understand **KV cache** mechanics: prefill vs decode, memory formula, PagedAttention.
+4. Use **prompt caching** with a real provider and verify cache-read tokens in the usage output.
+5. Design an **invalidation** strategy (TTL + versioned keys + event-based) for a RAG system.
+6. Add **stampede protection** and measure the effect under load.
+7. Layer in **tool result**, **negative**, and **multi-level** caching, with security rules throughout.
+
+---
+
+## 15. Likely interview questions
+
+**What is the KV cache and why does it matter?**
+It stores the attention key and value tensors of previous tokens so each decode step computes K and V only for the new token. It makes generation far faster but consumes GPU memory proportional to layers x KV heads x head dim x sequence length x batch size, which is why long contexts and high concurrency are memory-bound.
+
+**What is the difference between KV cache, prefix cache, and a semantic cache?**
+The KV cache is per-sequence state inside the model during generation. A prefix cache reuses KV state across *requests* that share a prompt prefix, so the model still generates fresh output. A semantic cache returns a previously generated answer for a similar question and skips the model entirely.
+
+**How would you design cache keys for a multi-tenant RAG chatbot?**
+Include tenant ID, a fingerprint of the caller's effective permissions, a normalized query, the model, the prompt version, and the knowledge-base version.
+
+**How do you invalidate cached answers when a document changes?**
+Combine TTLs with versioned keys (bump a knowledge-base version) and event-based invalidation using a document-to-keys dependency set. Negative cache entries must be invalidated on ingestion too.
+
+**What is a cache stampede, and how do you prevent it?**
+Many concurrent requests miss on an expired hot key and all hit the backend. Prevent it with locks, single-flight coalescing, TTL jitter, stale-while-revalidate, background refresh, and prewarming.
+
+**Which tool results should an agent never cache?**
+Anything with side effects (writes, payments, emails) and strongly time-sensitive data. Cache read-only, deterministic, or slowly changing results, scoped per user or tenant when they are user-specific.
+
+**Why use negative caching, and what is the main risk?**
+It avoids repeating failed lookups. The risk is hiding data that appears later, so use short TTLs, never cache transient errors for long, and invalidate on ingestion.
+
+**Why does prompt structure matter for caching?**
+Provider prompt caches match **exact prefixes**. Putting stable content (system prompt, tools, examples, documents) first and dynamic content last maximizes the cacheable prefix.
+
+---
+
+### Quick reference
+
+| Question | Answer |
+| --- | --- |
+| Cache inside the transformer? | KV cache |
+| Reuse a shared prompt prefix? | Prefix / prompt cache |
+| Skip the LLM for similar questions? | Semantic cache |
+| Skip the LLM for identical questions? | Exact-match cache |
+| Skip repeated API calls in an agent? | Tool result cache |
+| Avoid repeated failed searches? | Negative cache |
+| Fast local plus shared plus semantic? | Multi-level cache |
+| Hot key expires under load? | Stampede protection |
+| Source data changed? | Invalidation: TTL, versioning, events |
+| Different users, different access? | Permission-aware keys |
