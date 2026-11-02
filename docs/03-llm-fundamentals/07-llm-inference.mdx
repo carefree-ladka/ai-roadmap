@@ -1,0 +1,802 @@
+# LLM Inference
+
+## Table of Contents
+
+1. [What is LLM Inference?](#what-is-llm-inference)
+2. [How Does LLM Inference Work?](#how-does-llm-inference-work)
+3. [Autoregressive Generation](#autoregressive-generation)
+4. [Two Phases: Prefill and Decode](#two-phases-prefill-and-decode)
+5. [Key Inference Metrics](#key-inference-metrics)
+6. [What Affects Inference Performance?](#what-affects-inference-performance)
+7. [Popular Inference Engines](#popular-inference-engines)
+8. [Training vs Inference](#training-vs-inference)
+9. [Practical Example with Ollama](#practical-example-with-ollama)
+10. [KV Cache](#kv-cache)
+11. [Quantization (FP16, INT8, INT4)](#quantization-fp16-int8-int4)
+12. [Batching and Continuous Batching](#batching-and-continuous-batching)
+13. [PagedAttention](#pagedattention)
+14. [Speculative Decoding](#speculative-decoding)
+15. [FlashAttention](#flashattention)
+16. [LLM Serving and Scaling](#llm-serving-and-scaling)
+17. [Inference Optimization](#inference-optimization)
+18. [Inference Cost Optimization](#inference-cost-optimization)
+19. [Learning Roadmap](#learning-roadmap)
+
+---
+
+## What is LLM Inference?
+
+**LLM inference** is the process of using a trained Large Language Model to generate a response for a given input.
+
+- **Training:** teaching an LLM using massive amounts of data.
+- **Inference:** using the trained LLM to answer questions, generate code, summarize documents, or perform other tasks.
+
+For example, when you ask a chatbot:
+
+```text
+Explain React useEffect with an example.
+```
+
+the model processes your input and generates an answer. That entire process is LLM inference.
+
+---
+
+## How Does LLM Inference Work?
+
+The inference pipeline generally looks like this:
+
+| Step | Stage | Description |
+| ---- | ----- | ----------- |
+| 1 | Input prompt | The user sends a question. |
+| 2 | Tokenization | The text is converted into tokens. |
+| 3 | Embedding | Tokens are converted into numerical vectors. |
+| 4 | Transformer processing | The model processes tokens through its neural network layers. |
+| 5 | Next-token prediction | The model predicts the next token. |
+| 6 | Decoding | Predicted tokens are converted back into readable text. |
+
+> **Important:** LLMs typically generate text one token at a time, repeatedly predicting the next token until they reach a stopping condition (for example, an end-of-sequence token or a max-length limit).
+
+```mermaid
+flowchart LR
+    A[Prompt] --> B[Tokenizer]
+    B --> C[Embeddings]
+    C --> D[Transformer Layers]
+    D --> E[Next Token]
+    E -->|append and repeat| D
+    E --> F[Detokenize to Text]
+```
+
+---
+
+## Autoregressive Generation
+
+Suppose the input is:
+
+```text
+What is Python?
+```
+
+The model might generate tokens like this:
+
+```text
+Token 1: Python
+Token 2: is
+Token 3: a
+Token 4: programming
+Token 5: language
+Token 6: ...
+```
+
+Each newly generated token is appended to the context and used to predict the next one. This is called **autoregressive generation**.
+
+---
+
+## Two Phases: Prefill and Decode
+
+Understanding these two phases is essential for understanding LLM performance.
+
+### A. Prefill Phase (prompt processing)
+
+The model processes the **entire input prompt** at once and computes its internal representations.
+
+Example prompt:
+
+```text
+Explain RAG architecture in detail.
+```
+
+During prefill, the model:
+
+- Processes all input tokens (in parallel).
+- Computes attention.
+- Creates the **Key-Value (KV) cache**.
+
+Prefill is typically **compute-bound**.
+
+### B. Decode Phase (token generation)
+
+The model starts generating output tokens one by one:
+
+```text
+RAG → stands → for → Retrieval → ...
+```
+
+During decode, the model:
+
+- Predicts the next token.
+- Generates one token at a time.
+- Reuses the KV cache to avoid recomputing previous context.
+
+Decode is typically **memory-bandwidth-bound**.
+
+---
+
+## Key Inference Metrics
+
+| Metric | Meaning |
+| ------ | ------- |
+| **TTFT** | Time to First Token: how long before the first response token arrives |
+| **TPOT** | Time Per Output Token |
+| **TPS** | Tokens generated per second |
+| **Throughput** | Total tokens processed per unit of time (across all requests) |
+| **Latency** | Total time taken to generate a full response |
+| **GPU utilization** | How much GPU capacity is being used |
+
+**Example:** an LLM generates 100 tokens in 5 seconds.
+
+```text
+TPS = tokens generated / time taken = 100 / 5 = 20 tokens/second
+```
+
+The generation speed is **20 tokens/second**.
+
+---
+
+## What Affects Inference Performance?
+
+1. **Model size:** for example 8B vs 70B parameters.
+2. **Quantization:** FP16, INT8, INT4 (lower precision means less memory and usually faster inference).
+3. **GPU/CPU:** available compute resources.
+4. **Context length:** number of input tokens.
+5. **KV cache:** memory used to store previous attention computations.
+6. **Batching:** processing multiple requests together.
+7. **Inference optimizations:** efficient attention and decoding algorithms.
+
+---
+
+## Popular Inference Engines
+
+These tools help developers run and serve LLMs efficiently.
+
+| Engine | Description | Best for |
+| ------ | ----------- | -------- |
+| **Ollama** | Run LLMs locally on your Mac or PC. | Local development and experimentation |
+| **vLLM** | High-throughput serving with techniques such as PagedAttention. | Production inference |
+| **Hugging Face TGI** | Text Generation Inference for deploying LLMs. | Hosted/self-hosted serving |
+| **TensorRT-LLM** | NVIDIA's optimized LLM inference framework. | Maximum performance on NVIDIA GPUs |
+
+---
+
+## Training vs Inference
+
+| Training | Inference |
+| -------- | --------- |
+| Teaches the model | Uses the trained model |
+| Updates model weights | Usually keeps weights fixed |
+| Requires training datasets | Requires prompts/input |
+| Computationally expensive | Optimized for serving requests |
+| Backpropagation | Forward pass |
+
+---
+
+## Practical Example with Ollama
+
+Install the client and pull a model first:
+
+```bash
+pip install ollama
+ollama pull qwen3:8b
+```
+
+### Basic chat call
+
+```python
+import ollama
+
+response = ollama.chat(
+    model="qwen3:8b",
+    messages=[
+        {
+            "role": "user",
+            "content": "Explain RAG",
+        }
+    ],
+)
+
+print(response["message"]["content"])
+```
+
+### Streaming tokens
+
+Streaming lets you see the decode phase as it happens:
+
+```python
+import ollama
+
+stream = ollama.chat(
+    model="qwen3:8b",
+    messages=[{"role": "user", "content": "Explain RAG"}],
+    stream=True,
+)
+
+for chunk in stream:
+    print(chunk["message"]["content"], end="", flush=True)
+```
+
+### Measuring TTFT and TPS
+
+```python
+import time
+import ollama
+
+start = time.perf_counter()
+first_token_time = None
+token_count = 0
+
+stream = ollama.chat(
+    model="qwen3:8b",
+    messages=[{"role": "user", "content": "Explain RAG"}],
+    stream=True,
+)
+
+for chunk in stream:
+    if first_token_time is None:
+        first_token_time = time.perf_counter()
+    token_count += 1  # approximation: one chunk is roughly one token
+    print(chunk["message"]["content"], end="", flush=True)
+
+end = time.perf_counter()
+
+ttft = first_token_time - start
+tps = token_count / (end - first_token_time)
+
+print(f"\n\nTTFT: {ttft:.2f}s")
+print(f"TPS:  {tps:.1f} tokens/s")
+```
+
+### What is happening here?
+
+- The model is **already trained**.
+- Ollama loads and runs the model.
+- Your prompt is passed to the model (**prefill**).
+- The model performs inference, generating tokens one at a time (**decode**).
+- Generated tokens are returned to your application.
+
+---
+
+## KV Cache
+
+### Theory
+
+In a transformer, every token attends to all previous tokens through **attention**. For each token, each layer computes three vectors: a **Query (Q)**, a **Key (K)** and a **Value (V)**. The new token's Query is compared against the Keys of all earlier tokens, and the resulting weights are used to mix their Values.
+
+The Keys and Values of earlier tokens never change once computed. Recomputing them for every new token would be wasteful, so the engine stores them in the **KV cache**.
+
+- **Without a KV cache:** generating token N requires reprocessing all N-1 earlier tokens, so total work grows quadratically.
+- **With a KV cache:** each decode step only computes K and V for the single new token and reads the rest from memory.
+
+The trade-off is **memory**. The cache grows linearly with context length and with the number of concurrent requests.
+
+### Memory formula
+
+```text
+KV cache bytes = 2 x layers x kv_heads x head_dim x seq_len x bytes_per_value x batch_size
+                 (the 2 is for Keys and Values)
+```
+
+**Example:** Llama-3-8B style model (32 layers, 8 KV heads, head_dim 128) in FP16 (2 bytes):
+
+```text
+Per token = 2 x 32 x 8 x 128 x 2 bytes = 131,072 bytes = 128 KB
+8,192-token context = 128 KB x 8,192 = about 1 GB per request
+```
+
+Ten concurrent 8K-token requests need roughly 10 GB for the KV cache alone, on top of the model weights. This is why KV cache management is the heart of most serving optimizations.
+
+### Code: estimating KV cache size
+
+```python
+def kv_cache_gb(layers, kv_heads, head_dim, seq_len, batch=1, bytes_per_value=2):
+    total_bytes = 2 * layers * kv_heads * head_dim * seq_len * bytes_per_value * batch
+    return total_bytes / (1024 ** 3)
+
+# Llama-3-8B style config
+print(kv_cache_gb(layers=32, kv_heads=8, head_dim=128, seq_len=8192))            # ~1.0 GB
+print(kv_cache_gb(layers=32, kv_heads=8, head_dim=128, seq_len=8192, batch=10))  # ~10 GB
+```
+
+### Related techniques
+
+- **Grouped-Query Attention (GQA) / Multi-Query Attention (MQA):** share K/V heads across query heads, shrinking the cache.
+- **KV cache quantization:** store K/V in FP8 or INT8 instead of FP16.
+- **Prefix caching:** reuse the cache of a shared prompt prefix (for example, a long system prompt) across requests.
+
+---
+
+## Quantization (FP16, INT8, INT4)
+
+### Theory
+
+**Quantization** stores model weights (and sometimes activations or the KV cache) using fewer bits per number. Fewer bits means less memory and less data to move from GPU memory on each step.
+
+Because decode is usually **memory-bandwidth-bound**, reading smaller weights directly increases tokens per second.
+
+| Format | Bits | Memory for an 8B model (weights only) | Notes |
+| ------ | ---- | ------------------------------------- | ----- |
+| FP32 | 32 | about 32 GB | Mostly used in training |
+| FP16 / BF16 | 16 | about 16 GB | Standard inference baseline |
+| INT8 / FP8 | 8 | about 8 GB | Small quality loss |
+| INT4 | 4 | about 4 GB | Noticeable but often acceptable quality loss |
+
+### Common approaches
+
+- **Post-Training Quantization (PTQ):** quantize an already-trained model with no retraining (GPTQ, AWQ, GGUF quant types such as Q4_K_M).
+- **Quantization-Aware Training (QAT):** simulate low precision during training for better quality.
+- **Weight-only vs weight+activation:** weight-only (for example W4A16) is the most common for LLM serving.
+
+### Quality vs size
+
+Lower precision saves memory but can degrade accuracy, especially on reasoning, math and code. Always evaluate on your own tasks before picking a level.
+
+### Code: using quantized models
+
+```bash
+# Ollama: pick a quantization through the model tag (available tags vary per model)
+ollama pull qwen3:8b
+ollama run qwen3:8b
+```
+
+```python
+# vLLM: load an AWQ-quantized checkpoint
+from vllm import LLM
+
+llm = LLM(
+    model="your-org/your-model-AWQ",  # replace with a real AWQ checkpoint
+    quantization="awq",
+)
+```
+
+```python
+# Back-of-envelope weight memory
+def weight_memory_gb(params_billion, bits):
+    return params_billion * 1e9 * (bits / 8) / (1024 ** 3)
+
+for bits in (16, 8, 4):
+    print(bits, "bit ->", round(weight_memory_gb(8, bits), 1), "GB")
+```
+
+---
+
+## Batching and Continuous Batching
+
+### Theory
+
+GPUs are most efficient when they do a lot of work per memory read. During decode, a single request does very little math per step, so the GPU is underused. **Batching** processes multiple requests together so the same weights read from memory serve many sequences at once, raising **throughput**.
+
+### Static batching
+
+Group N requests, run them together, and wait until **all** finish. Problem: short responses finish early but their slots sit idle until the longest response is done. New requests must wait for the whole batch.
+
+### Continuous batching (in-flight batching)
+
+The scheduler works at the level of **individual decode steps** (iteration-level scheduling):
+
+- When a sequence finishes, its slot is freed immediately.
+- A waiting request is inserted into the running batch on the next step.
+- The batch is always as full as memory allows.
+
+```text
+Static batching:      [A A A A A A][B B . . . .][C C C . . .]   <- idle slots (.) wasted
+Continuous batching:  [A A A A A A][B B D D D D][C C C E E E]   <- freed slots refilled
+```
+
+Result: much higher GPU utilization and throughput, with lower queueing delay. vLLM, TGI and TensorRT-LLM all implement it.
+
+### Trade-off
+
+Bigger batches raise total throughput but can increase per-request latency (TPOT). Tuning is about finding the right balance for your workload.
+
+### Code: batching with vLLM
+
+```python
+from vllm import LLM, SamplingParams
+
+llm = LLM(model="Qwen/Qwen3-8B")
+params = SamplingParams(temperature=0.7, max_tokens=200)
+
+prompts = [
+    "Explain RAG.",
+    "What is a KV cache?",
+    "Summarize PagedAttention in two sentences.",
+]
+
+# vLLM schedules these with continuous batching internally
+outputs = llm.generate(prompts, params)
+
+for out in outputs:
+    print(out.outputs[0].text.strip(), "\n---")
+```
+
+---
+
+## PagedAttention
+
+### Theory
+
+Naive serving systems reserve one large contiguous block of GPU memory per request, sized for the **maximum possible** length. Since actual length is unknown in advance, most of that memory is wasted through:
+
+- **Internal fragmentation:** reserved but never used.
+- **External fragmentation:** free memory split into pieces too small to use.
+
+**PagedAttention** (introduced with vLLM) borrows the idea of **virtual memory paging** from operating systems:
+
+1. The KV cache is split into small fixed-size **blocks** (for example, 16 tokens each).
+2. Blocks can live **anywhere** in GPU memory, not necessarily contiguously.
+3. A **block table** maps each sequence's logical positions to physical blocks.
+4. Blocks are allocated **on demand** as the sequence grows.
+
+```text
+Sequence A logical blocks:  [0] [1] [2]
+Block table A:               7   2   9      (physical block ids)
+Sequence B logical blocks:  [0] [1]
+Block table B:               4   5
+```
+
+### Benefits
+
+- Near-zero memory waste, so **more concurrent requests fit** on the same GPU.
+- **Memory sharing:** requests with the same prefix (system prompt, parallel sampling, beam search) can share physical blocks, with copy-on-write when they diverge.
+- Higher throughput, especially with long or variable-length outputs.
+
+### Code: tuning memory in vLLM
+
+```bash
+vllm serve Qwen/Qwen3-8B \
+  --gpu-memory-utilization 0.90 \
+  --max-model-len 8192 \
+  --block-size 16
+```
+
+PagedAttention is enabled by default in vLLM. These flags control how much GPU memory is available for weights plus KV blocks and how large the blocks are.
+
+---
+
+## Speculative Decoding
+
+### Theory
+
+Decode is slow because each token needs a full forward pass of a big model, and it is **memory-bound**, so the GPU has spare compute during each step. **Speculative decoding** uses that spare compute.
+
+How it works:
+
+1. A small, fast **draft model** guesses the next k tokens (for example, k = 4).
+2. The large **target model** verifies all k guessed tokens in **one parallel forward pass**.
+3. Tokens are accepted up to the first mismatch; the target model supplies the correct token at that point.
+4. Repeat.
+
+If the draft model is right often, you get several tokens for the price of one large-model pass.
+
+```text
+Draft model proposes:   The  cat  sat  on   the
+Target model verifies:  OK   OK   OK   OK   (the -> a)
+Accepted: 4 tokens + 1 corrected token in a single target pass
+```
+
+With a correct acceptance rule (rejection sampling), the output distribution is **identical** to running the target model alone. It is a speedup, not an approximation.
+
+### When it helps
+
+- Works best when the draft model agrees with the target often (predictable text, code, structured output).
+- Typical speedups are around 2x to 3x for latency-sensitive, low-batch workloads.
+- Gains shrink at very high batch sizes where the GPU is already compute-saturated.
+
+### Variants
+
+- **Draft-model speculation:** separate small model (same tokenizer family).
+- **Self-speculation / extra heads:** methods such as Medusa and EAGLE add lightweight prediction heads to the target model itself.
+- **n-gram / prompt-lookup:** copy likely continuations from the prompt, with no extra model.
+
+### Code: simplified greedy sketch
+
+```python
+def speculative_step(target, draft, context, k=4):
+    """Simplified greedy version for illustration only."""
+    # 1. Draft proposes k tokens autoregressively (cheap)
+    proposal = []
+    ctx = list(context)
+    for _ in range(k):
+        tok = draft.next_token(ctx)
+        proposal.append(tok)
+        ctx.append(tok)
+
+    # 2. Target scores all positions in ONE forward pass
+    target_tokens = target.next_tokens_parallel(context, proposal)  # k + 1 predictions
+
+    # 3. Accept the longest matching prefix, then take the target's own token
+    accepted = []
+    for i, tok in enumerate(proposal):
+        if tok == target_tokens[i]:
+            accepted.append(tok)
+        else:
+            accepted.append(target_tokens[i])
+            return accepted
+    accepted.append(target_tokens[k])  # bonus token when everything matched
+    return accepted
+```
+
+Production engines (vLLM, TensorRT-LLM) provide this as a built-in configuration option. Check your engine's docs for the exact flags in your version.
+
+---
+
+## FlashAttention
+
+### Theory
+
+Standard attention builds an `N x N` score matrix (N is the sequence length), applies softmax, then multiplies by V. On a GPU this means writing and reading that huge matrix to and from **HBM** (the large but relatively slow GPU memory). For long contexts, the cost is dominated by **memory traffic**, not math.
+
+**FlashAttention** is an **exact** (not approximate) attention algorithm that reorganizes the computation to be **IO-aware**:
+
+- **Tiling:** split Q, K, V into blocks that fit in fast on-chip **SRAM**.
+- **Fused kernel:** compute scores, softmax and the weighted sum for a block in a single GPU kernel.
+- **Online softmax:** keep running max and sum values so softmax can be computed incrementally, with no full matrix.
+- The `N x N` matrix is **never written to HBM**.
+
+| | Standard attention | FlashAttention |
+| - | ------------------ | -------------- |
+| Extra memory | `O(N^2)` | `O(N)` |
+| HBM reads/writes | High | Much lower |
+| Result | Exact | Exact (same output) |
+| Benefit | n/a | Faster, supports much longer contexts |
+
+Later versions (FlashAttention-2 and -3) improve parallelism and take advantage of newer GPU features. FlashAttention shines most in **prefill**, where long prompts create big attention matrices. Related "flash-decoding" ideas help decode on long contexts.
+
+### Code: using it in PyTorch
+
+```python
+import torch
+import torch.nn.functional as F
+
+# shapes: (batch, heads, seq_len, head_dim)
+q = torch.randn(1, 8, 4096, 64, device="cuda", dtype=torch.float16)
+k = torch.randn(1, 8, 4096, 64, device="cuda", dtype=torch.float16)
+v = torch.randn(1, 8, 4096, 64, device="cuda", dtype=torch.float16)
+
+# PyTorch dispatches to a FlashAttention kernel when the hardware supports it
+out = F.scaled_dot_product_attention(q, k, v, is_causal=True)
+print(out.shape)
+```
+
+```python
+# Hugging Face Transformers: request FlashAttention explicitly
+from transformers import AutoModelForCausalLM
+import torch
+
+model = AutoModelForCausalLM.from_pretrained(
+    "Qwen/Qwen3-8B",
+    torch_dtype=torch.float16,
+    attn_implementation="flash_attention_2",  # requires the flash-attn package and a supported GPU
+)
+```
+
+---
+
+## LLM Serving and Scaling
+
+### Theory
+
+Running a model once in a notebook is not the same as serving thousands of users. **LLM serving** is the engineering around inference: APIs, scheduling, memory, reliability and cost.
+
+### Core components
+
+- **Inference engine:** vLLM, TGI, TensorRT-LLM, SGLang.
+- **API layer:** often OpenAI-compatible HTTP endpoints with streaming (SSE).
+- **Scheduler / queue:** admission control, request prioritization, continuous batching.
+- **Load balancer / router:** spreads requests across replicas, ideally cache-aware (route requests with the same prefix to the same replica).
+- **Autoscaler:** adds or removes replicas based on queue depth or GPU utilization.
+- **Observability:** metrics for TTFT, TPOT, throughput, queue time, GPU memory and error rates.
+
+### Scaling strategies
+
+| Strategy | Idea | Use when |
+| -------- | ---- | -------- |
+| **Replicas (data parallel)** | Run multiple full copies of the model | Model fits on one GPU; you need more requests per second |
+| **Tensor parallelism** | Split each layer's matrices across GPUs | Model too big for one GPU, or you need lower latency |
+| **Pipeline parallelism** | Put different layers on different GPUs | Very large models across nodes |
+| **Prefill/decode disaggregation** | Separate GPU pools for prefill and decode | Large scale; the two phases have different bottlenecks |
+| **Expert parallelism** | Spread Mixture-of-Experts experts across GPUs | MoE models |
+
+### Code: a minimal serving setup
+
+```bash
+# Serve an OpenAI-compatible API with vLLM across 2 GPUs
+vllm serve Qwen/Qwen3-8B \
+  --tensor-parallel-size 2 \
+  --max-model-len 8192 \
+  --port 8000
+```
+
+```python
+# Call it with the standard OpenAI client
+from openai import OpenAI
+
+client = OpenAI(base_url="http://localhost:8000/v1", api_key="not-needed")
+
+stream = client.chat.completions.create(
+    model="Qwen/Qwen3-8B",
+    messages=[{"role": "user", "content": "Explain RAG"}],
+    stream=True,
+)
+
+for chunk in stream:
+    delta = chunk.choices[0].delta.content
+    if delta:
+        print(delta, end="", flush=True)
+```
+
+```python
+# FastAPI wrapper that streams tokens from a backend model server
+from fastapi import FastAPI
+from fastapi.responses import StreamingResponse
+from openai import AsyncOpenAI
+
+app = FastAPI()
+client = AsyncOpenAI(base_url="http://localhost:8000/v1", api_key="not-needed")
+
+@app.get("/chat")
+async def chat(q: str):
+    async def token_stream():
+        stream = await client.chat.completions.create(
+            model="Qwen/Qwen3-8B",
+            messages=[{"role": "user", "content": q}],
+            stream=True,
+        )
+        async for chunk in stream:
+            delta = chunk.choices[0].delta.content
+            if delta:
+                yield delta
+
+    return StreamingResponse(token_stream(), media_type="text/plain")
+```
+
+---
+
+## Inference Optimization
+
+### Theory
+
+Optimization is about improving **latency**, **throughput** or **memory use**. The right technique depends on which resource is the bottleneck.
+
+| Bottleneck | Symptom | Typical fixes |
+| ---------- | ------- | ------------- |
+| Compute (prefill) | High TTFT on long prompts | FlashAttention, tensor parallelism, prefix caching, chunked prefill |
+| Memory bandwidth (decode) | Low tokens/s per request | Quantization, speculative decoding, smaller or distilled model |
+| Memory capacity | Out-of-memory, small batches | Quantization, PagedAttention, KV cache quantization, GQA |
+| Scheduling | Poor GPU utilization, long queues | Continuous batching, better routing, autoscaling |
+
+### Optimization checklist
+
+1. **Measure first:** record TTFT, TPOT, throughput and GPU utilization before changing anything.
+2. **Choose the right model size:** the smallest model that meets your quality bar.
+3. **Quantize:** FP8 or INT8 is usually a safe first step; INT4 when memory is tight.
+4. **Use an optimized engine:** vLLM, TGI, TensorRT-LLM or SGLang instead of naive loops.
+5. **Enable efficient attention:** FlashAttention and PagedAttention.
+6. **Cache prefixes:** reuse shared system prompts and few-shot examples.
+7. **Tune batching:** balance batch size against latency targets.
+8. **Constrain output:** set `max_tokens`, use stop sequences and keep prompts concise.
+9. **Consider speculative decoding** for latency-sensitive, low-concurrency workloads.
+10. **Re-measure** after every change to confirm it helped.
+
+### Code: simple benchmark harness
+
+```python
+import time
+import statistics
+from openai import OpenAI
+
+client = OpenAI(base_url="http://localhost:8000/v1", api_key="not-needed")
+
+def run_once(prompt: str):
+    start = time.perf_counter()
+    first = None
+    tokens = 0
+    stream = client.chat.completions.create(
+        model="Qwen/Qwen3-8B",
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=200,
+        stream=True,
+    )
+    for chunk in stream:
+        delta = chunk.choices[0].delta.content
+        if delta:
+            if first is None:
+                first = time.perf_counter()
+            tokens += 1  # approximation: one chunk is roughly one token
+    end = time.perf_counter()
+    return first - start, tokens / (end - first)
+
+results = [run_once("Explain RAG in detail.") for _ in range(10)]
+print("median TTFT:", round(statistics.median(r[0] for r in results), 3), "s")
+print("median TPS: ", round(statistics.median(r[1] for r in results), 1), "tokens/s")
+```
+
+---
+
+## Inference Cost Optimization
+
+### Theory
+
+Self-hosted inference cost is mostly **GPU time**. The key metric is **cost per token**, which improves as you extract more tokens per GPU-second.
+
+```text
+cost per 1M tokens = GPU price per hour / (tokens per second x 3600) x 1,000,000
+```
+
+**Example:** a GPU costing 2 USD/hour that sustains 2,000 total tokens/s (across all batched requests):
+
+```text
+2 / (2000 x 3600) x 1,000,000 = about 0.28 USD per 1M tokens
+```
+
+If poor batching drops throughput to 200 tokens/s, the cost becomes about 10x higher. **Utilization is the biggest cost lever.**
+
+### Ways to reduce cost
+
+| Lever | How it saves money |
+| ----- | ------------------ |
+| **Higher utilization** | Continuous batching and good routing keep GPUs busy |
+| **Quantization** | Smaller model fits on fewer or cheaper GPUs and runs faster |
+| **Right-sized models** | Use a small model for easy tasks; route hard tasks to a larger one (model routing / cascades) |
+| **Prefix and response caching** | Skip repeated computation for repeated prompts |
+| **Prompt trimming** | Fewer input tokens means cheaper prefill and a smaller KV cache |
+| **Output limits** | Cap `max_tokens`; shorter answers cost less |
+| **Autoscaling** | Scale to zero or down at low traffic |
+| **Cheaper capacity** | Spot or preemptible instances for fault-tolerant workloads |
+| **Hosted vs self-hosted** | At low or spiky volume, pay-per-token APIs are often cheaper than idle GPUs |
+
+### Code: cost calculator
+
+```python
+def cost_per_million_tokens(gpu_usd_per_hour: float, tokens_per_second: float) -> float:
+    tokens_per_hour = tokens_per_second * 3600
+    return gpu_usd_per_hour / tokens_per_hour * 1_000_000
+
+print(round(cost_per_million_tokens(2.0, 2000), 3))  # well-batched
+print(round(cost_per_million_tokens(2.0, 200), 3))   # poorly batched
+```
+
+```python
+# Tiny model router: cheap model first, escalate when needed
+def route(prompt: str) -> str:
+    hard_markers = ("prove", "derive", "multi-step", "write a long")
+    is_hard = len(prompt) > 1500 or any(m in prompt.lower() for m in hard_markers)
+    return "large-model" if is_hard else "small-model"
+```
+
+---
+
+## Learning Roadmap
+
+For a backend/AI engineer, learn these topics in order. Each now has a section above.
+
+1. LLM inference fundamentals: [What is LLM Inference?](#what-is-llm-inference), [How does it work?](#how-does-llm-inference-work)
+2. Prefill vs decode: [Two Phases](#two-phases-prefill-and-decode)
+3. Autoregressive generation: [Autoregressive Generation](#autoregressive-generation)
+4. KV cache: [KV Cache](#kv-cache)
+5. Quantization (FP16, INT8, INT4): [Quantization](#quantization-fp16-int8-int4)
+6. Batching and continuous batching: [Batching](#batching-and-continuous-batching)
+7. PagedAttention: [PagedAttention](#pagedattention)
+8. Speculative decoding: [Speculative Decoding](#speculative-decoding)
+9. FlashAttention: [FlashAttention](#flashattention)
+10. LLM serving and scaling: [Serving and Scaling](#llm-serving-and-scaling)
+11. Inference optimization: [Inference Optimization](#inference-optimization)
+12. Inference cost optimization: [Cost Optimization](#inference-cost-optimization)
